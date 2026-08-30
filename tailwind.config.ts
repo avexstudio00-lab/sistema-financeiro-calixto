@@ -28,7 +28,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
       },
       fontSize: {
         h1: ["2.5rem", { lineHeight: "1.15", fontWeight: "700", letterSpacing: "-0.02em" }],
