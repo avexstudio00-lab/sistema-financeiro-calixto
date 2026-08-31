@@ -137,7 +137,7 @@ export default function OnboardingPage() {
                 key={n}
                 className={cn(
                   "h-1.5 flex-1 rounded-full transition-colors duration-300",
-                  n <= etapa ? "bg-primary-500" : "bg-slate-100"
+                  n <= etapa ? "bg-primary-500" : "bg-muted/15"
                 )}
               />
             ))}
@@ -163,13 +163,13 @@ export default function OnboardingPage() {
                     "flex items-center gap-4 rounded-2xl border-2 p-4 text-left transition-all duration-200",
                     tipoPerfil === p.id
                       ? "border-primary-500 bg-primary-50"
-                      : "border-slate-100 bg-white hover:border-slate-200"
+                      : "border-border bg-card hover:border-muted/40"
                   )}
                 >
                   <span
                     className={cn(
                       "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                      tipoPerfil === p.id ? "bg-primary-500 text-white" : "bg-slate-100 text-muted"
+                      tipoPerfil === p.id ? "bg-primary-500 text-white" : "bg-muted/15 text-muted"
                     )}
                   >
                     <Icon icon={p.icon} />
@@ -217,7 +217,7 @@ export default function OnboardingPage() {
                         "rounded-xl border px-3 py-2.5 text-left text-small font-medium transition-all",
                         tipoConta === t.id
                           ? "border-primary-500 bg-primary-50 text-primary-700"
-                          : "border-slate-200 text-muted hover:border-slate-300"
+                          : "border-border text-muted hover:border-muted/40"
                       )}
                     >
                       {t.label}
@@ -257,7 +257,7 @@ export default function OnboardingPage() {
                   "flex-1 rounded-xl border-2 py-2.5 text-small font-semibold transition-all",
                   tipoTransacao === "despesa"
                     ? "border-rose-400 bg-rose-50 text-rose-600"
-                    : "border-slate-100 text-muted"
+                    : "border-border text-muted"
                 )}
               >
                 Saída
@@ -269,7 +269,7 @@ export default function OnboardingPage() {
                   "flex-1 rounded-xl border-2 py-2.5 text-small font-semibold transition-all",
                   tipoTransacao === "receita"
                     ? "border-primary-400 bg-primary-50 text-primary-700"
-                    : "border-slate-100 text-muted"
+                    : "border-border text-muted"
                 )}
               >
                 Entrada
@@ -304,7 +304,7 @@ export default function OnboardingPage() {
                             "rounded-full border px-3 py-1.5 text-small font-medium transition-all",
                             categoriaId === c.id
                               ? "border-primary-500 bg-primary-50 text-primary-700"
-                              : "border-slate-200 text-muted"
+                              : "border-border text-muted"
                           )}
                         >
                           {c.nome}
