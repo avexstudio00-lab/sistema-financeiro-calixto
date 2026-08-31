@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Sparkles, PiggyBank, CreditCard, LogOut, Wallet } from "lucide-react";
 import { Container } from "@/components/ui/Container";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
@@ -26,7 +27,7 @@ export function DashboardNav() {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-100 bg-background/90 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
       <Container className="flex h-16 items-center justify-between gap-4">
         <Link href="/dashboard" className="flex shrink-0 items-center gap-2 text-foreground">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-500 text-white">
@@ -44,7 +45,7 @@ export function DashboardNav() {
                 href={link.href}
                 className={cn(
                   "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-small font-medium transition-colors",
-                  ativo ? "bg-primary-50 text-primary-700" : "text-muted hover:bg-slate-50 hover:text-foreground"
+                  ativo ? "bg-primary-50 text-primary-700" : "text-muted hover:bg-muted/10 hover:text-foreground"
                 )}
               >
                 <link.icon size={16} />
@@ -54,15 +55,16 @@ export function DashboardNav() {
           })}
         </nav>
 
-        <div className="flex shrink-0 items-center gap-3">
-          <span className="hidden text-small text-muted sm:inline">
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="hidden text-small text-muted sm:inline mr-2">
             Olá, {perfil?.nome.split(" ")[0] ?? "..."}
           </span>
+          <ThemeToggle />
           <button
             type="button"
             onClick={handleSignOut}
             aria-label="Sair"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-slate-50 hover:text-rose-600"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-rose-600"
           >
             <LogOut size={18} />
           </button>
