@@ -154,7 +154,7 @@ export default function MetasPage() {
                     <span className="text-muted">{formatarMoeda(Number(meta.valor_atual))}</span>
                     <span className="text-muted">{formatarMoeda(Number(meta.valor_meta))}</span>
                   </div>
-                  <div className="h-2.5 w-full rounded-full bg-slate-100">
+                  <div className="h-2.5 w-full rounded-full bg-muted/15">
                     <div
                       className="h-2.5 rounded-full bg-gradient-to-r from-primary-500 to-accent-400 transition-all duration-500"
                       style={{ width: `${progresso}%` }}
