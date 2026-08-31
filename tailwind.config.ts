@@ -20,11 +20,13 @@ const config: Config = {
           ...colors.teal,
           DEFAULT: colors.teal[500],
         },
-        background: colors.slate[50],
-        foreground: colors.slate[900],
+        background: "rgb(var(--background) / <alpha-value>)",
+        foreground: "rgb(var(--foreground) / <alpha-value>)",
+        card: "rgb(var(--card) / <alpha-value>)",
+        border: "rgb(var(--border) / <alpha-value>)",
         muted: {
-          DEFAULT: colors.slate[500],
-          foreground: colors.slate[400],
+          DEFAULT: "rgb(var(--muted) / <alpha-value>)",
+          foreground: "rgb(var(--muted-foreground) / <alpha-value>)",
         },
       },
       fontFamily: {
