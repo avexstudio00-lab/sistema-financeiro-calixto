@@ -105,14 +105,14 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center">
-      <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto rounded-t-3xl bg-white p-6 shadow-card-hover sm:rounded-3xl">
+      <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto rounded-t-3xl bg-card p-6 shadow-card-hover sm:rounded-3xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-h3 text-foreground">Nova anotação</h2>
           <button
             type="button"
             onClick={onFechar}
             aria-label="Fechar"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-slate-50"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10"
           >
             <X size={20} />
           </button>
@@ -139,7 +139,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
                 onClick={() => setTipo("despesa")}
                 className={cn(
                   "flex-1 rounded-xl border-2 py-2.5 text-small font-semibold transition-all",
-                  tipo === "despesa" ? "border-rose-400 bg-rose-50 text-rose-600" : "border-slate-100 text-muted"
+                  tipo === "despesa" ? "border-rose-400 bg-rose-50 text-rose-600" : "border-border text-muted"
                 )}
               >
                 Saída
@@ -151,7 +151,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
                   "flex-1 rounded-xl border-2 py-2.5 text-small font-semibold transition-all",
                   tipo === "receita"
                     ? "border-primary-400 bg-primary-50 text-primary-700"
-                    : "border-slate-100 text-muted"
+                    : "border-border text-muted"
                 )}
               >
                 Entrada
@@ -188,7 +188,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
                           "rounded-full border px-3 py-1.5 text-small font-medium transition-all",
                           categoriaId === c.id
                             ? "border-primary-500 bg-primary-50 text-primary-700"
-                            : "border-slate-200 text-muted"
+                            : "border-border text-muted"
                         )}
                       >
                         {c.nome}
@@ -210,7 +210,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
                 <select
                   value={formaPagamento}
                   onChange={(e) => setFormaPagamento(e.target.value as typeof formaPagamento)}
-                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
                 >
                   {FORMAS_PAGAMENTO.map((f) => (
                     <option key={f.id} value={f.id}>
@@ -227,7 +227,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
                 <select
                   value={contaId}
                   onChange={(e) => setContaId(e.target.value)}
-                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
                 >
                   {contas.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -249,7 +249,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
                       "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
                       tipoNegocio === "pessoal"
                         ? "border-primary-500 bg-primary-50 text-primary-700"
-                        : "border-slate-200 text-muted"
+                        : "border-border text-muted"
                     )}
                   >
                     Pessoal
@@ -261,7 +261,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
                       "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
                       tipoNegocio === "negocio"
                         ? "border-accent-500 bg-accent-50 text-accent-700"
-                        : "border-slate-200 text-muted"
+                        : "border-border text-muted"
                     )}
                   >
                     Do negócio
