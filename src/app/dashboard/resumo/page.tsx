@@ -125,14 +125,14 @@ export default function ResumoMensalPage() {
           <h1 className="text-h2 text-foreground">Resumo do mês</h1>
           <p className="text-body text-muted">Sua análise de IA, feita com seus dados reais.</p>
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1">
-          <button onClick={() => mudarMes(-1)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-slate-50">
+        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1">
+          <button onClick={() => mudarMes(-1)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-muted/10">
             <ChevronLeft size={18} />
           </button>
           <span className="min-w-[140px] text-center text-small font-semibold text-foreground">
             {MESES[mes - 1]} {ano}
           </span>
-          <button onClick={() => mudarMes(1)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-slate-50">
+          <button onClick={() => mudarMes(1)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-muted/10">
             <ChevronRight size={18} />
           </button>
         </div>
@@ -271,7 +271,7 @@ export default function ResumoMensalPage() {
                             <span className="text-foreground">{nome}</span>
                             <span className="font-medium text-muted">{formatarMoeda(valor)}</span>
                           </div>
-                          <div className="h-2 w-full rounded-full bg-slate-100">
+                          <div className="h-2 w-full rounded-full bg-muted/15">
                             <div
                               className="h-2 rounded-full bg-gradient-to-r from-primary-500 to-accent-400"
                               style={{ width: `${(valor / maxCategoria) * 100}%` }}
@@ -295,7 +295,7 @@ export default function ResumoMensalPage() {
                             <span className="capitalize text-foreground">{nome}</span>
                             <span className="font-medium text-muted">{formatarMoeda(valor)}</span>
                           </div>
-                          <div className="h-2 w-full rounded-full bg-slate-100">
+                          <div className="h-2 w-full rounded-full bg-muted/15">
                             <div
                               className="h-2 rounded-full bg-accent-500"
                               style={{ width: `${(valor / maxForma) * 100}%` }}
