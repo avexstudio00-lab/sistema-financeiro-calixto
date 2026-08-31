@@ -35,7 +35,7 @@ export function Hero() {
         </div>
 
         <div className="relative mx-auto w-full max-w-md">
-          <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-card">
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-card">
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <p className="text-small text-muted">Saldo do mês</p>
@@ -64,7 +64,7 @@ export function Hero() {
             </div>
           </div>
 
-          <div className="absolute -right-6 -top-6 hidden rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-soft sm:block">
+          <div className="absolute -right-6 -top-6 hidden rounded-2xl border border-border bg-card px-4 py-3 shadow-soft sm:block">
             <p className="text-small text-muted">Categoria em alta</p>
             <p className="text-body font-semibold text-foreground">Mercado</p>
           </div>
