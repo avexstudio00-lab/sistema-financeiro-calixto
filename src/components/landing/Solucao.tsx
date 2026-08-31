@@ -9,7 +9,7 @@ export function Solucao() {
     <section className="py-20">
       <Container>
         <FadeIn>
-          <div className="grid items-center gap-10 rounded-3xl bg-white p-8 shadow-soft sm:p-12 lg:grid-cols-[auto,1fr]">
+          <div className="grid items-center gap-10 rounded-3xl bg-card p-8 shadow-soft sm:p-12 lg:grid-cols-[auto,1fr]">
             <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-50 text-primary-600">
               <Icon icon={Sparkles} size="lg" />
             </span>
