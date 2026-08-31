@@ -6,3 +6,4 @@ export * from "./Input";
 export * from "./Icon";
 export * from "./FadeIn";
 export * from "./Container";
+export * from "./ThemeToggle";
