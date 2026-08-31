@@ -12,7 +12,7 @@ const badgeVariants = cva(
         accent: "bg-accent-50 text-accent-700",
         warning: "bg-amber-50 text-amber-700",
         danger: "bg-rose-50 text-rose-700",
-        neutral: "bg-slate-100 text-slate-600",
+        neutral: "bg-muted/15 text-muted-foreground",
       },
       size: {
         sm: "px-2.5 py-0.5 text-xs",
