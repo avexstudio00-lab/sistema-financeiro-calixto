@@ -6,7 +6,7 @@ const ANO = new Date().getFullYear();
 
 export function Footer() {
   return (
-    <footer className="border-t border-slate-100 py-10">
+    <footer className="border-t border-border py-10">
       <Container className="flex flex-col items-center gap-6 sm:flex-row sm:justify-between">
         <Link href="/" className="flex items-center gap-2 text-foreground">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-500 text-white">
