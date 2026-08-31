@@ -3,12 +3,30 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --background: 248 250 252;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --border: 241 245 249;
+    --muted: 100 116 139;
+    --muted-foreground: 148 163 184;
+  }
+
+  .dark {
+    --background: 8 11 21;
+    --foreground: 241 245 249;
+    --card: 17 22 35;
+    --border: 32 39 55;
+    --muted: 148 163 184;
+    --muted-foreground: 100 116 139;
+  }
+
   html {
     scroll-behavior: smooth;
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased transition-colors duration-200;
   }
 
   ::selection {
