@@ -122,7 +122,7 @@ export default function DashboardPage() {
                   key={f}
                   onClick={() => setFiltroTipo(f)}
                   className={`rounded-full px-3 py-1.5 text-small font-medium transition-colors ${
-                    filtroTipo === f ? "bg-primary-50 text-primary-700" : "text-muted hover:bg-slate-50"
+                    filtroTipo === f ? "bg-primary-50 text-primary-700" : "text-muted hover:bg-muted/10"
                   }`}
                 >
                   {f === "todos" ? "Todos" : f === "receita" ? "Entradas" : "Saídas"}
@@ -133,7 +133,7 @@ export default function DashboardPage() {
               <select
                 value={filtroCategoria}
                 onChange={(e) => setFiltroCategoria(e.target.value)}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-small text-foreground"
+                className="rounded-full border border-border bg-card px-3 py-1.5 text-small text-foreground"
               >
                 <option value="">Todas categorias</option>
                 {categorias.map((c) => (
