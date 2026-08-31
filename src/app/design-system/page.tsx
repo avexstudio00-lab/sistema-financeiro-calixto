@@ -1,3 +1,5 @@
+"use client";
+
 import { Wallet, TrendingUp, PiggyBank, Mail, Lock, Search, Sparkles, ShieldCheck, Smile } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { SectionTitle } from "@/components/ui/SectionTitle";
