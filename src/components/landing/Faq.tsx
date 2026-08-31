@@ -54,7 +54,7 @@ export function Faq() {
             const abertaAtual = aberta === i;
             return (
               <FadeIn key={item.pergunta} delay={i * 60}>
-                <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white">
+                <div className="overflow-hidden rounded-2xl border border-border bg-card">
                   <button
                     type="button"
                     onClick={() => setAberta(abertaAtual ? null : i)}
