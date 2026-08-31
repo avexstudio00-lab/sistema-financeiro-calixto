@@ -37,9 +37,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             ref={ref}
             className={cn(
-              "h-11 w-full rounded-xl border bg-white px-4 text-body text-foreground placeholder:text-muted transition-all duration-200 ease-smooth",
-              "border-slate-200 focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100",
-              "disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-muted",
+              "h-11 w-full rounded-xl border bg-card px-4 text-body text-foreground placeholder:text-muted transition-all duration-200 ease-smooth",
+              "border-border focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100",
+              "disabled:cursor-not-allowed disabled:bg-muted/10 disabled:text-muted",
               leftIcon && "pl-10",
               rightIcon && "pr-10",
               error && "border-rose-400 focus:border-rose-500 focus:ring-rose-100",
