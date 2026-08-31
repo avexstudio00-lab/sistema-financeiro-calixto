@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Menu, X, Wallet } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
 const LINKS = [
@@ -18,7 +19,7 @@ export function Header() {
   const { user, perfil } = useAuth();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-100 bg-background/90 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur">
       <Container className="flex h-16 items-center justify-between">
         <Link href="/" className="flex items-center gap-2 text-foreground">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-500 text-white">
@@ -39,7 +40,8 @@ export function Header() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-2 md:flex">
+          <ThemeToggle />
           {user ? (
             <Link href="/dashboard">
               <Button variant="secondary" size="sm">
@@ -53,18 +55,21 @@ export function Header() {
           )}
         </div>
 
-        <button
-          type="button"
-          aria-label={menuAberto ? "Fechar menu" : "Abrir menu"}
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-foreground md:hidden"
-          onClick={() => setMenuAberto((v) => !v)}
-        >
-          {menuAberto ? <X size={22} /> : <Menu size={22} />}
-        </button>
+        <div className="flex items-center gap-1 md:hidden">
+          <ThemeToggle />
+          <button
+            type="button"
+            aria-label={menuAberto ? "Fechar menu" : "Abrir menu"}
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-foreground"
+            onClick={() => setMenuAberto((v) => !v)}
+          >
+            {menuAberto ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </Container>
 
       {menuAberto && (
-        <div className="border-t border-slate-100 bg-background md:hidden">
+        <div className="border-t border-border bg-background md:hidden">
           <Container className="flex flex-col gap-1 py-4">
             {LINKS.map((link) => (
               <a
