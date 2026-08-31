@@ -45,9 +45,9 @@ export default function OnboardingPage() {
 
   // Etapa 2
   const [nomeConta, setNomeConta] = React.useState("Minha conta");
-  const [tipoConta, setTipoConta] = React.useState<Conta["tipo"]>("corrente");
-  const [saldoInicial, setSaldoInicial] = React.useState("0");
-  const [contaCriada, setContaCriada] = React.useState<{ id: string } | null>(null);
+  const [tiposConta, setTiposConta] = React.useState<Conta["tipo"][]>(["corrente"]);
+  const [saldosPorTipo, setSaldosPorTipo] = React.useState<Record<string, string>>({ corrente: "0" });
+  const [contasCriadas, setContasCriadas] = React.useState<{ id: string }[]>([]);
 
   // Etapa 3
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
@@ -76,22 +76,50 @@ export default function OnboardingPage() {
     setEtapa(2);
   }
 
+  function alternarTipoConta(tipo: Conta["tipo"]) {
+    setTiposConta((prev) => {
+      if (prev.includes(tipo)) {
+        if (prev.length === 1) return prev; // sempre precisa ter pelo menos um tipo marcado
+        setSaldosPorTipo((s) => {
+          const copia = { ...s };
+          delete copia[tipo];
+          return copia;
+        });
+        return prev.filter((t) => t !== tipo);
+      }
+      setSaldosPorTipo((s) => (s[tipo] !== undefined ? s : { ...s, [tipo]: "0" }));
+      return [...prev, tipo];
+    });
+  }
+
   async function handleEtapa2() {
     if (!user) return;
     if (nomeConta.trim().length < 2) {
       setErro("Dê um nome para sua conta.");
       return;
     }
-    setErro(null);
-    setSalvando(true);
-    const saldo = Number(saldoInicial.replace(",", ".")) || 0;
-    const { data, error } = await criarConta(user.id, nomeConta.trim(), tipoConta, saldo);
-    setSalvando(false);
-    if (error || !data) {
-      setErro("Não foi possível criar sua conta. Tente novamente.");
+    if (tiposConta.length === 0) {
+      setErro("Escolha pelo menos um tipo de conta.");
       return;
     }
-    setContaCriada({ id: data.id });
+    setErro(null);
+    setSalvando(true);
+    const multiplas = tiposConta.length > 1;
+    const contasNovas: { id: string }[] = [];
+    for (const tipo of tiposConta) {
+      const label = TIPOS_CONTA.find((t) => t.id === tipo)?.label ?? tipo;
+      const nome = multiplas ? `${nomeConta.trim()} - ${label}` : nomeConta.trim();
+      const saldo = Number((saldosPorTipo[tipo] ?? "0").replace(",", ".")) || 0;
+      const { data, error } = await criarConta(user.id, nome, tipo, saldo);
+      if (error || !data) {
+        setSalvando(false);
+        setErro("Não foi possível criar sua conta. Tente novamente.");
+        return;
+      }
+      contasNovas.push({ id: data.id });
+    }
+    setSalvando(false);
+    setContasCriadas(contasNovas);
     setEtapa(3);
   }
 
@@ -115,7 +143,7 @@ export default function OnboardingPage() {
     setSalvando(true);
     await criarTransacao({
       usuario_id: user.id,
-      conta_id: contaCriada?.id ?? null,
+      conta_id: contasCriadas[0]?.id ?? null,
       categoria_id: categoriaId || null,
       tipo: tipoTransacao,
       valor,
@@ -206,16 +234,18 @@ export default function OnboardingPage() {
                 placeholder="Ex: Nubank, Carteira, Caixa da empresa"
               />
               <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Tipo de conta</span>
+                <span className="text-small font-medium text-foreground">
+                  Tipo de conta <span className="font-normal text-muted">(pode escolher mais de uma)</span>
+                </span>
                 <div className="grid grid-cols-2 gap-2">
                   {TIPOS_CONTA.map((t) => (
                     <button
                       key={t.id}
                       type="button"
-                      onClick={() => setTipoConta(t.id)}
+                      onClick={() => alternarTipoConta(t.id)}
                       className={cn(
                         "rounded-xl border px-3 py-2.5 text-left text-small font-medium transition-all",
-                        tipoConta === t.id
+                        tiposConta.includes(t.id)
                           ? "border-primary-500 bg-primary-50 text-primary-700"
                           : "border-border text-muted hover:border-muted/40"
                       )}
@@ -225,13 +255,23 @@ export default function OnboardingPage() {
                   ))}
                 </div>
               </div>
-              <Input
-                label="Saldo inicial"
-                inputMode="decimal"
-                value={saldoInicial}
-                onChange={(e) => setSaldoInicial(e.target.value)}
-                placeholder="0,00"
-              />
+              <div className="flex flex-col gap-3">
+                {tiposConta.map((tipo) => {
+                  const label = TIPOS_CONTA.find((t) => t.id === tipo)?.label ?? tipo;
+                  return (
+                    <Input
+                      key={tipo}
+                      label={tiposConta.length > 1 ? `Saldo inicial — ${label}` : "Saldo inicial"}
+                      inputMode="decimal"
+                      value={saldosPorTipo[tipo] ?? "0"}
+                      onChange={(e) =>
+                        setSaldosPorTipo((s) => ({ ...s, [tipo]: e.target.value }))
+                      }
+                      placeholder="0,00"
+                    />
+                  );
+                })}
+              </div>
             </div>
             {erro && <p className="text-small text-rose-600">{erro}</p>}
             <Button size="lg" onClick={handleEtapa2} disabled={salvando} className="w-full">
