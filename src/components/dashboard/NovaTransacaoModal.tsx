@@ -25,6 +25,7 @@ export interface NovaTransacaoModalProps {
   onSalvo: () => void;
   bloqueado?: boolean;
   transacaoEditando?: Transacao | null;
+  modoInicial?: "pessoal" | "negocio";
 }
 
 export function NovaTransacaoModal({
@@ -33,6 +34,7 @@ export function NovaTransacaoModal({
   onSalvo,
   bloqueado,
   transacaoEditando,
+  modoInicial,
 }: NovaTransacaoModalProps) {
   const { user, perfil } = useAuth();
   const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
@@ -90,10 +92,10 @@ export function NovaTransacaoModal({
       setTipo("despesa");
       setData(new Date().toISOString().slice(0, 10));
       setFormaPagamento("pix");
-      setTipoNegocio("pessoal");
+      setTipoNegocio(modoInicial ?? "pessoal");
       setConfirmandoExclusao(false);
     }
-  }, [aberto]);
+  }, [aberto, modoInicial]);
 
   if (!aberto) return null;
 
