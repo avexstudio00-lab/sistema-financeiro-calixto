@@ -73,6 +73,17 @@ export default function MetasPage() {
     carregar();
   }
 
+  async function handleRetirada(meta: Meta) {
+    const valorTexto = aporteEmEdicao[meta.id];
+    const valor = Number((valorTexto ?? "").replace(",", "."));
+    if (!valor || valor <= 0) return;
+    const novoValor = Math.max(0, Number(meta.valor_atual) - valor);
+    const status = novoValor >= Number(meta.valor_meta) ? "concluida" : "em_andamento";
+    await atualizarProgressoMeta(meta.id, novoValor, status);
+    setAporteEmEdicao((prev) => ({ ...prev, [meta.id]: "" }));
+    carregar();
+  }
+
   if (!temMetas) {
     return (
       <Container className="flex flex-col items-center gap-6 py-16 text-center">
@@ -162,19 +173,27 @@ export default function MetasPage() {
                   </div>
                   <p className="text-small font-medium text-primary-600">{progresso.toFixed(0)}% concluído</p>
                 </div>
-                {meta.status !== "concluida" && (
-                  <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <div className="min-w-[120px] flex-1">
                     <Input
-                      placeholder="Guardar valor"
+                      placeholder="Valor"
                       inputMode="decimal"
                       value={aporteEmEdicao[meta.id] ?? ""}
                       onChange={(e) => setAporteEmEdicao((prev) => ({ ...prev, [meta.id]: e.target.value }))}
                     />
-                    <Button variant="secondary" onClick={() => handleAporte(meta)}>
-                      Adicionar
-                    </Button>
                   </div>
-                )}
+                  <Button variant="secondary" onClick={() => handleAporte(meta)}>
+                    Adicionar
+                  </Button>
+                  <Button
+                    variant="tertiary"
+                    className="text-rose-600 hover:bg-rose-50"
+                    disabled={Number(meta.valor_atual) <= 0}
+                    onClick={() => handleRetirada(meta)}
+                  >
+                    Retirar
+                  </Button>
+                </div>
               </Card>
             );
           })}
