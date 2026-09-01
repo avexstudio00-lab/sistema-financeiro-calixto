@@ -43,23 +43,68 @@ export async function contarTransacoesDoMes(usuarioId: string, inicio: string, f
   return count ?? 0;
 }
 
+function deltaDe(tipo: "receita" | "despesa", valor: number) {
+  return tipo === "receita" ? valor : -valor;
+}
+
+async function ajustarSaldoConta(contaId: string, delta: number) {
+  const { data: conta } = await supabase
+    .from("contas")
+    .select("saldo_atual")
+    .eq("id", contaId)
+    .single();
+  if (conta) {
+    await supabase
+      .from("contas")
+      .update({ saldo_atual: Number(conta.saldo_atual) + delta })
+      .eq("id", contaId);
+  }
+}
+
 export async function criarTransacao(transacao: NovaTransacao) {
   const { data, error } = await supabase.from("transacoes").insert(transacao).select().single();
 
   if (!error && transacao.conta_id) {
-    const delta = transacao.tipo === "receita" ? transacao.valor : -transacao.valor;
-    const { data: conta } = await supabase
-      .from("contas")
-      .select("saldo_atual")
-      .eq("id", transacao.conta_id)
-      .single();
-    if (conta) {
-      await supabase
-        .from("contas")
-        .update({ saldo_atual: Number(conta.saldo_atual) + delta })
-        .eq("id", transacao.conta_id);
+    await ajustarSaldoConta(transacao.conta_id, deltaDe(transacao.tipo, transacao.valor));
+  }
+
+  return { data, error };
+}
+
+export async function atualizarTransacao(transacaoOriginal: Transacao, dados: NovaTransacao) {
+  const { data, error } = await supabase
+    .from("transacoes")
+    .update(dados)
+    .eq("id", transacaoOriginal.id)
+    .select()
+    .single();
+
+  if (!error) {
+    // Desfaz o efeito da versão antiga no saldo da conta de origem...
+    if (transacaoOriginal.conta_id) {
+      await ajustarSaldoConta(
+        transacaoOriginal.conta_id,
+        -deltaDe(transacaoOriginal.tipo, Number(transacaoOriginal.valor))
+      );
+    }
+    // ...e aplica o efeito da versão nova (pode ser a mesma conta ou outra).
+    if (dados.conta_id) {
+      await ajustarSaldoConta(dados.conta_id, deltaDe(dados.tipo, dados.valor));
     }
   }
 
   return { data, error };
+}
+
+export async function deletarTransacao(transacao: Transacao) {
+  const { error } = await supabase.from("transacoes").delete().eq("id", transacao.id);
+
+  if (!error && transacao.conta_id) {
+    await ajustarSaldoConta(
+      transacao.conta_id,
+      -deltaDe(transacao.tipo, Number(transacao.valor))
+    );
+  }
+
+  return { error };
 }
