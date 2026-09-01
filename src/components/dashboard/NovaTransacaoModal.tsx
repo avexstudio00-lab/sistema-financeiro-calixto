@@ -1,15 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Sparkles } from "lucide-react";
+import { X, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarContas } from "@/lib/data/contas";
-import { criarTransacao } from "@/lib/data/transacoes";
-import type { Categoria, Conta } from "@/lib/data/tipos";
+import { criarTransacao, atualizarTransacao, deletarTransacao } from "@/lib/data/transacoes";
+import type { Categoria, Conta, Transacao } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO = [
   { id: "pix", label: "Pix" },
@@ -24,11 +24,19 @@ export interface NovaTransacaoModalProps {
   onFechar: () => void;
   onSalvo: () => void;
   bloqueado?: boolean;
+  transacaoEditando?: Transacao | null;
 }
 
-export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: NovaTransacaoModalProps) {
+export function NovaTransacaoModal({
+  aberto,
+  onFechar,
+  onSalvo,
+  bloqueado,
+  transacaoEditando,
+}: NovaTransacaoModalProps) {
   const { user, perfil } = useAuth();
   const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
+  const editando = !!transacaoEditando;
 
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
   const [contas, setContas] = React.useState<Conta[]>([]);
@@ -42,6 +50,8 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
     React.useState<(typeof FORMAS_PAGAMENTO)[number]["id"]>("pix");
   const [tipoNegocio, setTipoNegocio] = React.useState<"pessoal" | "negocio">("pessoal");
   const [salvando, setSalvando] = React.useState(false);
+  const [excluindo, setExcluindo] = React.useState(false);
+  const [confirmandoExclusao, setConfirmandoExclusao] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -49,18 +59,39 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
       listarCategorias(user.id).then(setCategorias);
       listarContas(user.id).then((lista) => {
         setContas(lista);
-        if (lista[0]) setContaId(lista[0].id);
+        if (!transacaoEditando && lista[0]) setContaId(lista[0].id);
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, user]);
+
+  React.useEffect(() => {
+    if (aberto && transacaoEditando) {
+      setTipo(transacaoEditando.tipo);
+      setValor(String(transacaoEditando.valor).replace(".", ","));
+      setDescricao(transacaoEditando.descricao ?? "");
+      setCategoriaId(transacaoEditando.categoria_id ?? "");
+      setContaId(transacaoEditando.conta_id ?? "");
+      setData(transacaoEditando.data);
+      setFormaPagamento(
+        (transacaoEditando.forma_pagamento as (typeof FORMAS_PAGAMENTO)[number]["id"]) ?? "pix"
+      );
+      setTipoNegocio(transacaoEditando.tipo_negocio === "negocio" ? "negocio" : "pessoal");
+    }
+  }, [aberto, transacaoEditando]);
 
   React.useEffect(() => {
     if (!aberto) {
       setValor("");
       setDescricao("");
       setCategoriaId("");
+      setContaId("");
       setErro(null);
       setTipo("despesa");
+      setData(new Date().toISOString().slice(0, 10));
+      setFormaPagamento("pix");
+      setTipoNegocio("pessoal");
+      setConfirmandoExclusao(false);
     }
   }, [aberto]);
 
@@ -82,7 +113,7 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
 
     setErro(null);
     setSalvando(true);
-    const { error } = await criarTransacao({
+    const dados = {
       usuario_id: user.id,
       conta_id: contaId || null,
       categoria_id: categoriaId || null,
@@ -91,8 +122,11 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
       descricao: descricao.trim(),
       data,
       forma_pagamento: formaPagamento,
-      tipo_negocio: ehNegocio ? tipoNegocio : null,
-    });
+      tipo_negocio: ehNegocio ? tipoNegocio : "pessoal",
+    };
+    const { error } = transacaoEditando
+      ? await atualizarTransacao(transacaoEditando, dados)
+      : await criarTransacao(dados);
     setSalvando(false);
 
     if (error) {
@@ -103,11 +137,25 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
     onFechar();
   }
 
+  async function handleExcluir() {
+    if (!transacaoEditando) return;
+    setExcluindo(true);
+    const { error } = await deletarTransacao(transacaoEditando);
+    setExcluindo(false);
+
+    if (error) {
+      setErro("Não foi possível apagar. Tente novamente.");
+      return;
+    }
+    onSalvo();
+    onFechar();
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center">
       <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto rounded-t-3xl bg-card p-6 shadow-card-hover sm:rounded-3xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-h3 text-foreground">Nova anotação</h2>
+          <h2 className="text-h3 text-foreground">{editando ? "Editar anotação" : "Nova anotação"}</h2>
           <button
             type="button"
             onClick={onFechar}
@@ -118,7 +166,35 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
           </button>
         </div>
 
-        {bloqueado ? (
+        {confirmandoExclusao ? (
+          <div className="flex flex-col items-center gap-4 py-6 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-red-500">
+              <Trash2 size={26} />
+            </span>
+            <p className="text-body text-foreground">
+              Apagar &ldquo;{transacaoEditando?.descricao}&rdquo;? O saldo da conta é ajustado
+              automaticamente. Essa ação não pode ser desfeita.
+            </p>
+            <div className="flex w-full gap-2">
+              <Button
+                variant="tertiary"
+                onClick={() => setConfirmandoExclusao(false)}
+                disabled={excluindo}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleExcluir}
+                disabled={excluindo}
+                className="flex-1 bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700"
+              >
+                {excluindo ? "Apagando..." : "Sim, apagar"}
+              </Button>
+            </div>
+            {erro && <p className="text-small text-rose-600">{erro}</p>}
+          </div>
+        ) : bloqueado ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-600">
               <Sparkles size={26} />
@@ -273,9 +349,19 @@ export function NovaTransacaoModal({ aberto, onFechar, onSalvo, bloqueado }: Nov
             {erro && <p className="text-small text-rose-600">{erro}</p>}
 
             <Button type="submit" size="lg" disabled={salvando} className="mt-1 w-full">
-              {salvando ? "Salvando..." : "Salvar anotação"}
+              {salvando ? "Salvando..." : editando ? "Salvar alterações" : "Salvar anotação"}
               {!salvando && <Plus size={18} />}
             </Button>
+            {editando && (
+              <button
+                type="button"
+                onClick={() => setConfirmandoExclusao(true)}
+                className="flex items-center justify-center gap-2 py-1 text-small font-medium text-red-500 hover:text-red-600"
+              >
+                <Trash2 size={16} />
+                Apagar essa anotação
+              </button>
+            )}
           </form>
         )}
       </div>
