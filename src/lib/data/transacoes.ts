@@ -33,6 +33,38 @@ export async function listarTransacoes(
   return (data as Transacao[]) ?? [];
 }
 
+export interface DescricaoUsada {
+  descricao: string;
+  tipo: "receita" | "despesa";
+}
+
+export async function listarDescricoesUsadas(usuarioId: string, limite = 300): Promise<DescricaoUsada[]> {
+  const { data } = await supabase
+    .from("transacoes")
+    .select("descricao, tipo")
+    .eq("usuario_id", usuarioId)
+    .order("criado_em", { ascending: false })
+    .limit(limite);
+  if (!data) return [];
+
+  const contagem = new Map<string, { descricao: string; tipo: "receita" | "despesa"; vezes: number }>();
+  for (const row of data as { descricao: string; tipo: "receita" | "despesa" }[]) {
+    const descricao = row.descricao?.trim();
+    if (!descricao) continue;
+    const chave = `${row.tipo}::${descricao.toLowerCase()}`;
+    const atual = contagem.get(chave);
+    if (atual) {
+      atual.vezes += 1;
+    } else {
+      contagem.set(chave, { descricao, tipo: row.tipo, vezes: 1 });
+    }
+  }
+
+  return Array.from(contagem.values())
+    .sort((a, b) => b.vezes - a.vezes)
+    .slice(0, 40);
+}
+
 export async function contarTransacoesDoMes(usuarioId: string, inicio: string, fim: string) {
   const { count } = await supabase
     .from("transacoes")
