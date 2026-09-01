@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [bloqueado, setBloqueado] = React.useState(false);
+  const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
 
   const [filtroTipo, setFiltroTipo] = React.useState<"todos" | "receita" | "despesa">("todos");
   const [filtroCategoria, setFiltroCategoria] = React.useState("");
@@ -54,6 +55,7 @@ export default function DashboardPage() {
 
   async function handleAbrirModal() {
     if (!user || !perfil) return;
+    setTransacaoEditando(null);
     if (perfil.plano === "gratis") {
       const { inicio, fim } = limitesDoMesAtual();
       const total = await contarTransacoesDoMes(user.id, inicio, fim);
@@ -62,6 +64,17 @@ export default function DashboardPage() {
       setBloqueado(false);
     }
     setModalAberto(true);
+  }
+
+  function handleEditarTransacao(transacao: Transacao) {
+    setTransacaoEditando(transacao);
+    setBloqueado(false);
+    setModalAberto(true);
+  }
+
+  function handleFecharModal() {
+    setModalAberto(false);
+    setTransacaoEditando(null);
   }
 
   const entradas = transacoes.filter((t) => t.tipo === "receita").reduce((acc, t) => acc + Number(t.valor), 0);
@@ -161,7 +174,12 @@ export default function DashboardPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {transacoesFiltradas.map((t) => (
-              <Card key={t.id} padding="sm" className="flex items-center justify-between gap-4">
+              <Card
+                key={t.id}
+                padding="sm"
+                onClick={() => handleEditarTransacao(t)}
+                className="flex cursor-pointer items-center justify-between gap-4 transition-colors hover:bg-muted/5"
+              >
                 <div className="flex items-center gap-3">
                   <span
                     className={`flex h-10 w-10 items-center justify-center rounded-xl ${
@@ -211,7 +229,8 @@ export default function DashboardPage() {
       <NovaTransacaoModal
         aberto={modalAberto}
         bloqueado={bloqueado}
-        onFechar={() => setModalAberto(false)}
+        transacaoEditando={transacaoEditando}
+        onFechar={handleFecharModal}
         onSalvo={carregar}
       />
     </Container>
