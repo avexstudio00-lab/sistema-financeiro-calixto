@@ -8,7 +8,13 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarContas } from "@/lib/data/contas";
-import { criarTransacao, atualizarTransacao, deletarTransacao } from "@/lib/data/transacoes";
+import {
+  criarTransacao,
+  atualizarTransacao,
+  deletarTransacao,
+  listarDescricoesUsadas,
+  type DescricaoUsada,
+} from "@/lib/data/transacoes";
 import type { Categoria, Conta, Transacao } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO = [
@@ -42,6 +48,7 @@ export function NovaTransacaoModal({
 
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
   const [contas, setContas] = React.useState<Conta[]>([]);
+  const [descricoesUsadas, setDescricoesUsadas] = React.useState<DescricaoUsada[]>([]);
   const [tipo, setTipo] = React.useState<"receita" | "despesa">("despesa");
   const [valor, setValor] = React.useState("");
   const [descricao, setDescricao] = React.useState("");
@@ -63,9 +70,15 @@ export function NovaTransacaoModal({
         setContas(lista);
         if (!transacaoEditando && lista[0]) setContaId(lista[0].id);
       });
+      listarDescricoesUsadas(user.id).then(setDescricoesUsadas);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, user]);
+
+  const sugestoesDescricao = React.useMemo(
+    () => descricoesUsadas.filter((d) => d.tipo === tipo).map((d) => d.descricao),
+    [descricoesUsadas, tipo]
+  );
 
   React.useEffect(() => {
     if (aberto && transacaoEditando) {
@@ -249,7 +262,14 @@ export function NovaTransacaoModal({
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
               placeholder="Ex: Mercado, Uber, Salário..."
+              list="sugestoes-descricao"
+              autoComplete="off"
             />
+            <datalist id="sugestoes-descricao">
+              {sugestoesDescricao.map((d) => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
 
             {categorias.filter((c) => c.tipo === tipo).length > 0 && (
               <div className="flex flex-col gap-1.5">
