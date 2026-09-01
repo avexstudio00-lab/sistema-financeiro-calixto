@@ -35,6 +35,9 @@ export default function DashboardPage() {
 
   const [filtroTipo, setFiltroTipo] = React.useState<"todos" | "receita" | "despesa">("todos");
   const [filtroCategoria, setFiltroCategoria] = React.useState("");
+  const [modoVisualizacao, setModoVisualizacao] = React.useState<"tudo" | "pessoal" | "negocio">("tudo");
+
+  const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
@@ -77,11 +80,14 @@ export default function DashboardPage() {
     setTransacaoEditando(null);
   }
 
-  const entradas = transacoes.filter((t) => t.tipo === "receita").reduce((acc, t) => acc + Number(t.valor), 0);
-  const saidas = transacoes.filter((t) => t.tipo === "despesa").reduce((acc, t) => acc + Number(t.valor), 0);
+  const transacoesDoModo =
+    modoVisualizacao === "tudo" ? transacoes : transacoes.filter((t) => t.tipo_negocio === modoVisualizacao);
+
+  const entradas = transacoesDoModo.filter((t) => t.tipo === "receita").reduce((acc, t) => acc + Number(t.valor), 0);
+  const saidas = transacoesDoModo.filter((t) => t.tipo === "despesa").reduce((acc, t) => acc + Number(t.valor), 0);
   const saldo = entradas - saidas;
 
-  const transacoesFiltradas = transacoes.filter((t) => {
+  const transacoesFiltradas = transacoesDoModo.filter((t) => {
     if (filtroTipo !== "todos" && t.tipo !== filtroTipo) return false;
     if (filtroCategoria && t.categoria_id !== filtroCategoria) return false;
     return true;
@@ -94,10 +100,30 @@ export default function DashboardPage() {
           <h1 className="text-h2 text-foreground">Olá, {perfil?.nome.split(" ")[0]} 👋</h1>
           <p className="text-body text-muted">Aqui está o resumo do seu mês.</p>
         </div>
-        <Button size="lg" onClick={handleAbrirModal} className="hidden sm:inline-flex">
-          <Plus size={18} />
-          Anotar gasto ou receita
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          {ehNegocio && (
+            <div className="flex gap-1 rounded-full bg-muted/10 p-1">
+              {(["tudo", "pessoal", "negocio"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setModoVisualizacao(m)}
+                  className={`rounded-full px-3 py-1.5 text-small font-medium transition-colors ${
+                    modoVisualizacao === m
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {m === "tudo" ? "Tudo" : m === "pessoal" ? "Pessoal" : "Empresa"}
+                </button>
+              ))}
+            </div>
+          )}
+          <Button size="lg" onClick={handleAbrirModal} className="hidden sm:inline-flex">
+            <Plus size={18} />
+            Anotar gasto ou receita
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -230,6 +256,7 @@ export default function DashboardPage() {
         aberto={modalAberto}
         bloqueado={bloqueado}
         transacaoEditando={transacaoEditando}
+        modoInicial={modoVisualizacao !== "tudo" ? modoVisualizacao : undefined}
         onFechar={handleFecharModal}
         onSalvo={carregar}
       />
