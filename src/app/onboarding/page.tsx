@@ -150,7 +150,7 @@ export default function OnboardingPage() {
       descricao: descricaoTransacao.trim() || (tipoTransacao === "receita" ? "Receita" : "Gasto"),
       data: new Date().toISOString().slice(0, 10),
       forma_pagamento: null,
-      tipo_negocio: tipoPerfil === "clt" ? "pessoal" : null,
+      tipo_negocio: "pessoal",
     });
     await finalizar();
   }
