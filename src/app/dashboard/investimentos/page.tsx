@@ -31,11 +31,14 @@ import {
   calcularEvolucaoInvestimentos,
   temCalculoAutomatico,
   ehTipoRevenda,
+  listarParcelas,
+  marcarParcelaPaga,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
 import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
+import { ParcelasInvestimento } from "@/components/dashboard/ParcelasInvestimento";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
-import type { Investimento } from "@/lib/data/tipos";
+import type { Investimento, ParcelaInvestimento } from "@/lib/data/tipos";
 
 const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon }> = {
   cdi: { label: "CDI", icone: TrendingUp },
@@ -49,6 +52,7 @@ const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon
 export default function InvestimentosPage() {
   const { user } = useAuth();
   const [investimentos, setInvestimentos] = React.useState<Investimento[]>([]);
+  const [parcelas, setParcelas] = React.useState<ParcelaInvestimento[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
 
@@ -62,13 +66,28 @@ export default function InvestimentosPage() {
   const carregar = React.useCallback(async () => {
     if (!user) return;
     setCarregando(true);
-    setInvestimentos(await listarInvestimentos(user.id));
+    const [listaInvestimentos, listaParcelas] = await Promise.all([
+      listarInvestimentos(user.id),
+      listarParcelas(user.id),
+    ]);
+    setInvestimentos(listaInvestimentos);
+    setParcelas(listaParcelas);
     setCarregando(false);
   }, [user]);
 
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  const parcelasPorInvestimento = React.useMemo(() => {
+    const mapa = new Map<string, ParcelaInvestimento[]>();
+    for (const parcela of parcelas) {
+      const lista = mapa.get(parcela.investimento_id) ?? [];
+      lista.push(parcela);
+      mapa.set(parcela.investimento_id, lista);
+    }
+    return mapa;
+  }, [parcelas]);
 
   const resumo = React.useMemo(() => {
     let totalInvestido = 0;
@@ -101,6 +120,13 @@ export default function InvestimentosPage() {
     await atualizarValorAtualInvestimento(inv.id, valor);
     setSalvandoAcao(false);
     setEditandoValorId(null);
+    carregar();
+  }
+
+  async function handleAlternarParcela(parcela: ParcelaInvestimento) {
+    setSalvandoAcao(true);
+    await marcarParcelaPaga(parcela.id, !parcela.pago);
+    setSalvandoAcao(false);
     carregar();
   }
 
@@ -310,6 +336,12 @@ export default function InvestimentosPage() {
                       </button>
                     )}
                   </div>
+
+                  <ParcelasInvestimento
+                    parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
+                    salvando={salvandoAcao}
+                    onAlternarPaga={handleAlternarParcela}
+                  />
                 </Card>
               );
             })}
