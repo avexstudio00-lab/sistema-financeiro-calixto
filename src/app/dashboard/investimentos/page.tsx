@@ -9,7 +9,6 @@ import {
   TrendingUp,
   Landmark,
   LineChart as LineChartIcon,
-  Boxes,
   HandCoins,
   ShoppingBag,
   Wallet,
@@ -44,7 +43,6 @@ const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon
   cdi: { label: "CDI", icone: TrendingUp },
   tesouro: { label: "Tesouro Direto", icone: Landmark },
   bolsa: { label: "Bolsa de Valores", icone: LineChartIcon },
-  proprio: { label: "Investimento próprio", icone: Boxes },
   emprestimo: { label: "Empréstimo", icone: HandCoins },
   revenda: { label: "Compra e revenda", icone: ShoppingBag },
 };
@@ -339,6 +337,7 @@ export default function InvestimentosPage() {
 
                   <ParcelasInvestimento
                     parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
+                    periodicidade={inv.periodicidade_parcelas}
                     salvando={salvandoAcao}
                     onAlternarPaga={handleAlternarParcela}
                   />
