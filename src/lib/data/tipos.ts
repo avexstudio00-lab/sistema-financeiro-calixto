@@ -73,7 +73,7 @@ export interface Investimento {
   id: string;
   usuario_id: string;
   nome: string;
-  tipo: "cdi" | "tesouro" | "bolsa" | "proprio" | "emprestimo" | "revenda";
+  tipo: "cdi" | "tesouro" | "bolsa" | "emprestimo" | "revenda";
   valor_investido: number;
   valor_atual: number;
   taxa: number | null;
@@ -84,6 +84,7 @@ export interface Investimento {
   forma_pagamento: "vista" | "parcelado" | null;
   numero_parcelas: number | null;
   valor_parcela: number | null;
+  periodicidade_parcelas: "mensal" | "quinzenal" | "semanal" | null;
 }
 
 /** Uma parcela de um investimento com forma_pagamento "parcelado" (ex:
