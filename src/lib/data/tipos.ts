@@ -73,7 +73,7 @@ export interface Investimento {
   id: string;
   usuario_id: string;
   nome: string;
-  tipo: "cdi" | "tesouro" | "bolsa" | "proprio" | "emprestimo";
+  tipo: "cdi" | "tesouro" | "bolsa" | "proprio" | "emprestimo" | "revenda";
   valor_investido: number;
   valor_atual: number;
   taxa: number | null;
