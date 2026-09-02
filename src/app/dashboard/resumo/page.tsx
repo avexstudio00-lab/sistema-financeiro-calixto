@@ -108,7 +108,7 @@ export default function ResumoMensalPage() {
   const porCategoria = new Map<string, number>();
   const porFormaPagamento = new Map<string, number>();
   transacoesMes
-    .filter((t) => t.tipo === "despesa")
+    .filter((t) => t.tipo === "despesa" && t.tipo_negocio !== "negocio")
     .forEach((t) => {
       const cat = t.categorias?.nome ?? "Outros";
       porCategoria.set(cat, (porCategoria.get(cat) ?? 0) + Number(t.valor));
@@ -200,25 +200,6 @@ export default function ResumoMensalPage() {
                   </li>
                 ))}
               </ul>
-            </Card>
-          )}
-
-          {resumo.negocio && resumo.pessoal && (
-            <Card className="flex flex-col gap-4">
-              <h2 className="text-h3 text-foreground">Negócio x Pessoal</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl bg-accent-50 p-4">
-                  <p className="text-small font-semibold text-accent-700">Negócio</p>
-                  <p className="mt-1 text-small text-accent-800">Faturamento: {formatarMoeda(resumo.negocio.faturamento)}</p>
-                  <p className="text-small text-accent-800">Custos: {formatarMoeda(resumo.negocio.custos)}</p>
-                  <p className="text-body font-semibold text-accent-800">Lucro real: {formatarMoeda(resumo.negocio.lucroReal)}</p>
-                </div>
-                <div className="rounded-2xl bg-primary-50 p-4">
-                  <p className="text-small font-semibold text-primary-700">Pessoal</p>
-                  <p className="mt-1 text-small text-primary-800">Entradas: {formatarMoeda(resumo.pessoal.entradas)}</p>
-                  <p className="text-small text-primary-800">Saídas: {formatarMoeda(resumo.pessoal.saidas)}</p>
-                </div>
-              </div>
             </Card>
           )}
 
@@ -328,7 +309,7 @@ export default function ResumoMensalPage() {
                   </p>
                 </Card>
               ))}
-          </div>
+            </div>
         </div>
       )}
     </Container>
