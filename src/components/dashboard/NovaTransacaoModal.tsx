@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Sparkles, Trash2 } from "lucide-react";
+import { X, Plus, Sparkles, Trash2, Home, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,15 @@ export interface NovaTransacaoModalProps {
   onSalvo: () => void;
   bloqueado?: boolean;
   transacaoEditando?: Transacao | null;
-  modoInicial?: "pessoal" | "negocio";
+  /** Mundo em que o modal foi aberto ("Minha vida" ou "Minha empresa") — o
+   * valor de `tipo_negocio` gravado é sempre o do mundo atual, sem depender
+   * de o usuário escolher manualmente (pra não misturar pessoal e negócio
+   * na mesma tela). Ignorado pra quem não é MEI/ME (sempre "pessoal"). */
+  mundo?: "pessoal" | "negocio";
+  /** Categoria já marcada quando o modal abre pra uma anotação nova (ex: um
+   * atalho de "Registrar retirada de pró-labore" já abre com a categoria
+   * certa escolhida). Ignorado ao editar uma anotação existente. */
+  categoriaIdInicial?: string;
 }
 
 export function NovaTransacaoModal({
@@ -40,7 +48,8 @@ export function NovaTransacaoModal({
   onSalvo,
   bloqueado,
   transacaoEditando,
-  modoInicial,
+  mundo = "pessoal",
+  categoriaIdInicial,
 }: NovaTransacaoModalProps) {
   const { user, perfil } = useAuth();
   const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
@@ -99,16 +108,16 @@ export function NovaTransacaoModal({
     if (!aberto) {
       setValor("");
       setDescricao("");
-      setCategoriaId("");
+      setCategoriaId(categoriaIdInicial ?? "");
       setContaId("");
       setErro(null);
       setTipo("despesa");
       setData(new Date().toISOString().slice(0, 10));
       setFormaPagamento("pix");
-      setTipoNegocio(modoInicial ?? "pessoal");
+      setTipoNegocio(mundo);
       setConfirmandoExclusao(false);
     }
-  }, [aberto, modoInicial]);
+  }, [aberto, mundo, categoriaIdInicial]);
 
   if (!aberto) return null;
 
@@ -337,34 +346,14 @@ export function NovaTransacaoModal({
             )}
 
             {ehNegocio && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Esse valor é</span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setTipoNegocio("pessoal")}
-                    className={cn(
-                      "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
-                      tipoNegocio === "pessoal"
-                        ? "border-primary-500 bg-primary-50 text-primary-700"
-                        : "border-border text-muted"
-                    )}
-                  >
-                    Pessoal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTipoNegocio("negocio")}
-                    className={cn(
-                      "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
-                      tipoNegocio === "negocio"
-                        ? "border-accent-500 bg-accent-50 text-accent-700"
-                        : "border-border text-muted"
-                    )}
-                  >
-                    Do negócio
-                  </button>
-                </div>
+              <div
+                className={cn(
+                  "flex items-center gap-2 rounded-xl px-3 py-2 text-small font-medium",
+                  tipoNegocio === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700"
+                )}
+              >
+                {tipoNegocio === "negocio" ? <Building2 size={16} /> : <Home size={16} />}
+                {tipoNegocio === "negocio" ? "Anotando como gasto/receita do negócio" : "Anotando como gasto/receita pessoal"}
               </div>
             )}
 
