@@ -10,6 +10,22 @@ export async function listarCategorias(usuarioId: string): Promise<Categoria[]> 
   return (data as Categoria[]) ?? [];
 }
 
+/** Acha uma categoria padrão pelo nome exato (ex: "Pró-labore"), usada em
+ * atalhos que já abrem a anotação com a categoria certa pré-selecionada. */
+export async function buscarCategoriaPadraoPorNome(
+  nome: string,
+  tipo: "receita" | "despesa"
+): Promise<Categoria | null> {
+  const { data } = await supabase
+    .from("categorias")
+    .select("*")
+    .is("usuario_id", null)
+    .eq("nome", nome)
+    .eq("tipo", tipo)
+    .maybeSingle();
+  return (data as Categoria | null) ?? null;
+}
+
 export async function criarCategoriaPersonalizada(
   usuarioId: string,
   nome: string,
