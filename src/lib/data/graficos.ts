@@ -41,8 +41,11 @@ export async function listarEvolucaoMensal(
     .lte("data", fim);
 
   let linhas = (data as LinhaTransacaoResumida[]) ?? [];
-  if (modo !== "tudo") {
-    linhas = linhas.filter((t) => t.tipo_negocio === modo);
+  if (modo === "pessoal") {
+    // "Pessoal" inclui também transações antigas sem tipo definido.
+    linhas = linhas.filter((t) => t.tipo_negocio !== "negocio");
+  } else if (modo === "negocio") {
+    linhas = linhas.filter((t) => t.tipo_negocio === "negocio");
   }
 
   const pontos: PontoEvolucaoMensal[] = [];
