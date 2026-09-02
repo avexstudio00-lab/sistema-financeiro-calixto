@@ -19,6 +19,7 @@ import {
   Users,
   FileText,
   ArrowLeftRight,
+  User,
   type LucideIcon,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -59,6 +60,12 @@ export function DashboardNav() {
   const mundo: "pessoal" | "negocio" = pathname?.startsWith("/dashboard/empresa") ? "negocio" : "pessoal";
   const links = mundo === "negocio" ? LINKS_EMPRESA : LINKS_PESSOAL;
   const corAtiva = mundo === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700";
+  const iniciais = perfil?.nome
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((parte) => parte[0]?.toUpperCase())
+    .join("");
 
   async function handleSignOut() {
     await signOut();
@@ -125,10 +132,21 @@ export function DashboardNav() {
         </nav>
 
         <div className="flex shrink-0 items-center gap-1">
-          <span className="hidden text-small text-muted sm:inline mr-2">
-            Olá, {perfil?.nome.split(" ")[0] ?? "..."}
-          </span>
           <ThemeToggle />
+          <Link
+            href="/dashboard/perfil"
+            className="flex items-center gap-2 rounded-full py-1 pl-1 pr-1 text-small font-medium text-muted transition-colors hover:bg-muted/10 hover:text-foreground sm:pr-3"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
+              {perfil?.foto_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={perfil.foto_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                iniciais || <User size={14} />
+              )}
+            </span>
+            <span className="hidden sm:inline">{perfil?.nome.split(" ")[0] ?? "..."}</span>
+          </Link>
           <button
             type="button"
             onClick={handleSignOut}
