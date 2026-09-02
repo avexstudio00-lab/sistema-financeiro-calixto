@@ -29,20 +29,27 @@ export interface ResumoMensal {
   saldo: number;
   variacaoPercentual: number | null;
   maioresGastos: { categoria: string; valor: number }[];
-  negocio?: { faturamento: number; custos: number; lucroReal: number };
-  pessoal?: { entradas: number; saidas: number };
   recomendacoes: string[];
 }
 
+/**
+ * Resumo do mês da área "Minha vida" — só considera dados pessoais (o
+ * negócio tem seu próprio resumo em "Painel da empresa", pra não misturar
+ * as duas coisas na mesma tela). "Pessoal" inclui lançamentos antigos sem
+ * tipo_negocio definido.
+ */
 export async function gerarResumoMensal(
   usuarioId: string,
   ano: number,
   mes: number,
-  perfil: Perfil | null
+  _perfil: Perfil | null
 ): Promise<ResumoMensal> {
-  const atual = await transacoesDoMes(usuarioId, ano, mes);
+  const atualCompleto = await transacoesDoMes(usuarioId, ano, mes);
   const mesAnteriorData = mes === 1 ? { ano: ano - 1, mes: 12 } : { ano, mes: mes - 1 };
-  const anterior = await transacoesDoMes(usuarioId, mesAnteriorData.ano, mesAnteriorData.mes);
+  const anteriorCompleto = await transacoesDoMes(usuarioId, mesAnteriorData.ano, mesAnteriorData.mes);
+
+  const atual = atualCompleto.filter((t) => t.tipo_negocio !== "negocio");
+  const anterior = anteriorCompleto.filter((t) => t.tipo_negocio !== "negocio");
 
   const entradas = somar(atual, "receita");
   const saidas = somar(atual, "despesa");
@@ -85,23 +92,7 @@ export async function gerarResumoMensal(
     recomendacoes.push(`Este mês as saídas passaram as entradas em R$ ${Math.abs(saldo).toFixed(2)}. Vamos ajustar o próximo mês juntos.`);
   }
 
-  let negocio;
-  let pessoal;
-  if (perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me") {
-    const doNegocio = atual.filter((t) => t.tipo_negocio === "negocio");
-    const doPessoal = atual.filter((t) => t.tipo_negocio === "pessoal");
-    const faturamento = somar(doNegocio, "receita");
-    const custos = somar(doNegocio, "despesa");
-    negocio = { faturamento, custos, lucroReal: faturamento - custos };
-    pessoal = { entradas: somar(doPessoal, "receita"), saidas: somar(doPessoal, "despesa") };
-    if (negocio.faturamento > 0) {
-      recomendacoes.push(
-        `No negócio, o lucro real do mês foi de R$ ${negocio.lucroReal.toFixed(2)} (faturamento menos custos).`
-      );
-    }
-  }
-
-  return { entradas, saidas, saldo, variacaoPercentual, maioresGastos, negocio, pessoal, recomendacoes };
+  return { entradas, saidas, saldo, variacaoPercentual, maioresGastos, recomendacoes };
 }
 
 export async function salvarAnaliseMensal(
