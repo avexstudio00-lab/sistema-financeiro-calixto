@@ -59,9 +59,11 @@ type DadosCalculo = Pick<
  * Estima o valor atual de um investimento na data de hoje, a partir dos
  * dados informados pelo usuário (nunca inventa taxas ou cotações):
  * - CDI / Tesouro Direto: juros compostos anuais pela taxa informada.
- * - Empréstimo: ganho combinado fixo (uma vez) ou mensal (linear).
- * - Bolsa de Valores / Investimento próprio: sem cálculo automático —
- *   o valor é o que o usuário atualizou manualmente por último.
+ * - Empréstimo: ganho combinado fixo (uma vez) ou mensal (linear), com a
+ *   taxa própria de cada empréstimo (cada um pode ter uma taxa diferente).
+ * - Bolsa de Valores / Investimento próprio / Compra e revenda: sem cálculo
+ *   automático — o valor é o que o usuário atualizou manualmente por
+ *   último (no caso de "revenda", o valor de venda registrado).
  */
 export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date = new Date()): number {
   const principal = Number(inv.valor_investido);
@@ -81,6 +83,7 @@ export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date =
     }
     case "bolsa":
     case "proprio":
+    case "revenda":
     default:
       return Number(inv.valor_atual) || principal;
   }
@@ -90,9 +93,27 @@ export function calcularGanhoEstimado(inv: DadosCalculo, referencia: Date = new 
   return calcularValorAtualEstimado(inv, referencia) - Number(inv.valor_investido);
 }
 
+/**
+ * Ganho em cima do valor investido, em porcentagem (ex: comprou por 2000,
+ * vendeu por 2600 → +30%). Útil especialmente pros tipos sem taxa (Bolsa,
+ * Investimento próprio, Compra e revenda), onde o usuário pensa em "quanto
+ * eu ganhei em cima do que paguei" em vez de um valor em R$.
+ */
+export function calcularPercentualGanho(inv: DadosCalculo, referencia: Date = new Date()): number {
+  const principal = Number(inv.valor_investido);
+  if (!principal) return 0;
+  return (calcularGanhoEstimado(inv, referencia) / principal) * 100;
+}
+
 /** true quando o ganho do investimento é calculado automaticamente pela taxa. */
 export function temCalculoAutomatico(tipo: Investimento["tipo"]): boolean {
   return tipo === "cdi" || tipo === "tesouro" || tipo === "emprestimo";
+}
+
+/** true pros tipos onde o usuário registra um valor de venda (em vez de só
+ * "atualizar o valor atual" de forma genérica) — hoje só Compra e revenda. */
+export function ehTipoRevenda(tipo: Investimento["tipo"]): boolean {
+  return tipo === "revenda";
 }
 
 export interface PontoEvolucaoInvestimentos {
