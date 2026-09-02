@@ -68,3 +68,17 @@ export interface Assinatura {
   data_proximo_pagamento: string | null;
   id_pagamento_externo: string | null;
 }
+
+export interface Investimento {
+  id: string;
+  usuario_id: string;
+  nome: string;
+  tipo: "cdi" | "tesouro" | "bolsa" | "proprio" | "emprestimo";
+  valor_investido: number;
+  valor_atual: number;
+  taxa: number | null;
+  descricao: string | null;
+  tipo_ganho: "fixo" | "mensal" | null;
+  data_inicio: string;
+  data_criacao: string;
+}
