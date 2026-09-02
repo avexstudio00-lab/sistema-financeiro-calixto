@@ -81,4 +81,22 @@ export interface Investimento {
   tipo_ganho: "fixo" | "mensal" | null;
   data_inicio: string;
   data_criacao: string;
+  forma_pagamento: "vista" | "parcelado" | null;
+  numero_parcelas: number | null;
+  valor_parcela: number | null;
+}
+
+/** Uma parcela de um investimento com forma_pagamento "parcelado" (ex:
+ * empréstimo recebido de volta aos poucos, celular financiado). O usuário
+ * marca manualmente quando paga — nunca é assumido automaticamente. */
+export interface ParcelaInvestimento {
+  id: string;
+  investimento_id: string;
+  usuario_id: string;
+  numero: number;
+  data_vencimento: string;
+  valor: number;
+  pago: boolean;
+  data_pagamento: string | null;
+  data_criacao: string;
 }
