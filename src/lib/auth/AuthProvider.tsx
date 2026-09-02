@@ -12,6 +12,7 @@ export interface Perfil {
   tipo_perfil: "clt" | "mei" | "me" | null;
   plano: Plano;
   data_criacao: string;
+  foto_url: string | null;
 }
 
 interface AuthContextValue {
