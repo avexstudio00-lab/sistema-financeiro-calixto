@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { criarInvestimento, TAXA_CDI_SUGERIDA } from "@/lib/data/investimentos";
+import { criarInvestimento, criarParcelasDoInvestimento, TAXA_CDI_SUGERIDA } from "@/lib/data/investimentos";
 
 const TIPOS_INVESTIMENTO = [
   {
@@ -74,6 +74,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const [taxa, setTaxa] = React.useState(String(TAXA_CDI_SUGERIDA).replace(".", ","));
   const [descricao, setDescricao] = React.useState("");
   const [tipoGanho, setTipoGanho] = React.useState<"fixo" | "mensal">("fixo");
+  const [formaPagamento, setFormaPagamento] = React.useState<"vista" | "parcelado">("vista");
+  const [numeroParcelas, setNumeroParcelas] = React.useState("");
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
@@ -86,6 +88,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setTaxa(String(TAXA_CDI_SUGERIDA).replace(".", ","));
       setDescricao("");
       setTipoGanho("fixo");
+      setFormaPagamento("vista");
+      setNumeroParcelas("");
       setErro(null);
     }
   }, [aberto]);
@@ -99,10 +103,26 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     }
   }, [tipo, aberto]);
 
+  React.useEffect(() => {
+    if (!aberto) return;
+    if (tipo !== "emprestimo" && tipo !== "revenda" && tipo !== "proprio") {
+      setFormaPagamento("vista");
+      setNumeroParcelas("");
+    }
+  }, [tipo, aberto]);
+
   if (!aberto) return null;
 
   const precisaTaxa = tipo === "cdi" || tipo === "tesouro" || tipo === "emprestimo";
   const precisaDescricao = tipo === "tesouro" || tipo === "bolsa" || tipo === "proprio";
+  const podeParcelar = tipo === "emprestimo" || tipo === "revenda" || tipo === "proprio";
+  const parcelando = podeParcelar && formaPagamento === "parcelado";
+  const valorParaParcelas = Number(valorInvestido.replace(",", "."));
+  const numeroParcelasNumero = Number(numeroParcelas);
+  const valorParcelaCalculado =
+    parcelando && valorParaParcelas > 0 && numeroParcelasNumero >= 2
+      ? valorParaParcelas / numeroParcelasNumero
+      : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -132,10 +152,14 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setErro("Digite uma taxa válida.");
       return;
     }
+    if (parcelando && (!numeroParcelasNumero || numeroParcelasNumero < 2)) {
+      setErro("Digite em quantas parcelas (mínimo 2).");
+      return;
+    }
 
     setErro(null);
     setSalvando(true);
-    const { error } = await criarInvestimento({
+    const { data, error } = await criarInvestimento({
       usuario_id: user.id,
       nome: nome.trim(),
       tipo,
@@ -145,13 +169,33 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       descricao: precisaDescricao ? descricao.trim() : null,
       tipo_ganho: tipo === "emprestimo" ? tipoGanho : null,
       data_inicio: dataInicio,
+      forma_pagamento: podeParcelar ? formaPagamento : null,
+      numero_parcelas: parcelando ? numeroParcelasNumero : null,
+      valor_parcela: parcelando && valorParcelaCalculado ? Number(valorParcelaCalculado.toFixed(2)) : null,
     });
-    setSalvando(false);
 
-    if (error) {
+    if (error || !data) {
+      setSalvando(false);
       setErro("Não foi possível salvar. Tente novamente.");
       return;
     }
+
+    if (parcelando && valorParcelaCalculado) {
+      const { error: erroParcelas } = await criarParcelasDoInvestimento(
+        data.id,
+        user.id,
+        dataInicio,
+        numeroParcelasNumero,
+        valorNumero
+      );
+      if (erroParcelas) {
+        setSalvando(false);
+        setErro("Investimento salvo, mas não deu pra criar as parcelas. Tente editar depois.");
+        return;
+      }
+    }
+
+    setSalvando(false);
     onSalvo();
     onFechar();
   }
@@ -254,6 +298,63 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               onChange={(e) => setDataInicio(e.target.value)}
             />
           </div>
+
+          {podeParcelar && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-small font-medium text-foreground">Pagamento</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormaPagamento("vista")}
+                  className={cn(
+                    "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
+                    formaPagamento === "vista"
+                      ? "border-primary-500 bg-primary-50 text-primary-700"
+                      : "border-border text-muted"
+                  )}
+                >
+                  À vista
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormaPagamento("parcelado")}
+                  className={cn(
+                    "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
+                    formaPagamento === "parcelado"
+                      ? "border-primary-500 bg-primary-50 text-primary-700"
+                      : "border-border text-muted"
+                  )}
+                >
+                  Parcelado
+                </button>
+              </div>
+              {parcelando && (
+                <div className="grid grid-cols-2 gap-4 pt-1">
+                  <Input
+                    label="Número de parcelas"
+                    inputMode="numeric"
+                    value={numeroParcelas}
+                    onChange={(e) => setNumeroParcelas(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Ex: 10"
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-small font-medium text-foreground">Valor de cada parcela</span>
+                    <div className="flex h-11 items-center rounded-xl border border-border bg-muted/5 px-3 text-small text-foreground">
+                      {valorParcelaCalculado
+                        ? valorParcelaCalculado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {parcelando && (
+                <span className="text-xs text-muted">
+                  Uma parcela por mês a partir de um mês após a data acima. Depois dá pra marcar cada uma como
+                  paga na tela de investimentos — e ela te avisa se passar do vencimento sem ser marcada.
+                </span>
+              )}
+            </div>
+          )}
 
           {tipo === "emprestimo" && (
             <div className="flex flex-col gap-1.5">
