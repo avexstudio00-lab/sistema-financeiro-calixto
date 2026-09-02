@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { criarMeta, listarMetas, atualizarProgressoMeta } from "@/lib/data/metas";
 import { podeUsarRecurso } from "@/lib/planos";
+import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
 import type { Meta } from "@/lib/data/tipos";
 
 function formatarMoeda(valor: number) {
@@ -160,18 +161,16 @@ export default function MetasPage() {
                     </Badge>
                   )}
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-small">
-                    <span className="text-muted">{formatarMoeda(Number(meta.valor_atual))}</span>
-                    <span className="text-muted">{formatarMoeda(Number(meta.valor_meta))}</span>
+                <div className="flex items-center gap-4">
+                  <AnelProgresso percentual={progresso} tamanho={88} espessura={9} />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-small text-muted">
+                      {formatarMoeda(Number(meta.valor_atual))} de {formatarMoeda(Number(meta.valor_meta))}
+                    </span>
+                    <span className="text-small font-medium text-primary-600">
+                      {progresso.toFixed(0)}% concluído
+                    </span>
                   </div>
-                  <div className="h-2.5 w-full rounded-full bg-muted/15">
-                    <div
-                      className="h-2.5 rounded-full bg-gradient-to-r from-primary-500 to-accent-400 transition-all duration-500"
-                      style={{ width: `${progresso}%` }}
-                    />
-                  </div>
-                  <p className="text-small font-medium text-primary-600">{progresso.toFixed(0)}% concluído</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <div className="min-w-[120px] flex-1">
