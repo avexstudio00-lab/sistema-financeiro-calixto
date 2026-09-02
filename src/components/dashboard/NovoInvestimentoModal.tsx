@@ -6,7 +6,6 @@ import {
   Plus,
   Landmark,
   LineChart as LineChartIcon,
-  Boxes,
   HandCoins,
   TrendingUp,
   ShoppingBag,
@@ -37,12 +36,6 @@ const TIPOS_INVESTIMENTO = [
     icone: LineChartIcon,
   },
   {
-    id: "proprio",
-    nome: "Investimento próprio",
-    descricao: "Algo que você mesmo controla, sem cálculo automático.",
-    icone: Boxes,
-  },
-  {
     id: "emprestimo",
     nome: "Empréstimo",
     descricao: "Dinheiro emprestado com um ganho combinado.",
@@ -51,12 +44,36 @@ const TIPOS_INVESTIMENTO = [
   {
     id: "revenda",
     nome: "Compra e revenda",
-    descricao: "Comprou pra revender (ex: celular)? Registre o custo e o valor de venda.",
+    descricao:
+      "Algo que você comprou — pra revender (ex: celular) ou só seu, sem cálculo automático. Registre o custo e, se vender, o valor de venda.",
     icone: ShoppingBag,
   },
 ] as const;
 
 type TipoInvestimento = (typeof TIPOS_INVESTIMENTO)[number]["id"];
+
+const PERIODICIDADES = [
+  { id: "mensal", label: "Mensal" },
+  { id: "quinzenal", label: "Quinzenal" },
+  { id: "semanal", label: "Semanal" },
+] as const;
+
+type Periodicidade = (typeof PERIODICIDADES)[number]["id"];
+
+/** Converte um valor digitado em texto pra número, aceitando tanto "1000.5"
+ * (ponto como decimal, sem separador de milhar) quanto o formato brasileiro
+ * "10.000,50" (ponto como milhar, vírgula como decimal) — antes só o segundo
+ * caso com vírgula era tratado (e de forma incompleta: só a vírgula virava
+ * ponto, sem remover os pontos de milhar, o que quebrava valores como
+ * "10.000,00" pra NaN). Sem vírgula no texto, assume que não há separador
+ * de milhar e o número já está pronto pra `Number()`. */
+function parsearValorDigitado(texto: string): number {
+  const valor = texto.trim();
+  if (valor.includes(",")) {
+    return Number(valor.replace(/\./g, "").replace(",", "."));
+  }
+  return Number(valor);
+}
 
 export interface NovoInvestimentoModalProps {
   aberto: boolean;
@@ -76,6 +93,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const [tipoGanho, setTipoGanho] = React.useState<"fixo" | "mensal">("fixo");
   const [formaPagamento, setFormaPagamento] = React.useState<"vista" | "parcelado">("vista");
   const [numeroParcelas, setNumeroParcelas] = React.useState("");
+  const [valorTotalReceber, setValorTotalReceber] = React.useState("");
+  const [periodicidade, setPeriodicidade] = React.useState<Periodicidade>("mensal");
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
@@ -90,6 +109,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setTipoGanho("fixo");
       setFormaPagamento("vista");
       setNumeroParcelas("");
+      setValorTotalReceber("");
+      setPeriodicidade("mensal");
       setErro(null);
     }
   }, [aberto]);
@@ -105,19 +126,27 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
 
   React.useEffect(() => {
     if (!aberto) return;
-    if (tipo !== "emprestimo" && tipo !== "revenda" && tipo !== "proprio") {
+    if (tipo !== "emprestimo" && tipo !== "revenda") {
       setFormaPagamento("vista");
       setNumeroParcelas("");
+      setValorTotalReceber("");
+      setPeriodicidade("mensal");
     }
   }, [tipo, aberto]);
 
   if (!aberto) return null;
 
   const precisaTaxa = tipo === "cdi" || tipo === "tesouro" || tipo === "emprestimo";
-  const precisaDescricao = tipo === "tesouro" || tipo === "bolsa" || tipo === "proprio";
-  const podeParcelar = tipo === "emprestimo" || tipo === "revenda" || tipo === "proprio";
+  const precisaDescricao = tipo === "tesouro" || tipo === "bolsa";
+  const podeParcelar = tipo === "emprestimo" || tipo === "revenda";
   const parcelando = podeParcelar && formaPagamento === "parcelado";
-  const valorParaParcelas = Number(valorInvestido.replace(",", "."));
+  // Empréstimo parcelado: a pessoa diz direto quanto volta no total (já com o
+  // combinado), em vez de a gente calcular a partir de uma taxa — as parcelas
+  // são geradas em cima desse total, nunca só do valor investido/emprestado.
+  const usaValorTotalReceber = tipo === "emprestimo" && parcelando;
+  const valorParaParcelas = usaValorTotalReceber
+    ? parsearValorDigitado(valorTotalReceber)
+    : parsearValorDigitado(valorInvestido);
   const numeroParcelasNumero = Number(numeroParcelas);
   const valorParcelaCalculado =
     parcelando && valorParaParcelas > 0 && numeroParcelasNumero >= 2
@@ -128,7 +157,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     e.preventDefault();
     if (!user) return;
 
-    const valorNumero = Number(valorInvestido.replace(",", "."));
+    const valorNumero = parsearValorDigitado(valorInvestido);
     if (!valorNumero || valorNumero <= 0) {
       setErro("Digite um valor investido válido.");
       return;
@@ -138,13 +167,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       return;
     }
     if (precisaDescricao && !descricao.trim()) {
-      setErro(
-        tipo === "tesouro"
-          ? "Informe o título (ex: Tesouro Selic 2029)."
-          : tipo === "bolsa"
-            ? "Informe o ativo (ex: PETR4, HGLG11)."
-            : "Descreva o que é esse investimento."
-      );
+      setErro(tipo === "tesouro" ? "Informe o título (ex: Tesouro Selic 2029)." : "Informe o ativo (ex: PETR4, HGLG11).");
       return;
     }
     const taxaNumero = precisaTaxa ? Number(taxa.replace(",", ".")) : null;
@@ -154,6 +177,19 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     }
     if (parcelando && (!numeroParcelasNumero || numeroParcelasNumero < 2)) {
       setErro("Digite em quantas parcelas (mínimo 2).");
+      return;
+    }
+    if (usaValorTotalReceber && (!valorParaParcelas || valorParaParcelas <= 0)) {
+      setErro("Digite o valor total que você vai receber de volta.");
+      return;
+    }
+    if (usaValorTotalReceber && valorParaParcelas < valorNumero) {
+      setErro(
+        `O valor total a receber precisa ser pelo menos o valor investido (${valorNumero.toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        })}).`
+      );
       return;
     }
 
@@ -172,6 +208,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       forma_pagamento: podeParcelar ? formaPagamento : null,
       numero_parcelas: parcelando ? numeroParcelasNumero : null,
       valor_parcela: parcelando && valorParcelaCalculado ? Number(valorParcelaCalculado.toFixed(2)) : null,
+      periodicidade_parcelas: parcelando ? periodicidade : null,
     });
 
     if (error || !data) {
@@ -186,7 +223,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
         user.id,
         dataInicio,
         numeroParcelasNumero,
-        valorNumero
+        valorParaParcelas,
+        periodicidade
       );
       if (erroParcelas) {
         setSalvando(false);
@@ -274,15 +312,6 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               placeholder="Ex: PETR4, HGLG11"
             />
           )}
-          {tipo === "proprio" && (
-            <Input
-              label="Descrição"
-              value={descricao}
-              onChange={(e) => setDescricao(e.target.value)}
-              placeholder="Ex: Guardando para trocar de carro"
-            />
-          )}
-
           <div className="grid grid-cols-2 gap-4">
             <Input
               label={tipo === "revenda" ? "Valor de custo" : "Valor investido"}
@@ -328,6 +357,16 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                   Parcelado
                 </button>
               </div>
+              {usaValorTotalReceber && (
+                <Input
+                  label="Valor total a receber"
+                  inputMode="decimal"
+                  value={valorTotalReceber}
+                  onChange={(e) => setValorTotalReceber(e.target.value)}
+                  placeholder="0,00"
+                  helperText="Já com o combinado — ex: emprestou 1000, vai receber 1300 de volta? Digite 1300."
+                />
+              )}
               {parcelando && (
                 <div className="grid grid-cols-2 gap-4 pt-1">
                   <Input
@@ -348,9 +387,36 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                 </div>
               )}
               {parcelando && (
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <span className="text-small font-medium text-foreground">Periodicidade</span>
+                  <div className="flex gap-2">
+                    {PERIODICIDADES.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setPeriodicidade(p.id)}
+                        className={cn(
+                          "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
+                          periodicidade === p.id
+                            ? "border-primary-500 bg-primary-50 text-primary-700"
+                            : "border-border text-muted"
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {parcelando && (
                 <span className="text-xs text-muted">
-                  Uma parcela por mês a partir de um mês após a data acima. Depois dá pra marcar cada uma como
-                  paga na tela de investimentos — e ela te avisa se passar do vencimento sem ser marcada.
+                  {periodicidade === "quinzenal"
+                    ? "Uma parcela a cada 15 dias, a partir de 15 dias após a data acima."
+                    : periodicidade === "semanal"
+                      ? "Uma parcela por semana, a partir de uma semana após a data acima."
+                      : "Uma parcela por mês, a partir de um mês após a data acima."}{" "}
+                  Depois dá pra marcar cada uma como paga na tela de investimentos — e ela te avisa se passar do
+                  vencimento sem ser marcada.
                 </span>
               )}
             </div>
