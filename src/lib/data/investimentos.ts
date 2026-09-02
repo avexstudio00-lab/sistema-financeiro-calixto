@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { NOMES_MES } from "@/lib/format";
-import type { Investimento } from "./tipos";
+import type { Investimento, ParcelaInvestimento } from "./tipos";
 
 /** Taxa CDI de referência (% ao ano) sugerida ao cadastrar um investimento
  * do tipo CDI — apenas um valor inicial editável, nunca aplicado sem o
@@ -17,6 +17,9 @@ export interface NovoInvestimento {
   descricao: string | null;
   tipo_ganho: "fixo" | "mensal" | null;
   data_inicio: string;
+  forma_pagamento: "vista" | "parcelado" | null;
+  numero_parcelas: number | null;
+  valor_parcela: number | null;
 }
 
 export async function listarInvestimentos(usuarioId: string): Promise<Investimento[]> {
@@ -30,6 +33,92 @@ export async function listarInvestimentos(usuarioId: string): Promise<Investimen
 
 export async function criarInvestimento(dados: NovoInvestimento) {
   return supabase.from("investimentos").insert(dados).select().single();
+}
+
+/** Soma meses a uma data "YYYY-MM-DD" mantendo o dia (ajustado pro último
+ * dia do mês quando o mês de destino for mais curto, ex: 31/jan + 1 mês =
+ * 28 ou 29/fev, nunca março). Cálculo só com aritmética de calendário —
+ * sem passar por Date→ISO, que converteria pra UTC e poderia mudar o dia. */
+function adicionarMeses(dataIso: string, meses: number): string {
+  const [ano, mes, dia] = dataIso.split("-").map(Number);
+  const totalMeses = mes - 1 + meses;
+  const novoAno = ano + Math.floor(totalMeses / 12);
+  const novoMes = ((totalMeses % 12) + 12) % 12;
+  const ultimoDiaDoMes = new Date(novoAno, novoMes + 1, 0).getDate();
+  const novoDia = Math.min(dia, ultimoDiaDoMes);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${novoAno}-${pad(novoMes + 1)}-${pad(novoDia)}`;
+}
+
+/**
+ * Gera as parcelas de um investimento parcelado (empréstimo recebido de
+ * volta, celular financiado etc.): uma por mês a partir de um mês após a
+ * data de início, com o mesmo valor cada (a última absorve a diferença de
+ * arredondamento pra a soma bater certinho com `valorTotal`). Nenhuma é
+ * marcada como paga — isso é sempre manual.
+ */
+export async function criarParcelasDoInvestimento(
+  investimentoId: string,
+  usuarioId: string,
+  dataInicio: string,
+  numeroParcelas: number,
+  valorTotal: number
+) {
+  if (numeroParcelas < 2 || !Number.isFinite(valorTotal) || valorTotal <= 0) {
+    return { data: null, error: null };
+  }
+  const valorBase = Math.round((valorTotal / numeroParcelas) * 100) / 100;
+  const parcelas = Array.from({ length: numeroParcelas }, (_, i) => {
+    const ultima = i === numeroParcelas - 1;
+    const valor = ultima ? Number((valorTotal - valorBase * (numeroParcelas - 1)).toFixed(2)) : valorBase;
+    return {
+      investimento_id: investimentoId,
+      usuario_id: usuarioId,
+      numero: i + 1,
+      data_vencimento: adicionarMeses(dataInicio, i + 1),
+      valor,
+      pago: false,
+    };
+  });
+  return supabase.from("investimento_parcelas").insert(parcelas);
+}
+
+export async function listarParcelas(usuarioId: string): Promise<ParcelaInvestimento[]> {
+  const { data } = await supabase
+    .from("investimento_parcelas")
+    .select("*")
+    .eq("usuario_id", usuarioId)
+    .order("numero", { ascending: true });
+  return (data as ParcelaInvestimento[]) ?? [];
+}
+
+export async function marcarParcelaPaga(id: string, pago: boolean) {
+  return supabase
+    .from("investimento_parcelas")
+    .update({ pago, data_pagamento: pago ? new Date().toISOString().slice(0, 10) : null })
+    .eq("id", id);
+}
+
+/** true quando a parcela venceu e ainda não foi marcada como paga. */
+export function parcelaEstaAtrasada(parcela: ParcelaInvestimento, referencia: Date = new Date()): boolean {
+  if (parcela.pago) return false;
+  const vencimento = new Date(parcela.data_vencimento + "T00:00:00");
+  const hoje = new Date(referencia.getFullYear(), referencia.getMonth(), referencia.getDate());
+  return vencimento < hoje;
+}
+
+export interface ResumoParcelas {
+  pagas: number;
+  total: number;
+  atrasadas: number;
+  proxima: ParcelaInvestimento | null;
+}
+
+export function resumirParcelas(parcelas: ParcelaInvestimento[]): ResumoParcelas {
+  const pagas = parcelas.filter((p) => p.pago).length;
+  const atrasadas = parcelas.filter((p) => parcelaEstaAtrasada(p)).length;
+  const proxima = parcelas.find((p) => !p.pago) ?? null;
+  return { pagas, total: parcelas.length, atrasadas, proxima };
 }
 
 export async function atualizarTaxaInvestimento(id: string, taxa: number) {
