@@ -101,3 +101,81 @@ export interface ParcelaInvestimento {
   data_pagamento: string | null;
   data_criacao: string;
 }
+
+// ---------------------------------------------------------------------------
+// Área "Minha empresa" (negócio) — só existe pra perfil MEI/ME.
+// ---------------------------------------------------------------------------
+
+export interface Cliente {
+  id: string;
+  usuario_id: string;
+  nome: string;
+  telefone: string | null;
+  email: string | null;
+  criado_em: string;
+}
+
+export interface Fornecedor {
+  id: string;
+  usuario_id: string;
+  nome: string;
+  telefone: string | null;
+  email: string | null;
+  criado_em: string;
+}
+
+export interface Produto {
+  id: string;
+  usuario_id: string;
+  nome: string;
+  custo: number;
+  preco_venda: number;
+  quantidade_estoque: number;
+  estoque_minimo: number;
+  ativo: boolean;
+  criado_em: string;
+}
+
+export interface Venda {
+  id: string;
+  usuario_id: string;
+  produto_id: string | null;
+  produto_nome: string;
+  quantidade: number;
+  valor_unitario: number;
+  custo_unitario: number;
+  valor_total: number;
+  forma_pagamento: "pix" | "debito" | "credito" | "dinheiro" | "boleto" | null;
+  cliente_id: string | null;
+  data: string;
+  transacao_id: string | null;
+  criado_em: string;
+  clientes?: Cliente | null;
+}
+
+export interface ContaPagar {
+  id: string;
+  usuario_id: string;
+  fornecedor_id: string | null;
+  categoria: "fornecedor" | "das" | "outro";
+  descricao: string;
+  valor: number;
+  vencimento: string;
+  status: "pendente" | "pago";
+  data_pagamento: string | null;
+  criado_em: string;
+  fornecedores?: Fornecedor | null;
+}
+
+export interface ContaReceber {
+  id: string;
+  usuario_id: string;
+  cliente_id: string | null;
+  descricao: string;
+  valor: number;
+  vencimento: string;
+  status: "pendente" | "recebido";
+  data_recebimento: string | null;
+  criado_em: string;
+  clientes?: Cliente | null;
+}
