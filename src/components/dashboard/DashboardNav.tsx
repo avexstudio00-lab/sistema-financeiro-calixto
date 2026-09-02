@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Sparkles, PiggyBank, CreditCard, LogOut, Wallet } from "lucide-react";
+import { LayoutDashboard, Sparkles, PiggyBank, CreditCard, LogOut, Wallet, TrendingUp } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 const LINKS = [
   { href: "/dashboard", label: "Painel", icon: LayoutDashboard },
   { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
+  { href: "/dashboard/investimentos", label: "Investimentos", icon: TrendingUp },
   { href: "/dashboard/metas", label: "Metas", icon: PiggyBank },
   { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
 ];
