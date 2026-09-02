@@ -1,7 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Landmark, LineChart as LineChartIcon, Boxes, HandCoins, TrendingUp } from "lucide-react";
+import {
+  X,
+  Plus,
+  Landmark,
+  LineChart as LineChartIcon,
+  Boxes,
+  HandCoins,
+  TrendingUp,
+  ShoppingBag,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
@@ -38,6 +47,12 @@ const TIPOS_INVESTIMENTO = [
     nome: "Empréstimo",
     descricao: "Dinheiro emprestado com um ganho combinado.",
     icone: HandCoins,
+  },
+  {
+    id: "revenda",
+    nome: "Compra e revenda",
+    descricao: "Comprou pra revender (ex: celular)? Registre o custo e o valor de venda.",
+    icone: ShoppingBag,
   },
 ] as const;
 
@@ -191,10 +206,12 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
           </div>
 
           <Input
-            label="Nome do investimento"
+            label={tipo === "revenda" ? "O que você comprou" : "Nome do investimento"}
             value={nome}
             onChange={(e) => setNome(e.target.value)}
-            placeholder='Ex: "Reserva CDI", "Empréstimo para João"'
+            placeholder={
+              tipo === "revenda" ? 'Ex: "iPhone 11", "Tênis Nike 42"' : 'Ex: "Reserva CDI", "Empréstimo para João"'
+            }
           />
 
           {tipo === "tesouro" && (
@@ -218,20 +235,20 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               label="Descrição"
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              placeholder="Ex: Comprei celulares para revender"
+              placeholder="Ex: Guardando para trocar de carro"
             />
           )}
 
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Valor investido"
+              label={tipo === "revenda" ? "Valor de custo" : "Valor investido"}
               inputMode="decimal"
               value={valorInvestido}
               onChange={(e) => setValorInvestido(e.target.value)}
               placeholder="0,00"
             />
             <Input
-              label="Data de início"
+              label={tipo === "revenda" ? "Data da compra" : "Data de início"}
               type="date"
               value={dataInicio}
               onChange={(e) => setDataInicio(e.target.value)}
