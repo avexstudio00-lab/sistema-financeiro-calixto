@@ -47,3 +47,13 @@ export function podeUsarRecurso(plano: Plano, recurso: "analiseIA" | "metas" | "
   if (recurso === "dashboardAvancado" || recurso === "graficos") return plano === "avancado";
   return plano === "mensal" || plano === "avancado";
 }
+
+/**
+ * Nível numérico do plano, usado para liberar recursos de forma gradual
+ * (ex: gráficos do painel). 0 = Grátis, 1 = Mensal, 2 = Avançado.
+ */
+export function nivelPlano(plano: Plano): number {
+  if (plano === "avancado") return 2;
+  if (plano === "mensal") return 1;
+  return 0;
+}
