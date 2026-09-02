@@ -20,6 +20,7 @@ export interface NovoInvestimento {
   forma_pagamento: "vista" | "parcelado" | null;
   numero_parcelas: number | null;
   valor_parcela: number | null;
+  periodicidade_parcelas: "mensal" | "quinzenal" | "semanal" | null;
 }
 
 export async function listarInvestimentos(usuarioId: string): Promise<Investimento[]> {
@@ -50,23 +51,44 @@ function adicionarMeses(dataIso: string, meses: number): string {
   return `${novoAno}-${pad(novoMes + 1)}-${pad(novoDia)}`;
 }
 
+/** Soma dias a uma data "YYYY-MM-DD" (usado pras periodicidades quinzenal e
+ * semanal). Feito com `new Date(ano, mes-1, dia + dias)` — números soltos,
+ * sem passar por string ISO/UTC — o próprio JS já rola pro mês/ano seguinte
+ * corretamente quando o dia estoura o mês, sem risco de mudar de dia por
+ * causa de fuso horário. */
+function adicionarDias(dataIso: string, dias: number): string {
+  const [ano, mes, dia] = dataIso.split("-").map(Number);
+  const d = new Date(ano, mes - 1, dia + dias);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export type PeriodicidadeParcelas = "mensal" | "quinzenal" | "semanal";
+
 /**
  * Gera as parcelas de um investimento parcelado (empréstimo recebido de
- * volta, celular financiado etc.): uma por mês a partir de um mês após a
- * data de início, com o mesmo valor cada (a última absorve a diferença de
- * arredondamento pra a soma bater certinho com `valorTotal`). Nenhuma é
- * marcada como paga — isso é sempre manual.
+ * volta, celular financiado etc.): uma por período (mensal, quinzenal ou
+ * semanal) a partir de um período após a data de início, com o mesmo valor
+ * cada (a última absorve a diferença de arredondamento pra a soma bater
+ * certinho com `valorTotal`). Nenhuma é marcada como paga — isso é sempre
+ * manual.
  */
 export async function criarParcelasDoInvestimento(
   investimentoId: string,
   usuarioId: string,
   dataInicio: string,
   numeroParcelas: number,
-  valorTotal: number
+  valorTotal: number,
+  periodicidade: PeriodicidadeParcelas = "mensal"
 ) {
   if (numeroParcelas < 2 || !Number.isFinite(valorTotal) || valorTotal <= 0) {
     return { data: null, error: null };
   }
+  const dataVencimento = (indiceParcela: number) => {
+    if (periodicidade === "quinzenal") return adicionarDias(dataInicio, indiceParcela * 15);
+    if (periodicidade === "semanal") return adicionarDias(dataInicio, indiceParcela * 7);
+    return adicionarMeses(dataInicio, indiceParcela);
+  };
   const valorBase = Math.round((valorTotal / numeroParcelas) * 100) / 100;
   const parcelas = Array.from({ length: numeroParcelas }, (_, i) => {
     const ultima = i === numeroParcelas - 1;
@@ -75,7 +97,7 @@ export async function criarParcelasDoInvestimento(
       investimento_id: investimentoId,
       usuario_id: usuarioId,
       numero: i + 1,
-      data_vencimento: adicionarMeses(dataInicio, i + 1),
+      data_vencimento: dataVencimento(i + 1),
       valor,
       pago: false,
     };
@@ -150,9 +172,9 @@ type DadosCalculo = Pick<
  * - CDI / Tesouro Direto: juros compostos anuais pela taxa informada.
  * - Empréstimo: ganho combinado fixo (uma vez) ou mensal (linear), com a
  *   taxa própria de cada empréstimo (cada um pode ter uma taxa diferente).
- * - Bolsa de Valores / Investimento próprio / Compra e revenda: sem cálculo
- *   automático — o valor é o que o usuário atualizou manualmente por
- *   último (no caso de "revenda", o valor de venda registrado).
+ * - Bolsa de Valores / Compra e revenda: sem cálculo automático — o valor é
+ *   o que o usuário atualizou manualmente por último (no caso de "revenda",
+ *   o valor de venda registrado).
  */
 export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date = new Date()): number {
   const principal = Number(inv.valor_investido);
@@ -171,7 +193,6 @@ export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date =
       return principal + ganho;
     }
     case "bolsa":
-    case "proprio":
     case "revenda":
     default:
       return Number(inv.valor_atual) || principal;
@@ -185,8 +206,8 @@ export function calcularGanhoEstimado(inv: DadosCalculo, referencia: Date = new 
 /**
  * Ganho em cima do valor investido, em porcentagem (ex: comprou por 2000,
  * vendeu por 2600 → +30%). Útil especialmente pros tipos sem taxa (Bolsa,
- * Investimento próprio, Compra e revenda), onde o usuário pensa em "quanto
- * eu ganhei em cima do que paguei" em vez de um valor em R$.
+ * Compra e revenda), onde o usuário pensa em "quanto eu ganhei em cima do
+ * que paguei" em vez de um valor em R$.
  */
 export function calcularPercentualGanho(inv: DadosCalculo, referencia: Date = new Date()): number {
   const principal = Number(inv.valor_investido);
@@ -218,8 +239,8 @@ function valorNaData(inv: Investimento, referencia: Date): number {
     return calcularValorAtualEstimado(inv, referencia);
   }
 
-  // Bolsa / Investimento próprio: interpola entre o valor investido (início)
-  // e o valor atual informado por último (hoje), já que não há histórico.
+  // Bolsa / Compra e revenda: interpola entre o valor investido (início) e
+  // o valor atual informado por último (hoje), já que não há histórico.
   const hoje = new Date();
   const principal = Number(inv.valor_investido);
   const alvo = Number(inv.valor_atual) || principal;
