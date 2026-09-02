@@ -11,6 +11,7 @@ import {
   LineChart as LineChartIcon,
   Boxes,
   HandCoins,
+  ShoppingBag,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -26,8 +27,10 @@ import {
   atualizarValorAtualInvestimento,
   calcularValorAtualEstimado,
   calcularGanhoEstimado,
+  calcularPercentualGanho,
   calcularEvolucaoInvestimentos,
   temCalculoAutomatico,
+  ehTipoRevenda,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
 import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
@@ -40,6 +43,7 @@ const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon
   bolsa: { label: "Bolsa de Valores", icone: LineChartIcon },
   proprio: { label: "Investimento próprio", icone: Boxes },
   emprestimo: { label: "Empréstimo", icone: HandCoins },
+  revenda: { label: "Compra e revenda", icone: ShoppingBag },
 };
 
 export default function InvestimentosPage() {
@@ -167,9 +171,11 @@ export default function InvestimentosPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             {investimentos.map((inv) => {
               const ganho = calcularGanhoEstimado(inv);
+              const percentual = calcularPercentualGanho(inv);
               const valorAtual = calcularValorAtualEstimado(inv);
               const Icone = TIPO_META[inv.tipo].icone;
               const automatico = temCalculoAutomatico(inv.tipo);
+              const revenda = ehTipoRevenda(inv.tipo);
 
               return (
                 <Card key={inv.id} className="flex flex-col gap-3">
@@ -190,7 +196,7 @@ export default function InvestimentosPage() {
 
                   <div className="grid grid-cols-3 gap-2 text-small">
                     <div>
-                      <p className="text-xs text-muted">Investido</p>
+                      <p className="text-xs text-muted">{revenda ? "Custo" : "Investido"}</p>
                       <p className="font-semibold text-foreground">{formatarMoeda(Number(inv.valor_investido))}</p>
                     </div>
                     <div>
@@ -198,10 +204,14 @@ export default function InvestimentosPage() {
                       <p className={`font-semibold ${ganho >= 0 ? "text-primary-600" : "text-red-500"}`}>
                         {ganho >= 0 ? "+" : ""}
                         {formatarMoeda(ganho)}
+                        <span className="ml-1 text-xs font-normal">
+                          ({percentual >= 0 ? "+" : ""}
+                          {percentual.toFixed(1)}%)
+                        </span>
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted">Valor atual</p>
+                      <p className="text-xs text-muted">{revenda ? "Valor de venda" : "Valor atual"}</p>
                       <p className="font-semibold text-secondary">{formatarMoeda(valorAtual)}</p>
                     </div>
                   </div>
@@ -250,7 +260,7 @@ export default function InvestimentosPage() {
                             value={valorEmEdicao}
                             onChange={(e) => setValorEmEdicao(e.target.value)}
                             inputMode="decimal"
-                            placeholder="Novo valor"
+                            placeholder={revenda ? "Valor de venda" : "Novo valor"}
                           />
                         </div>
                         <Button size="sm" variant="secondary" disabled={salvandoAcao} onClick={() => handleAtualizarValor(inv)}>
@@ -270,7 +280,7 @@ export default function InvestimentosPage() {
                         className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/20"
                       >
                         <RefreshCw size={12} />
-                        Atualizar valor
+                        {revenda ? "Registrar venda" : "Atualizar valor"}
                       </button>
                     )}
 
