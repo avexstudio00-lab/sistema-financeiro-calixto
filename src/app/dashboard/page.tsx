@@ -64,9 +64,7 @@ export default function DashboardPage() {
   const [filtroFormaPagamento, setFiltroFormaPagamento] = React.useState("");
   const [filtroPeriodo, setFiltroPeriodo] = React.useState<"mes" | "3meses" | "6meses">("mes");
   const [transacoesPeriodo, setTransacoesPeriodo] = React.useState<Transacao[] | null>(null);
-  const [modoVisualizacao, setModoVisualizacao] = React.useState<"tudo" | "pessoal" | "negocio">("tudo");
 
-  const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
   const nivel = perfil ? nivelPlano(perfil.plano) : 0;
 
   const carregar = React.useCallback(async () => {
@@ -76,13 +74,13 @@ export default function DashboardPage() {
     const [lista, cats, evolucao] = await Promise.all([
       listarTransacoes(user.id, { inicio, fim }),
       listarCategorias(user.id),
-      listarEvolucaoMensal(user.id, 6, modoVisualizacao),
+      listarEvolucaoMensal(user.id, 6, "pessoal"),
     ]);
     setTransacoes(lista);
     setCategorias(cats);
     setEvolucaoMensal(evolucao);
     setCarregando(false);
-  }, [user, modoVisualizacao]);
+  }, [user]);
 
   React.useEffect(() => {
     carregar();
@@ -131,14 +129,15 @@ export default function DashboardPage() {
     setFiltroCategoria((atual) => (atual === id ? "" : id));
   }
 
-  const transacoesDoModo =
-    modoVisualizacao === "tudo" ? transacoes : transacoes.filter((t) => t.tipo_negocio === modoVisualizacao);
+  // O Painel pessoal só mostra dados pessoais — o "sem tipo" cobre lançamentos
+  // antigos sem tipo_negocio definido; tudo do negócio vive em "Minha empresa".
+  const transacoesPessoais = transacoes.filter((t) => t.tipo_negocio !== "negocio");
 
-  const entradas = transacoesDoModo.filter((t) => t.tipo === "receita").reduce((acc, t) => acc + Number(t.valor), 0);
-  const saidas = transacoesDoModo.filter((t) => t.tipo === "despesa").reduce((acc, t) => acc + Number(t.valor), 0);
+  const entradas = transacoesPessoais.filter((t) => t.tipo === "receita").reduce((acc, t) => acc + Number(t.valor), 0);
+  const saidas = transacoesPessoais.filter((t) => t.tipo === "despesa").reduce((acc, t) => acc + Number(t.valor), 0);
   const saldo = entradas - saidas;
 
-  const transacoesFiltradas = transacoesDoModo.filter((t) => {
+  const transacoesFiltradas = transacoesPessoais.filter((t) => {
     if (filtroTipo !== "todos" && t.tipo !== filtroTipo) return false;
     if (filtroCategoria && t.categoria_id !== filtroCategoria) return false;
     if (nivel >= 2 && filtroFormaPagamento && t.forma_pagamento !== filtroFormaPagamento) return false;
@@ -146,13 +145,10 @@ export default function DashboardPage() {
   });
 
   const fatiasCategorias = React.useMemo(() => {
-    const origem = transacoesPeriodo ?? transacoes;
-    const porModo = modoVisualizacao === "tudo" ? origem : origem.filter((t) => t.tipo_negocio === modoVisualizacao);
-    const porForma = filtroFormaPagamento
-      ? porModo.filter((t) => t.forma_pagamento === filtroFormaPagamento)
-      : porModo;
+    const origem = (transacoesPeriodo ?? transacoes).filter((t) => t.tipo_negocio !== "negocio");
+    const porForma = filtroFormaPagamento ? origem.filter((t) => t.forma_pagamento === filtroFormaPagamento) : origem;
     return agruparGastosPorCategoria(porForma);
-  }, [transacoesPeriodo, transacoes, modoVisualizacao, filtroFormaPagamento]);
+  }, [transacoesPeriodo, transacoes, filtroFormaPagamento]);
 
   const totalGastosCategoria = React.useMemo(
     () => fatiasCategorias.reduce((acc, f) => acc + f.valor, 0),
@@ -168,8 +164,8 @@ export default function DashboardPage() {
   const diasHeatmap = React.useMemo(() => {
     if (nivel < 2) return [];
     const agora = new Date();
-    return heatmapDoMes(transacoesDoModo, agora.getFullYear(), agora.getMonth() + 1);
-  }, [nivel, transacoesDoModo]);
+    return heatmapDoMes(transacoesPessoais, agora.getFullYear(), agora.getMonth() + 1);
+  }, [nivel, transacoesPessoais]);
 
   const metaDestaque = React.useMemo(() => {
     if (metas.length === 0) return null;
@@ -190,24 +186,6 @@ export default function DashboardPage() {
           <p className="text-body text-muted">Aqui está o resumo do seu mês.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {ehNegocio && (
-            <div className="flex gap-1 rounded-full bg-muted/10 p-1">
-              {(["tudo", "pessoal", "negocio"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setModoVisualizacao(m)}
-                  className={`rounded-full px-3 py-1.5 text-small font-medium transition-colors ${
-                    modoVisualizacao === m
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted hover:text-foreground"
-                  }`}
-                >
-                  {m === "tudo" ? "Tudo" : m === "pessoal" ? "Pessoal" : "Empresa"}
-                </button>
-              ))}
-            </div>
-          )}
           <Button size="lg" onClick={handleAbrirModal} className="hidden sm:inline-flex">
             <Plus size={18} />
             Anotar gasto ou receita
@@ -472,7 +450,7 @@ export default function DashboardPage() {
         aberto={modalAberto}
         bloqueado={bloqueado}
         transacaoEditando={transacaoEditando}
-        modoInicial={modoVisualizacao !== "tudo" ? modoVisualizacao : undefined}
+        mundo="pessoal"
         onFechar={handleFecharModal}
         onSalvo={carregar}
       />
