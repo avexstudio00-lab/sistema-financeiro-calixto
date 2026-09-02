@@ -9,13 +9,21 @@ import type { ParcelaInvestimento } from "@/lib/data/tipos";
 
 export interface ParcelasInvestimentoProps {
   parcelas: ParcelaInvestimento[];
+  periodicidade?: "mensal" | "quinzenal" | "semanal" | null;
   salvando: boolean;
   onAlternarPaga: (parcela: ParcelaInvestimento) => void;
 }
 
-export function ParcelasInvestimento({ parcelas, salvando, onAlternarPaga }: ParcelasInvestimentoProps) {
+const LABEL_PERIODICIDADE: Record<"quinzenal" | "semanal", string> = {
+  quinzenal: "quinzenais",
+  semanal: "semanais",
+};
+
+export function ParcelasInvestimento({ parcelas, periodicidade, salvando, onAlternarPaga }: ParcelasInvestimentoProps) {
   const [expandido, setExpandido] = React.useState(false);
   const resumo = React.useMemo(() => resumirParcelas(parcelas), [parcelas]);
+  const sufixoPeriodicidade =
+    periodicidade === "quinzenal" || periodicidade === "semanal" ? ` ${LABEL_PERIODICIDADE[periodicidade]}` : "";
 
   if (parcelas.length === 0) return null;
 
@@ -28,7 +36,7 @@ export function ParcelasInvestimento({ parcelas, salvando, onAlternarPaga }: Par
       >
         <div className="flex flex-1 flex-col gap-1">
           <span className="flex items-center gap-2 text-xs font-medium text-foreground">
-            {resumo.pagas} de {resumo.total} parcelas pagas
+            {resumo.pagas} de {resumo.total} parcelas{sufixoPeriodicidade} pagas
             {resumo.atrasadas > 0 && (
               <span className="flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-red-600">
                 <AlertCircle size={11} />
