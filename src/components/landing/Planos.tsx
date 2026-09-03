@@ -23,10 +23,10 @@ const PLANOS = [
   {
     id: "mensal",
     nome: "Mensal",
-    preco: "R$ 30",
+    preco: "R$ 20",
     periodo: "/mês",
-    badge: "Mais popular",
-    destaque: true,
+    badge: "Básico",
+    destaque: false,
     recursos: [
       "Anotações ilimitadas",
       "Análise de IA no fim do mês (entrou, saiu, sobrou, variação em %)",
@@ -34,22 +34,37 @@ const PLANOS = [
       "Comparativo com o mês anterior",
       "Metas de economia",
     ],
-    cta: "Assinar por R$ 30",
+    cta: "Assinar por R$ 20",
     href: "/cadastro?plano=mensal",
+  },
+  {
+    id: "clt",
+    nome: "CLT",
+    preco: "R$ 30",
+    periodo: "/mês",
+    badge: "Mais popular",
+    destaque: true,
+    recursos: [
+      "Tudo do plano Mensal",
+      "Dashboard diário ao vivo",
+      "Gráficos interativos",
+      "Sugestões de corte e melhoria",
+      "Sem controle de estoque/negócio — ideal pra quem é CLT",
+    ],
+    cta: "Assinar por R$ 30",
+    href: "/cadastro?plano=clt",
   },
   {
     id: "avancado",
     nome: "Avançado",
     preco: "R$ 50",
     periodo: "/mês",
-    badge: "Para quem quer mais controle",
+    badge: "Para MEI e ME",
     destaque: false,
     recursos: [
-      "Tudo do plano Mensal",
-      "Dashboard diário ao vivo",
-      "Análise por perfil (CLT ou MEI/ME)",
-      "Gráficos interativos",
-      "Sugestões de corte e melhoria",
+      "Tudo do plano CLT",
+      "Minha empresa: vendas, estoque, contas e fluxo de caixa",
+      "Ideal pra quem é MEI ou ME",
     ],
     cta: "Assinar por R$ 50",
     href: "/cadastro?plano=avancado",
@@ -68,7 +83,7 @@ export function Planos() {
           className="mx-auto items-center text-center"
         />
 
-        <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="grid items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {PLANOS.map((plano, i) => (
             <FadeIn key={plano.id} delay={i * 100}>
               <Card
@@ -108,13 +123,14 @@ export function Planos() {
         <FadeIn>
           <div className="mx-auto grid max-w-4xl gap-4 sm:grid-cols-2">
             <div className="rounded-2xl bg-primary-50 p-5 text-body text-primary-800">
-              O plano <strong>Mensal</strong> mostra o que aconteceu no mês. O plano{" "}
-              <strong>Avançado</strong> mostra o que está acontecendo agora e o que fazer para
-              melhorar.
+              O plano <strong>Mensal</strong> mostra o que aconteceu no mês. Os planos{" "}
+              <strong>CLT</strong> e <strong>Avançado</strong> mostram o que está acontecendo agora
+              e o que fazer para melhorar.
             </div>
             <div className="rounded-2xl bg-accent-50 p-5 text-body text-accent-800">
-              No plano Avançado, o <strong>CLT</strong> foca em sobrar dinheiro e começar a
-              investir. O <strong>MEI/ME</strong> foca em vendas, lucro real e comparativo mensal.
+              O plano <strong>CLT</strong> foca em sobrar dinheiro e começar a investir. O plano{" "}
+              <strong>Avançado</strong>, pra quem é <strong>MEI/ME</strong>, soma o controle de
+              vendas, estoque e lucro real do negócio.
             </div>
           </div>
         </FadeIn>
