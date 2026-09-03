@@ -179,7 +179,7 @@ export default function DashboardPage() {
   const agora = new Date();
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">Olá, {perfil?.nome.split(" ")[0]} 👋</h1>
@@ -405,7 +405,7 @@ export default function DashboardPage() {
                     className={`flex h-10 w-10 items-center justify-center rounded-xl ${
                       t.tipo === "receita" ? "bg-primary-50 text-primary-600" : "bg-rose-50 text-red-500"
                     }`}
-                  >
+                >
                     {t.tipo === "receita" ? <ArrowUpCircle size={18} /> : <ArrowDownCircle size={18} />}
                   </span>
                   <div>
