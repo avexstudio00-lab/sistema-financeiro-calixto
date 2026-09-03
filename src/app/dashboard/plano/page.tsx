@@ -77,7 +77,7 @@ export default function PlanoPage() {
   if (!perfil) return null;
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div>
         <h1 className="text-h2 text-foreground">Meu plano</h1>
         <p className="text-body text-muted">
