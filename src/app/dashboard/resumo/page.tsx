@@ -87,7 +87,7 @@ export default function ResumoMensalPage() {
         <div>
           <h1 className="text-h2 text-foreground">A análise de IA é exclusiva dos planos pagos</h1>
           <p className="mx-auto mt-2 max-w-md text-body text-muted">
-            Assine um plano pago (Mensal, CLT ou Avançado) para receber, todo mês, um resumo simples
+            Assine um plano pago (Mensal, Completo ou Avançado) para receber, todo mês, um resumo simples
             do que entrou, saiu, sobrou e como isso se compara ao mês anterior.
           </p>
         </div>
@@ -210,7 +210,7 @@ export default function ResumoMensalPage() {
                   Quer ver seu dashboard ao vivo, dia a dia?
                 </p>
                 <p className="text-small text-muted">
-                  Os planos CLT e Avançado mostram projeção de fim de mês, gráficos por categoria e sugestões de corte.
+                  Os planos Completo e Avançado mostram projeção de fim de mês, gráficos por categoria e sugestões de corte.
                 </p>
               </div>
               <Link href="/dashboard/plano">
