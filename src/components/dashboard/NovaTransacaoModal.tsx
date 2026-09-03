@@ -34,7 +34,9 @@ export interface NovaTransacaoModalProps {
   /** Mundo em que o modal foi aberto ("Minha vida" ou "Minha empresa") — o
    * valor de `tipo_negocio` gravado é sempre o do mundo atual, sem depender
    * de o usuário escolher manualmente (pra não misturar pessoal e negócio
-   * na mesma tela). Ignorado pra quem não é MEI/ME (sempre "pessoal"). */
+   * na mesma tela). Só chega "negocio" aqui vindo de uma tela que já passou
+   * pela guarda de acesso (empresa/layout.tsx), então não precisa checar
+   * tipo de perfil de novo. */
   mundo?: "pessoal" | "negocio";
   /** Categoria já marcada quando o modal abre pra uma anotação nova (ex: um
    * atalho de "Registrar retirada de pró-labore" já abre com a categoria
@@ -51,8 +53,13 @@ export function NovaTransacaoModal({
   mundo = "pessoal",
   categoriaIdInicial,
 }: NovaTransacaoModalProps) {
-  const { user, perfil } = useAuth();
-  const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
+  const { user } = useAuth();
+  // Quem abre esse modal já passou pela guarda de acesso da tela que o
+  // renderiza (empresa/layout.tsx só deixa entrar em mundo="negocio" quem
+  // está no plano Avançado, seja qual for o tipo de perfil) — então o
+  // gate de "pode marcar como negócio" aqui é só o mundo atual, não mais o
+  // tipo de perfil.
+  const podeMarcarNegocio = mundo === "negocio";
   const editando = !!transacaoEditando;
 
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
@@ -146,7 +153,7 @@ export function NovaTransacaoModal({
       descricao: descricao.trim(),
       data,
       forma_pagamento: formaPagamento,
-      tipo_negocio: ehNegocio ? tipoNegocio : "pessoal",
+      tipo_negocio: podeMarcarNegocio ? tipoNegocio : "pessoal",
     };
     const { error } = transacaoEditando
       ? await atualizarTransacao(transacaoEditando, dados)
@@ -345,7 +352,7 @@ export function NovaTransacaoModal({
               </div>
             )}
 
-            {ehNegocio && (
+            {podeMarcarNegocio && (
               <div
                 className={cn(
                   "flex items-center gap-2 rounded-xl px-3 py-2 text-small font-medium",
