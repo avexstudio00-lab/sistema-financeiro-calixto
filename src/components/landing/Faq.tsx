@@ -25,7 +25,7 @@ const PERGUNTAS = [
   {
     pergunta: "Sou CLT, esse site serve para mim?",
     resposta:
-      "Sim. O plano Avançado ajuda você a entender para onde seu dinheiro vai, sobrar mais e começar a investir.",
+      "Sim, o site foi pensado pra quem tem salário fixo. O plano CLT tem dashboard diário, gráficos e sugestões de corte pra te ajudar a sobrar mais e começar a investir.",
   },
   {
     pergunta: "Preciso entender de finanças?",
