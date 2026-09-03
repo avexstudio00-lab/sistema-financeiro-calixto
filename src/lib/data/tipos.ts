@@ -103,7 +103,8 @@ export interface ParcelaInvestimento {
 }
 
 // ---------------------------------------------------------------------------
-// Área "Minha empresa" (negócio) — só existe pra perfil MEI/ME.
+// Área "Minha empresa" (negócio) — liberada pra qualquer perfil no plano
+// Avançado, ver `podeAcessarNegocio` em src/lib/planos.ts.
 // ---------------------------------------------------------------------------
 
 export interface Cliente {
