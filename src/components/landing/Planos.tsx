@@ -39,17 +39,17 @@ const PLANOS = [
   },
   {
     id: "clt",
-    nome: "CLT",
+    nome: "Completo",
     preco: "R$ 30",
     periodo: "/mês",
-    badge: "Mais popular",
+    badge: "Popular",
     destaque: true,
     recursos: [
       "Tudo do plano Mensal",
       "Dashboard diário ao vivo",
       "Gráficos interativos",
       "Sugestões de corte e melhoria",
-      "Sem controle de estoque/negócio — ideal pra quem é CLT",
+      "Sem controle de estoque/negócio — vale pra CLT, MEI ou ME",
     ],
     cta: "Assinar por R$ 30",
     href: "/cadastro?plano=clt",
@@ -59,12 +59,12 @@ const PLANOS = [
     nome: "Avançado",
     preco: "R$ 50",
     periodo: "/mês",
-    badge: "Para MEI e ME",
+    badge: "Para negócio e investimento",
     destaque: false,
     recursos: [
-      "Tudo do plano CLT",
+      "Tudo do plano Completo",
       "Minha empresa: vendas, estoque, contas e fluxo de caixa",
-      "Ideal pra quem é MEI ou ME",
+      "Ideal pra quem tem negócio — MEI, ME ou CLT investindo por conta própria",
     ],
     cta: "Assinar por R$ 50",
     href: "/cadastro?plano=avancado",
@@ -124,13 +124,14 @@ export function Planos() {
           <div className="mx-auto grid max-w-4xl gap-4 sm:grid-cols-2">
             <div className="rounded-2xl bg-primary-50 p-5 text-body text-primary-800">
               O plano <strong>Mensal</strong> mostra o que aconteceu no mês. Os planos{" "}
-              <strong>CLT</strong> e <strong>Avançado</strong> mostram o que está acontecendo agora
-              e o que fazer para melhorar.
+              <strong>Completo</strong> e <strong>Avançado</strong> mostram o que está acontecendo
+              agora e o que fazer para melhorar.
             </div>
             <div className="rounded-2xl bg-accent-50 p-5 text-body text-accent-800">
-              O plano <strong>CLT</strong> foca em sobrar dinheiro e começar a investir. O plano{" "}
-              <strong>Avançado</strong>, pra quem é <strong>MEI/ME</strong>, soma o controle de
-              vendas, estoque e lucro real do negócio.
+              O plano <strong>Completo</strong> foca em sobrar dinheiro e começar a investir. O
+              plano <strong>Avançado</strong> soma o controle de vendas, estoque e lucro real do
+              negócio — ideal pra quem já tem uma <strong>MEI/ME</strong> ou está investindo por
+              conta própria, mesmo sendo CLT.
             </div>
           </div>
         </FadeIn>
