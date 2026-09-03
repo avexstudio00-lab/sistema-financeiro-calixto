@@ -332,7 +332,7 @@ export default function DashboardPage() {
               <p className="text-small text-muted">
                 {nivel === 0
                   ? "Desbloqueie comparativos, evolução do saldo e metas no plano Mensal."
-                  : "Desbloqueie o mapa de gastos e filtros interativos no plano Avançado."}
+                  : "Desbloqueie o mapa de gastos e filtros interativos no plano CLT ou Avançado."}
               </p>
             </div>
             <Link href="/dashboard/plano">
