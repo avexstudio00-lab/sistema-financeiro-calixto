@@ -17,8 +17,8 @@ export const PLANOS: Record<
   },
   mensal: {
     nome: "Mensal",
-    preco: 20,
-    precoLabel: "R$ 20/mês",
+    preco: 30,
+    precoLabel: "R$ 30/mês",
     recursos: [
       "Anotações ilimitadas",
       "Análise de IA no fim do mês",
@@ -29,8 +29,8 @@ export const PLANOS: Record<
   },
   avancado: {
     nome: "Avançado",
-    preco: 40,
-    precoLabel: "R$ 40/mês",
+    preco: 50,
+    precoLabel: "R$ 50/mês",
     recursos: [
       "Tudo do plano Mensal",
       "Dashboard diário ao vivo",
