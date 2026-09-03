@@ -25,7 +25,7 @@ const PERGUNTAS = [
   {
     pergunta: "Sou CLT, esse site serve para mim?",
     resposta:
-      "Sim, o site foi pensado pra quem tem salário fixo. O plano CLT tem dashboard diário, gráficos e sugestões de corte pra te ajudar a sobrar mais e começar a investir.",
+      "Sim, o site foi pensado pra quem tem salário fixo. O plano Completo tem dashboard diário, gráficos e sugestões de corte pra te ajudar a sobrar mais e começar a investir. E se você já compra e revende por conta própria e quer controlar estoque e vendas de verdade, o plano Avançado também é liberado pra você, mesmo sendo CLT.",
   },
   {
     pergunta: "Preciso entender de finanças?",
