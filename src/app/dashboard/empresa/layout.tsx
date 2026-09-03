@@ -6,26 +6,23 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { podeAcessarNegocio } from "@/lib/planos";
 
-/** A área "Minha empresa" só existe pra perfil MEI/ME no plano Avançado —
- * usuário CLT nunca deve ver o seletor de mundo nem essas telas, mesmo
- * digitando a URL direto; e um MEI/ME num plano abaixo do Avançado é
- * mandado pra "Meu plano" (não pra "Meu plano" travado sem explicação —
- * é justamente onde ele consegue evoluir o plano). */
+/** A área "Minha empresa" é liberada pra qualquer perfil (CLT, MEI ou ME)
+ * que estiver no plano Avançado — não é mais travada por tipo de perfil,
+ * só por plano (ver `podeAcessarNegocio`). Quem não está no Avançado é
+ * mandado pra "Meu plano" (não é um bloqueio sem explicação — é
+ * justamente onde dá pra evoluir o plano). */
 export default function EmpresaLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { perfil, carregando } = useAuth();
 
-  const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
-  const podeAcessar = perfil ? podeAcessarNegocio(perfil.tipo_perfil, perfil.plano) : false;
+  const podeAcessar = perfil ? podeAcessarNegocio(perfil.plano) : false;
 
   React.useEffect(() => {
     if (carregando || !perfil) return;
-    if (!ehNegocio) {
-      router.replace("/dashboard");
-    } else if (!podeAcessar) {
+    if (!podeAcessar) {
       router.replace("/dashboard/plano");
     }
-  }, [carregando, perfil, ehNegocio, podeAcessar, router]);
+  }, [carregando, perfil, podeAcessar, router]);
 
   if (carregando || !perfil || !podeAcessar) {
     return (
