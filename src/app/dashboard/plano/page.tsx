@@ -11,7 +11,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { PLANOS, type Plano } from "@/lib/planos";
 import { assinarPlano, cancelarAssinatura, ultimaAssinatura } from "@/lib/data/assinaturas";
 
-const ORDEM: Plano[] = ["gratis", "mensal", "avancado"];
+const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado"];
 
 export default function PlanoPage() {
   const { user, perfil, recarregarPerfil } = useAuth();
@@ -29,7 +29,7 @@ export default function PlanoPage() {
     // Verifica se o usuário veio do cadastro com um plano pretendido (?plano=...).
     try {
       const pretendido = window.localStorage.getItem("plano_pretendido");
-      if (pretendido === "mensal" || pretendido === "avancado") {
+      if (pretendido === "mensal" || pretendido === "clt" || pretendido === "avancado") {
         setPlanoSelecionado(pretendido);
         window.localStorage.removeItem("plano_pretendido");
       }
@@ -101,7 +101,7 @@ export default function PlanoPage() {
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {ORDEM.map((planoId) => {
           const dados = PLANOS[planoId];
           const ehAtual = perfil.plano === planoId;
@@ -125,6 +125,13 @@ export default function PlanoPage() {
                   </li>
                 ))}
               </ul>
+
+              {planoId === "avancado" && perfil.tipo_perfil === "clt" && (
+                <p className="text-small text-muted">
+                  Você está como CLT — o plano CLT já cobre tudo que você usa. O Avançado só
+                  desbloqueia mais coisa se você mudar seu perfil pra MEI ou ME.
+                </p>
+              )}
 
               {ehAtual ? (
                 <Button variant="tertiary" disabled className="w-full">
