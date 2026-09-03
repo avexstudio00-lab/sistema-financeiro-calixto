@@ -23,7 +23,7 @@ const PLANOS = [
   {
     id: "mensal",
     nome: "Mensal",
-    preco: "R$ 20",
+    preco: "R$ 30",
     periodo: "/mês",
     badge: "Mais popular",
     destaque: true,
@@ -34,13 +34,13 @@ const PLANOS = [
       "Comparativo com o mês anterior",
       "Metas de economia",
     ],
-    cta: "Assinar por R$ 20",
+    cta: "Assinar por R$ 30",
     href: "/cadastro?plano=mensal",
   },
   {
     id: "avancado",
     nome: "Avançado",
-    preco: "R$ 40",
+    preco: "R$ 50",
     periodo: "/mês",
     badge: "Para quem quer mais controle",
     destaque: false,
@@ -51,7 +51,7 @@ const PLANOS = [
       "Gráficos interativos",
       "Sugestões de corte e melhoria",
     ],
-    cta: "Assinar por R$ 40",
+    cta: "Assinar por R$ 50",
     href: "/cadastro?plano=avancado",
   },
 ];
