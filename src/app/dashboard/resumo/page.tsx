@@ -40,7 +40,7 @@ export default function ResumoMensalPage() {
   const [carregando, setCarregando] = React.useState(true);
 
   const temAnaliseIA = perfil ? podeUsarRecurso(perfil.plano, "analiseIA") : false;
-  const temAvancado = perfil?.plano === "avancado";
+  const temAvancado = perfil ? podeUsarRecurso(perfil.plano, "dashboardAvancado") : false;
 
   React.useEffect(() => {
     if (!user || !perfil || !temAnaliseIA) {
@@ -87,8 +87,8 @@ export default function ResumoMensalPage() {
         <div>
           <h1 className="text-h2 text-foreground">A análise de IA é exclusiva dos planos pagos</h1>
           <p className="mx-auto mt-2 max-w-md text-body text-muted">
-            Assine o plano Mensal ou Avançado para receber, todo mês, um resumo simples do que
-            entrou, saiu, sobrou e como isso se compara ao mês anterior.
+            Assine um plano pago (Mensal, CLT ou Avançado) para receber, todo mês, um resumo simples
+            do que entrou, saiu, sobrou e como isso se compara ao mês anterior.
           </p>
         </div>
         <Link href="/dashboard/plano">
@@ -210,11 +210,11 @@ export default function ResumoMensalPage() {
                   Quer ver seu dashboard ao vivo, dia a dia?
                 </p>
                 <p className="text-small text-muted">
-                  O plano Avançado mostra projeção de fim de mês, gráficos por categoria e sugestões de corte.
+                  Os planos CLT e Avançado mostram projeção de fim de mês, gráficos por categoria e sugestões de corte.
                 </p>
               </div>
               <Link href="/dashboard/plano">
-                <Button variant="secondary">Conhecer o Avançado</Button>
+                <Button variant="secondary">Ver os planos</Button>
               </Link>
             </Card>
           )}
