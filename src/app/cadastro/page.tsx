@@ -58,7 +58,7 @@ function CadastroConteudo() {
       return;
     }
 
-    if (planoPretendido === "mensal" || planoPretendido === "avancado") {
+    if (planoPretendido === "mensal" || planoPretendido === "clt" || planoPretendido === "avancado") {
       try {
         window.localStorage.setItem("plano_pretendido", planoPretendido);
       } catch {
