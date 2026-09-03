@@ -119,7 +119,7 @@ export default function ResumoMensalPage() {
   const maxForma = Math.max(1, ...Array.from(porFormaPagamento.values()));
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">Resumo do mês</h1>
@@ -309,7 +309,7 @@ export default function ResumoMensalPage() {
                   </p>
                 </Card>
               ))}
-            </div>
+          </div>
         </div>
       )}
     </Container>
