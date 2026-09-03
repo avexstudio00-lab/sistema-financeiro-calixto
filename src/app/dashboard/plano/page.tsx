@@ -13,6 +13,20 @@ import { assinarPlano, cancelarAssinatura, ultimaAssinatura } from "@/lib/data/a
 
 const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado"];
 
+const BADGE_PLANO: Record<Plano, string> = {
+  gratis: "Para começar",
+  mensal: "Básico",
+  clt: "Mais popular",
+  avancado: "Para MEI e ME",
+};
+
+const DESCRICAO_PLANO: Record<Plano, string> = {
+  gratis: "Pra testar e ver se o app é a sua cara, sem compromisso nenhum.",
+  mensal: "Uso pessoal completo, com análise de IA no fim de cada mês.",
+  clt: "O mais indicado pra quem é CLT: acompanha o dinheiro dia a dia, com dashboard ao vivo e sugestões de corte — sem controle de estoque, porque quem é CLT não precisa disso.",
+  avancado: "Pra quem é MEI ou ME: tudo do plano CLT, mais o controle completo do negócio — vendas, estoque, contas a pagar/receber e fluxo de caixa.",
+};
+
 export default function PlanoPage() {
   const { user, perfil, recarregarPerfil } = useAuth();
   const [planoSelecionado, setPlanoSelecionado] = React.useState<Plano | null>(null);
@@ -113,10 +127,14 @@ export default function PlanoPage() {
               className={cn("flex h-full flex-col gap-5", ehAtual && "border-2 border-primary-500")}
             >
               <div className="flex items-center justify-between">
-                <p className="text-h3 text-foreground">{dados.nome}</p>
+                <Badge variant={planoId === "clt" ? "primary" : "neutral"}>{BADGE_PLANO[planoId]}</Badge>
                 {ehAtual && <Badge variant="primary">Seu plano atual</Badge>}
               </div>
-              <p className="text-h2 text-foreground">{dados.precoLabel}</p>
+              <div>
+                <p className="text-h2 text-foreground">{dados.precoLabel}</p>
+                <p className="text-h3 mt-1 text-foreground">{dados.nome}</p>
+              </div>
+              <p className="text-small text-muted">{DESCRICAO_PLANO[planoId]}</p>
               <ul className="flex flex-1 flex-col gap-2.5">
                 {dados.recursos.map((r) => (
                   <li key={r} className="flex items-start gap-2 text-small text-foreground">
@@ -162,6 +180,19 @@ export default function PlanoPage() {
             </Card>
           );
         })}
+      </div>
+
+      <div className="mx-auto grid w-full max-w-4xl gap-4 sm:grid-cols-2">
+        <div className="rounded-2xl bg-primary-50 p-5 text-body text-primary-800">
+          O plano <strong>Mensal</strong> mostra o que aconteceu no mês. Os planos{" "}
+          <strong>CLT</strong> e <strong>Avançado</strong> mostram o que está acontecendo agora
+          e o que fazer para melhorar.
+        </div>
+        <div className="rounded-2xl bg-accent-50 p-5 text-body text-accent-800">
+          O plano <strong>CLT</strong> foca em sobrar dinheiro e começar a investir. O plano{" "}
+          <strong>Avançado</strong>, pra quem é <strong>MEI/ME</strong>, soma o controle de
+          vendas, estoque e lucro real do negócio.
+        </div>
       </div>
     </Container>
   );
