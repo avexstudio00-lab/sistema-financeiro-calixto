@@ -112,7 +112,7 @@ export function DashboardNav() {
           </div>
         )}
 
-        <nav className="flex flex-1 items-center justify-center gap-1 overflow-x-auto">
+        <nav className="scrollbar-hide flex flex-1 items-center justify-center gap-1 overflow-x-auto">
           {links.map((link) => {
             const ativo = pathname === link.href;
             return (
