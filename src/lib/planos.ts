@@ -28,7 +28,7 @@ export const PLANOS: Record<
     ],
   },
   clt: {
-    nome: "CLT",
+    nome: "Completo",
     preco: 30,
     precoLabel: "R$ 30/mês",
     recursos: [
@@ -36,7 +36,7 @@ export const PLANOS: Record<
       "Dashboard diário ao vivo",
       "Gráficos interativos",
       "Sugestões de corte e melhoria",
-      "Sem controle de estoque/negócio — ideal pra quem é CLT",
+      "Sem controle de estoque/negócio — vale pra CLT, MEI ou ME",
     ],
   },
   avancado: {
@@ -44,9 +44,9 @@ export const PLANOS: Record<
     preco: 50,
     precoLabel: "R$ 50/mês",
     recursos: [
-      "Tudo do plano CLT",
+      "Tudo do plano Completo",
       "Minha empresa: vendas, estoque, contas e fluxo de caixa do negócio",
-      "Ideal pra quem é MEI ou ME",
+      "Ideal pra quem tem negócio — MEI, ME ou CLT investindo por conta própria",
     ],
   },
 };
@@ -60,9 +60,9 @@ export function podeUsarRecurso(plano: Plano, recurso: "analiseIA" | "metas" | "
 
 /**
  * Nível numérico do plano, usado para liberar recursos de forma gradual
- * (ex: gráficos do painel). 0 = Grátis, 1 = Mensal, 2 = CLT/Avançado (ambos
- * têm o mesmo nível de dashboard/gráficos — o que diferencia CLT de
- * Avançado não é o dashboard, é o acesso a "Minha empresa", ver
+ * (ex: gráficos do painel). 0 = Grátis, 1 = Mensal, 2 = Completo/Avançado
+ * (ambos têm o mesmo nível de dashboard/gráficos — o que diferencia
+ * Completo de Avançado não é o dashboard, é o acesso a "Minha empresa", ver
  * `podeAcessarNegocio` abaixo).
  */
 export function nivelPlano(plano: Plano): number {
@@ -72,11 +72,14 @@ export function nivelPlano(plano: Plano): number {
 }
 
 /**
- * "Minha empresa" (vendas, estoque, contas, DAS, fluxo de caixa) só é
- * liberada pra quem É MEI/ME *e* está no plano Avançado — mesmo um perfil
- * MEI/ME nos planos Grátis/Mensal/CLT não tem acesso a essa área, porque
- * o controle de estoque/negócio é justamente o que diferencia o Avançado.
+ * "Minha empresa" (vendas, estoque, contas, DAS, fluxo de caixa) é liberada
+ * pra qualquer perfil — CLT, MEI ou ME — desde que esteja no plano Avançado.
+ * Não é mais travada por tipo de perfil: um CLT que compra e revende por
+ * conta própria (ou está começando um negócio informal) pode querer o
+ * mesmo controle de estoque/vendas que um MEI/ME, então o gate é só o
+ * plano. Nos planos Grátis/Mensal/Completo, ninguém tem acesso a essa
+ * área, independente do tipo de perfil.
  */
-export function podeAcessarNegocio(tipoPerfil: "clt" | "mei" | "me" | null | undefined, plano: Plano): boolean {
-  return (tipoPerfil === "mei" || tipoPerfil === "me") && plano === "avancado";
+export function podeAcessarNegocio(plano: Plano): boolean {
+  return plano === "avancado";
 }
