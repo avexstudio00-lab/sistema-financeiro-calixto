@@ -106,7 +106,7 @@ export default function MetasPage() {
   }
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">Metas de economia</h1>
@@ -145,7 +145,7 @@ export default function MetasPage() {
         <Card className="flex flex-col items-center gap-3 py-12 text-center">
           <PiggyBank size={32} className="text-primary-400" />
           <p className="text-body text-muted">Você ainda não tem metas. Que tal criar a primeira?</p>
-        </Card>
+      </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {metas.map((meta) => {
