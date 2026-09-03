@@ -55,6 +55,8 @@ export function DashboardNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { perfil, signOut } = useAuth();
+  const navRef = React.useRef<HTMLElement>(null);
+  const [scrollInfo, setScrollInfo] = React.useState({ podeEsquerda: false, podeDireita: false });
 
   const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
   const mundo: "pessoal" | "negocio" = pathname?.startsWith("/dashboard/empresa") ? "negocio" : "pessoal";
@@ -66,6 +68,24 @@ export function DashboardNav() {
     .slice(0, 2)
     .map((parte) => parte[0]?.toUpperCase())
     .join("");
+
+  // Detecta se dá pra arrastar o menu pra esquerda/direita, pra mostrar (ou
+  // esconder) o degradê nas bordas — em vez de deixar sempre visível, o que
+  // ficaria estranho quando o menu já cabe inteiro na tela.
+  const atualizarScrollInfo = React.useCallback(() => {
+    const el = navRef.current;
+    if (!el) return;
+    setScrollInfo({
+      podeEsquerda: el.scrollLeft > 4,
+      podeDireita: el.scrollLeft < el.scrollWidth - el.clientWidth - 4,
+    });
+  }, []);
+
+  React.useEffect(() => {
+    atualizarScrollInfo();
+    window.addEventListener("resize", atualizarScrollInfo);
+    return () => window.removeEventListener("resize", atualizarScrollInfo);
+  }, [atualizarScrollInfo, links]);
 
   async function handleSignOut() {
     await signOut();
@@ -112,24 +132,39 @@ export function DashboardNav() {
           </div>
         )}
 
-        <nav className="scrollbar-hide flex flex-1 items-center justify-center gap-1 overflow-x-auto">
-          {links.map((link) => {
-            const ativo = pathname === link.href;
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={cn(
-                  "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-small font-medium transition-colors",
-                  ativo ? corAtiva : "text-muted hover:bg-muted/10 hover:text-foreground"
-                )}
-              >
-                <link.icon size={16} />
-                <span className="hidden md:inline">{link.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="relative min-w-0 flex-1">
+          <nav
+            ref={navRef}
+            onScroll={atualizarScrollInfo}
+            className="scrollbar-hide flex items-center justify-start gap-1 overflow-x-auto px-1"
+          >
+            {links.map((link) => {
+              const ativo = pathname === link.href;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={cn(
+                    "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-small font-medium transition-colors",
+                    ativo ? corAtiva : "text-muted hover:bg-muted/10 hover:text-foreground"
+                  )}
+                >
+                  <link.icon size={16} />
+                  <span className="hidden md:inline">{link.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+          {/* Degradê nas bordas — só aparece quando dá pra arrastar mais pra
+              aquele lado, avisando (mesmo com a barrinha de scroll escondida)
+              que tem mais itens ali. */}
+          {scrollInfo.podeEsquerda && (
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent" />
+          )}
+          {scrollInfo.podeDireita && (
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent" />
+          )}
+        </div>
 
         <div className="flex shrink-0 items-center gap-1">
           <ThemeToggle />
