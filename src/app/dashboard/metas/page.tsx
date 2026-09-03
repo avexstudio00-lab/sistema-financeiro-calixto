@@ -94,7 +94,7 @@ export default function MetasPage() {
         <div>
           <h1 className="text-h2 text-foreground">Metas de economia são um recurso pago</h1>
           <p className="mx-auto mt-2 max-w-md text-body text-muted">
-            Assine um plano pago (Mensal, CLT ou Avançado) para definir quanto quer guardar e
+            Assine um plano pago (Mensal, Completo ou Avançado) para definir quanto quer guardar e
             acompanhar o progresso até chegar lá.
           </p>
         </div>
