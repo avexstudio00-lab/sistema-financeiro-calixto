@@ -42,9 +42,6 @@ export default function PerfilPage() {
     }
   }, [perfil]);
 
-  const saindoDoNegocio =
-    (perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me") && tipoPerfil === "clt";
-
   async function handleEscolherFoto(e: React.ChangeEvent<HTMLInputElement>) {
     const arquivo = e.target.files?.[0];
     e.target.value = ""; // permite escolher o mesmo arquivo de novo depois, se precisar
@@ -223,7 +220,8 @@ export default function PerfilPage() {
         <div>
           <h2 className="text-h3 text-foreground">Tipo de perfil</h2>
           <p className="text-small text-muted">
-            Perfil MEI ou ME libera a área &quot;Minha empresa&quot; no menu de cima.
+            Isso deixa o app com a cara certa pro seu dia a dia. A área &quot;Minha empresa&quot;
+            é liberada pra qualquer perfil que estiver no plano Avançado.
           </p>
         </div>
         <div className="flex flex-col gap-3">
@@ -255,13 +253,6 @@ export default function PerfilPage() {
             </button>
           ))}
         </div>
-        {saindoDoNegocio && (
-          <p className="text-small text-muted">
-            Suas vendas, produtos e contas do negócio continuam salvos — eles só ficam escondidos
-            enquanto seu perfil for CLT. Voltando pra MEI ou ME, tudo aparece de novo do jeito que
-            estava.
-          </p>
-        )}
       </Card>
 
       {erro && <p className="text-small text-rose-600">{erro}</p>}
