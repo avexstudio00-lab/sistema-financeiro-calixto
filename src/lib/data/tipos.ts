@@ -62,7 +62,7 @@ export interface AnaliseIA {
 export interface Assinatura {
   id: string;
   usuario_id: string;
-  plano: "gratis" | "mensal" | "avancado";
+  plano: "gratis" | "mensal" | "clt" | "avancado";
   status: "ativa" | "cancelada" | "atrasada";
   data_inicio: string;
   data_proximo_pagamento: string | null;
