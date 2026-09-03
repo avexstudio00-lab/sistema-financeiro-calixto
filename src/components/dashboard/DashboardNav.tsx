@@ -58,7 +58,6 @@ export function DashboardNav() {
   const navRef = React.useRef<HTMLElement>(null);
   const [scrollInfo, setScrollInfo] = React.useState({ podeEsquerda: false, podeDireita: false });
 
-  const ehNegocio = perfil?.tipo_perfil === "mei" || perfil?.tipo_perfil === "me";
   const mundo: "pessoal" | "negocio" = pathname?.startsWith("/dashboard/empresa") ? "negocio" : "pessoal";
   const links = mundo === "negocio" ? LINKS_EMPRESA : LINKS_PESSOAL;
   const corAtiva = mundo === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700";
@@ -107,30 +106,32 @@ export function DashboardNav() {
           <span className="hidden text-base font-semibold sm:inline">Meu Controle</span>
         </Link>
 
-        {ehNegocio && (
-          <div className="flex shrink-0 gap-1 rounded-full bg-muted/10 p-1">
-            <Link
-              href="/dashboard"
-              className={cn(
-                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
-                mundo === "pessoal" ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground"
-              )}
-            >
-              <Home size={14} />
-              <span className="hidden sm:inline">Minha vida</span>
-            </Link>
-            <Link
-              href="/dashboard/empresa"
-              className={cn(
-                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
-                mundo === "negocio" ? "bg-card text-accent-700 shadow-sm" : "text-muted hover:text-foreground"
-              )}
-            >
-              <Building2 size={14} />
-              <span className="hidden sm:inline">Minha empresa</span>
-            </Link>
-          </div>
-        )}
+        {/* Seletor de mundo — visível pra qualquer perfil (CLT, MEI ou ME).
+            "Minha empresa" é liberada só no plano Avançado, mas o seletor
+            aparece pra todo mundo como convite: quem ainda não tem o plano
+            cai em "Meu plano" ao clicar (ver empresa/layout.tsx). */}
+        <div className="flex shrink-0 gap-1 rounded-full bg-muted/10 p-1">
+          <Link
+            href="/dashboard"
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
+              mundo === "pessoal" ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground"
+            )}
+          >
+            <Home size={14} />
+            <span className="hidden sm:inline">Minha vida</span>
+          </Link>
+          <Link
+            href="/dashboard/empresa"
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
+              mundo === "negocio" ? "bg-card text-accent-700 shadow-sm" : "text-muted hover:text-foreground"
+            )}
+          >
+            <Building2 size={14} />
+            <span className="hidden sm:inline">Minha empresa</span>
+          </Link>
+        </div>
 
         <div className="relative min-w-0 flex-1">
           <nav
