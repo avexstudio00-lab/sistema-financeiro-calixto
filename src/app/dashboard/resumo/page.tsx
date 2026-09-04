@@ -10,6 +10,8 @@ import {
   TrendingDown,
   Lightbulb,
   Lock,
+  Download,
+  Printer,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -17,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { gerarResumoMensal, salvarAnaliseMensal, listarHistoricoAnalises, type ResumoMensal } from "@/lib/data/analises";
 import { listarTransacoes } from "@/lib/data/transacoes";
+import { exportarTransacoesCSV } from "@/lib/exportar";
 import { podeUsarRecurso } from "@/lib/planos";
 import type { AnaliseIA, Transacao } from "@/lib/data/tipos";
 
@@ -125,7 +128,7 @@ export default function ResumoMensalPage() {
           <h1 className="text-h2 text-foreground">Resumo do mês</h1>
           <p className="text-body text-muted">Sua análise de IA, feita com seus dados reais.</p>
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1">
+        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1 print:hidden">
           <button onClick={() => mudarMes(-1)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-muted/10">
             <ChevronLeft size={18} />
           </button>
@@ -137,6 +140,30 @@ export default function ResumoMensalPage() {
           </button>
         </div>
       </div>
+
+      {!carregando && resumo && (
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={transacoesMes.length === 0}
+            onClick={() =>
+              exportarTransacoesCSV(
+                transacoesMes.filter((t) => t.tipo_negocio !== "negocio"),
+                MESES[mes - 1],
+                ano
+              )
+            }
+          >
+            <Download size={16} />
+            Exportar Excel (CSV)
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => window.print()}>
+            <Printer size={16} />
+            Exportar PDF
+          </Button>
+        </div>
+      )}
 
       {carregando || !resumo ? (
         <p className="py-8 text-center text-body text-muted">Analisando seus dados...</p>
@@ -204,7 +231,7 @@ export default function ResumoMensalPage() {
           )}
 
           {!temAvancado && (
-            <Card className="flex flex-wrap items-center justify-between gap-4 border-2 border-dashed border-accent-200 bg-accent-50/40">
+            <Card className="flex flex-wrap items-center justify-between gap-4 border-2 border-dashed border-accent-200 bg-accent-50/40 print:hidden">
               <div>
                 <p className="text-body font-semibold text-foreground">
                   Quer ver seu dashboard ao vivo, dia a dia?
