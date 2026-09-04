@@ -138,7 +138,7 @@ export default function ContasEmpresaPage() {
   const totalAtrasado = lista.filter((c) => estaAtrasada(c)).reduce((acc, c) => acc + Number(c.valor), 0);
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">Contas a pagar e a receber</h1>
