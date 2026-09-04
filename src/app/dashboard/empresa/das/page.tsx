@@ -113,7 +113,7 @@ export default function DasPage() {
   const maiorMesAnual = Math.max(1, ...faturamentoAnual.map((p) => p.faturamento));
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">DAS e impostos</h1>
@@ -229,15 +229,15 @@ export default function DasPage() {
                           Não
                         </Button>
                         <Button size="sm" disabled={salvando} onClick={() => handleExcluir(g.id)} className="bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700">
-                          Apagar
-                        </Button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        aria-label="Apagar guia"
-                        onClick={() => setConfirmandoExclusaoId(g.id)}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-red-500"
+                        Apagar
+                      </Button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label="Apagar guia"
+                      onClick={() => setConfirmandoExclusaoId(g.id)}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-red-500"
                       >
                         <Trash2 size={16} />
                       </button>
