@@ -124,7 +124,7 @@ export default function ClientesFornecedoresPage() {
   const lista = aba === "clientes" ? clientes : fornecedores;
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">Clientes e fornecedores</h1>
