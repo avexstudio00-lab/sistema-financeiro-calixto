@@ -176,7 +176,7 @@ export default function VendasPage() {
   const maiorValorGrafico = Math.max(1, ...pontosGrafico.map((p) => p.valor));
 
   return (
-    <Container className="flex flex-col gap-8 py-8">
+    <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">Vendas</h1>
@@ -420,9 +420,9 @@ export default function VendasPage() {
                           aria-label="Apagar venda"
                           onClick={() => setConfirmandoExclusaoId(v.id)}
                           className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-red-500"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                      >
+                        <Trash2 size={16} />
+                      </button>
                       )}
                     </div>
                   </Card>
