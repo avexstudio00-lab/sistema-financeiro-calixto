@@ -20,6 +20,7 @@ import {
   FileText,
   ArrowLeftRight,
   User,
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -42,6 +43,16 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
 ];
 
+// Só quem é dono da própria conta convida gente — sócio/funcionário nunca
+// veem esse link, mesmo estando na conta de alguém que tem o plano Grupo.
+const LINK_EQUIPE: LinkNav = { href: "/dashboard/equipe", label: "Minha equipe", icon: UserPlus };
+
+// Links do mundo "negócio" que são financeiro (contas a pagar/receber, DAS
+// e fluxo de caixa) — escondidos de quem entrou como funcionário, que só
+// pode ver/mexer em estoque e vendas (o RLS já bloqueia essas telas por
+// trás, isso aqui só evita mostrar um link que vai dar em tela vazia).
+const LINKS_EMPRESA_FINANCEIRO = new Set(["/dashboard/empresa/contas", "/dashboard/empresa/das", "/dashboard/empresa/fluxo-caixa"]);
+
 const LINKS_EMPRESA: LinkNav[] = [
   { href: "/dashboard/empresa", label: "Painel da empresa", icon: LayoutDashboard },
   { href: "/dashboard/empresa/vendas", label: "Vendas", icon: ShoppingCart },
@@ -55,12 +66,14 @@ const LINKS_EMPRESA: LinkNav[] = [
 export function DashboardNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { perfil, signOut } = useAuth();
+  const { perfil, papel, signOut } = useAuth();
   const navRef = React.useRef<HTMLElement>(null);
   const [scrollInfo, setScrollInfo] = React.useState({ podeEsquerda: false, podeDireita: false });
 
   const mundo: "pessoal" | "negocio" = pathname?.startsWith("/dashboard/empresa") ? "negocio" : "pessoal";
-  const links = mundo === "negocio" ? LINKS_EMPRESA : LINKS_PESSOAL;
+  const linksPessoal = papel === "dono" ? [...LINKS_PESSOAL, LINK_EQUIPE] : LINKS_PESSOAL;
+  const linksEmpresa = papel === "funcionario" ? LINKS_EMPRESA.filter((l) => !LINKS_EMPRESA_FINANCEIRO.has(l.href)) : LINKS_EMPRESA;
+  const links = mundo === "negocio" ? linksEmpresa : linksPessoal;
   const corAtiva = mundo === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700";
   const iniciais = perfil?.nome
     .split(" ")

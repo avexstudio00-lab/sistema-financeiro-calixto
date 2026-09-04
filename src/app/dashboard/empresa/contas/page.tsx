@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Receipt, Trash2, AlertTriangle, Check } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -25,8 +26,16 @@ import { formatarMoeda } from "@/lib/format";
 import type { Fornecedor, Cliente, ContaPagar, ContaReceber } from "@/lib/data/tipos";
 
 export default function ContasEmpresaPage() {
-  const { user } = useAuth();
+  const { papel, negocio } = useAuth();
+  const router = useRouter();
   const [aba, setAba] = React.useState<"pagar" | "receber">("pagar");
+
+  // Contas a pagar/receber ficam escondidas de funcionário (só dono/sócio
+  // veem financeiro do negócio) — o RLS já bloqueia no banco, isso aqui só
+  // evita que a pessoa fique numa tela quebrada se digitar a URL direto.
+  React.useEffect(() => {
+    if (papel === "funcionario") router.replace("/dashboard/empresa");
+  }, [papel, router]);
 
   const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
   const [clientes, setClientes] = React.useState<Cliente[]>([]);
@@ -44,20 +53,20 @@ export default function ContasEmpresaPage() {
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
   const carregar = React.useCallback(async () => {
-    if (!user) return;
+    if (!negocio) return;
     setCarregando(true);
     const [f, c, pagar, receber] = await Promise.all([
-      listarFornecedores(user.id),
-      listarClientes(user.id),
-      listarContasPagar(user.id),
-      listarContasReceber(user.id),
+      listarFornecedores(negocio.usuarioId),
+      listarClientes(negocio.usuarioId),
+      listarContasPagar(negocio.usuarioId),
+      listarContasReceber(negocio.usuarioId),
     ]);
     setFornecedores(f);
     setClientes(c);
     setContasPagar(pagar.filter((cp) => cp.categoria !== "das"));
     setContasReceber(receber);
     setCarregando(false);
-  }, [user]);
+  }, [negocio]);
 
   React.useEffect(() => {
     carregar();
@@ -74,7 +83,7 @@ export default function ContasEmpresaPage() {
 
   async function handleSalvar(e: React.FormEvent) {
     e.preventDefault();
-    if (!user) return;
+    if (!negocio) return;
     const valorNumero = Number(valor.replace(",", "."));
     if (descricao.trim().length < 2) {
       setErro("Digite uma descrição.");
@@ -90,7 +99,7 @@ export default function ContasEmpresaPage() {
     const { error } =
       aba === "pagar"
         ? await criarContaPagar({
-            usuario_id: user.id,
+            usuario_id: negocio.usuarioId,
             fornecedor_id: vinculoId || null,
             categoria: "fornecedor",
             descricao: descricao.trim(),
@@ -98,7 +107,7 @@ export default function ContasEmpresaPage() {
             vencimento,
           })
         : await criarContaReceber({
-            usuario_id: user.id,
+            usuario_id: negocio.usuarioId,
             cliente_id: vinculoId || null,
             descricao: descricao.trim(),
             valor: valorNumero,

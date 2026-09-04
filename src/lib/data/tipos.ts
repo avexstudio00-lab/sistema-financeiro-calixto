@@ -62,7 +62,7 @@ export interface AnaliseIA {
 export interface Assinatura {
   id: string;
   usuario_id: string;
-  plano: "gratis" | "mensal" | "clt" | "avancado";
+  plano: "gratis" | "mensal" | "clt" | "avancado" | "grupo";
   status: "ativa" | "cancelada" | "atrasada";
   data_inicio: string;
   data_proximo_pagamento: string | null;
@@ -179,4 +179,31 @@ export interface ContaReceber {
   data_recebimento: string | null;
   criado_em: string;
   clientes?: Cliente | null;
+}
+
+// ---------------------------------------------------------------------------
+// Painel compartilhado (plano Grupo) — convites de sócio/funcionário. Ver
+// `src/lib/data/membros.ts` e o RLS no Supabase (funções
+// conta_mestre_do_usuario / papel_do_membro).
+// ---------------------------------------------------------------------------
+
+export interface Membro {
+  id: string;
+  conta_mestre_id: string;
+  membro_usuario_id: string | null;
+  email: string;
+  papel: "socio" | "funcionario";
+  status: "pendente" | "ativo" | "removido";
+  token: string;
+  criado_em: string;
+  aceito_em: string | null;
+}
+
+/** Retorno de `consultar_convite` — o que a tela de convite mostra antes de
+ * a pessoa aceitar (não expõe dados sensíveis, só o necessário pra decidir). */
+export interface DetalheConvite {
+  email: string;
+  papel: "socio" | "funcionario";
+  nome_convidante: string;
+  status: "pendente" | "ativo" | "removido";
 }

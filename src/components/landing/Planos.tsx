@@ -69,6 +69,22 @@ const PLANOS = [
     cta: "Assinar por R$ 50",
     href: "/cadastro?plano=avancado",
   },
+  {
+    id: "grupo",
+    nome: "Grupo",
+    preco: "R$ 65",
+    periodo: "/mês",
+    badge: "Empresa em grupo",
+    destaque: false,
+    recursos: [
+      "Tudo do plano Avançado",
+      "Até 3 pessoas, cada uma com seu próprio login",
+      "Convide sócio (acesso completo) ou funcionário (estoque e vendas)",
+      "Vida pessoal de cada um 100% privada — ninguém vê a de ninguém",
+    ],
+    cta: "Assinar por R$ 65",
+    href: "/cadastro?plano=grupo",
+  },
 ];
 
 export function Planos() {
@@ -83,7 +99,7 @@ export function Planos() {
           className="mx-auto items-center text-center"
         />
 
-        <div className="grid items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid items-start gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {PLANOS.map((plano, i) => (
             <FadeIn key={plano.id} delay={i * 100}>
               <Card

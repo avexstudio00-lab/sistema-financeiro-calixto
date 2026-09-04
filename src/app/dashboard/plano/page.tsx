@@ -11,13 +11,14 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { PLANOS, type Plano } from "@/lib/planos";
 import { assinarPlano, cancelarAssinatura, ultimaAssinatura } from "@/lib/data/assinaturas";
 
-const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado"];
+const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado", "grupo"];
 
 const BADGE_PLANO: Record<Plano, string> = {
   gratis: "Para começar",
   mensal: "Básico",
   clt: "Popular",
   avancado: "Para negócio e investimento",
+  grupo: "Empresa em grupo",
 };
 
 const DESCRICAO_PLANO: Record<Plano, string> = {
@@ -25,6 +26,7 @@ const DESCRICAO_PLANO: Record<Plano, string> = {
   mensal: "Uso pessoal completo, com análise de IA no fim de cada mês.",
   clt: "O plano completo pro seu dia a dia — CLT, MEI ou ME: acompanha o dinheiro em tempo real, com dashboard ao vivo e sugestões de corte. Sem controle de estoque/negócio, esse é o diferencial do Avançado.",
   avancado: "Pra quem tem ou está começando um negócio — MEI, ME, ou até quem é CLT e compra e revende por conta própria: tudo do plano Completo, mais o controle do negócio — vendas, estoque, contas a pagar/receber e fluxo de caixa.",
+  grupo: "Pra empresa em dupla, com sócio ou com funcionário: tudo do Avançado, mais até 2 convites com login próprio — cada um vê e mexe só no que pode, e a vida pessoal de cada um continua 100% privada.",
 };
 
 export default function PlanoPage() {
@@ -43,7 +45,7 @@ export default function PlanoPage() {
     // Verifica se o usuário veio do cadastro com um plano pretendido (?plano=...).
     try {
       const pretendido = window.localStorage.getItem("plano_pretendido");
-      if (pretendido === "mensal" || pretendido === "clt" || pretendido === "avancado") {
+      if (pretendido === "mensal" || pretendido === "clt" || pretendido === "avancado" || pretendido === "grupo") {
         setPlanoSelecionado(pretendido);
         window.localStorage.removeItem("plano_pretendido");
       }
@@ -115,7 +117,7 @@ export default function PlanoPage() {
         </Card>
       )}
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {ORDEM.map((planoId) => {
           const dados = PLANOS[planoId];
           const ehAtual = perfil.plano === planoId;
@@ -186,6 +188,12 @@ export default function PlanoPage() {
           <strong>Avançado</strong> soma o controle de vendas, estoque e lucro real do negócio —
           ideal pra quem já tem uma <strong>MEI/ME</strong> ou está investindo por conta própria,
           mesmo sendo CLT.
+        </div>
+        <div className="rounded-2xl bg-secondary/10 p-5 text-body text-secondary sm:col-span-2">
+          O plano <strong>Grupo</strong> é o Avançado com convites: até 2 pessoas a mais, cada uma
+          com seu próprio login, marcadas como <strong>sócio</strong> (vê e mexe em tudo da
+          empresa) ou <strong>funcionário</strong> (só estoque e vendas). A vida pessoal de cada
+          um — carteiras, metas, investimentos, transações — nunca é compartilhada com ninguém.
         </div>
       </div>
     </Container>

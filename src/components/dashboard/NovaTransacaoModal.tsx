@@ -53,14 +53,22 @@ export function NovaTransacaoModal({
   mundo = "pessoal",
   categoriaIdInicial,
 }: NovaTransacaoModalProps) {
-  const { user } = useAuth();
+  const { user, negocio } = useAuth();
   // Quem abre esse modal já passou pela guarda de acesso da tela que o
   // renderiza (empresa/layout.tsx só deixa entrar em mundo="negocio" quem
-  // está no plano Avançado, seja qual for o tipo de perfil) — então o
+  // está no plano Avançado/Grupo, seja qual for o tipo de perfil) — então o
   // gate de "pode marcar como negócio" aqui é só o mundo atual, não mais o
   // tipo de perfil.
   const podeMarcarNegocio = mundo === "negocio";
   const editando = !!transacaoEditando;
+
+  // Em mundo "negocio", os dados (categorias, carteiras, anotação em si)
+  // pertencem à conta mestre — pra funcionar tanto pro dono quanto pra
+  // quem foi convidado (sócio), nunca usar `user.id` puro aqui, senão a
+  // anotação de um sócio ficaria órfã, gravada sob o próprio id dele em
+  // vez de cair no negócio compartilhado. Em mundo "pessoal", é sempre o
+  // próprio id de quem está logado — nunca o da conta mestre.
+  const usuarioEfetivoId = mundo === "negocio" ? negocio?.usuarioId : user?.id;
 
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
   const [contas, setContas] = React.useState<Conta[]>([]);
@@ -80,16 +88,16 @@ export function NovaTransacaoModal({
   const [erro, setErro] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (aberto && user) {
-      listarCategorias(user.id).then(setCategorias);
-      listarContas(user.id).then((lista) => {
+    if (aberto && usuarioEfetivoId) {
+      listarCategorias(usuarioEfetivoId).then(setCategorias);
+      listarContas(usuarioEfetivoId).then((lista) => {
         setContas(lista);
         if (!transacaoEditando && lista[0]) setContaId(lista[0].id);
       });
-      listarDescricoesUsadas(user.id).then(setDescricoesUsadas);
+      listarDescricoesUsadas(usuarioEfetivoId).then(setDescricoesUsadas);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aberto, user]);
+  }, [aberto, usuarioEfetivoId]);
 
   const sugestoesDescricao = React.useMemo(
     () => descricoesUsadas.filter((d) => d.tipo === tipo).map((d) => d.descricao),
@@ -130,7 +138,7 @@ export function NovaTransacaoModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!user) return;
+    if (!usuarioEfetivoId) return;
 
     const valorNumero = Number(valor.replace(",", "."));
     if (!valorNumero || valorNumero <= 0) {
@@ -145,7 +153,7 @@ export function NovaTransacaoModal({
     setErro(null);
     setSalvando(true);
     const dados = {
-      usuario_id: user.id,
+      usuario_id: usuarioEfetivoId,
       conta_id: contaId || null,
       categoria_id: categoriaId || null,
       tipo,

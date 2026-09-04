@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, ArrowLeftRight, HandCoins, Plus } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -18,7 +19,8 @@ const MESES = [
 ];
 
 export default function FluxoCaixaPage() {
-  const { user } = useAuth();
+  const { papel, negocio } = useAuth();
+  const router = useRouter();
   const hoje = new Date();
   const [mes, setMes] = React.useState(hoje.getMonth() + 1);
   const [ano, setAno] = React.useState(hoje.getFullYear());
@@ -27,17 +29,23 @@ export default function FluxoCaixaPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
 
+  // Fluxo de caixa é financeiro do negócio — escondido de funcionário,
+  // igual DAS/impostos e contas a pagar/receber (RLS já bloqueia no banco).
+  React.useEffect(() => {
+    if (papel === "funcionario") router.replace("/dashboard/empresa");
+  }, [papel, router]);
+
   const carregar = React.useCallback(async () => {
-    if (!user) return;
+    if (!negocio) return;
     setCarregando(true);
     const [res, cat] = await Promise.all([
-      gerarFluxoCaixa(user.id, ano, mes),
+      gerarFluxoCaixa(negocio.usuarioId, ano, mes),
       buscarCategoriaPadraoPorNome("Pró-labore", "despesa"),
     ]);
     setFluxo(res);
     setCategoriaProLabore(cat);
     setCarregando(false);
-  }, [user, ano, mes]);
+  }, [negocio, ano, mes]);
 
   React.useEffect(() => {
     carregar();

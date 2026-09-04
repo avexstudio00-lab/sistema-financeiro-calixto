@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Plus, FileText, Trash2, ChevronLeft, ChevronRight, Info, Check } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -20,8 +21,15 @@ import { formatarMoeda } from "@/lib/format";
 import type { ContaPagar } from "@/lib/data/tipos";
 
 export default function DasPage() {
-  const { user } = useAuth();
+  const { papel, negocio } = useAuth();
+  const router = useRouter();
   const hoje = new Date();
+
+  // DAS/impostos é financeiro do negócio — escondido de funcionário, igual
+  // contas a pagar/receber e fluxo de caixa (o RLS já bloqueia no banco).
+  React.useEffect(() => {
+    if (papel === "funcionario") router.replace("/dashboard/empresa");
+  }, [papel, router]);
 
   const [guias, setGuias] = React.useState<ContaPagar[]>([]);
   const [faturamentoDoMes, setFaturamentoDoMes] = React.useState(0);
@@ -39,19 +47,19 @@ export default function DasPage() {
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
   const carregar = React.useCallback(async () => {
-    if (!user) return;
+    if (!negocio) return;
     setCarregando(true);
     const [todasContas, resumoMes, anual] = await Promise.all([
-      listarContasPagar(user.id),
-      gerarResumoEmpresa(user.id, hoje.getFullYear(), hoje.getMonth() + 1),
-      faturamentoAnualPorMes(user.id, anoRelatorio),
+      listarContasPagar(negocio.usuarioId),
+      gerarResumoEmpresa(negocio.usuarioId, hoje.getFullYear(), hoje.getMonth() + 1),
+      faturamentoAnualPorMes(negocio.usuarioId, anoRelatorio),
     ]);
     setGuias(todasContas.filter((c) => c.categoria === "das"));
     setFaturamentoDoMes(resumoMes.faturamento);
     setFaturamentoAnual(anual);
     setCarregando(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, anoRelatorio]);
+  }, [negocio, anoRelatorio]);
 
   React.useEffect(() => {
     carregar();
@@ -67,7 +75,7 @@ export default function DasPage() {
 
   async function handleSalvar(e: React.FormEvent) {
     e.preventDefault();
-    if (!user) return;
+    if (!negocio) return;
     const valorNumero = Number(valor.replace(",", "."));
     if (!valorNumero || valorNumero <= 0) {
       setErro("Digite o valor da guia.");
@@ -76,7 +84,7 @@ export default function DasPage() {
     setErro(null);
     setSalvando(true);
     const { error } = await criarContaPagar({
-      usuario_id: user.id,
+      usuario_id: negocio.usuarioId,
       fornecedor_id: null,
       categoria: "das",
       descricao: descricao.trim() || "DAS",

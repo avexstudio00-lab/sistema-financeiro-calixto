@@ -25,8 +25,17 @@ import { formatarMoeda } from "@/lib/format";
 import type { Cliente, Fornecedor, Venda, ContaPagar, ContaReceber } from "@/lib/data/tipos";
 
 export default function ClientesFornecedoresPage() {
-  const { user } = useAuth();
+  const { papel, negocio } = useAuth();
+  const ehFuncionario = papel === "funcionario";
   const [aba, setAba] = React.useState<"clientes" | "fornecedores">("clientes");
+
+  // Fornecedores é financeiro do negócio (ligado a contas a pagar) —
+  // escondido de funcionário, que só pode ver a aba de clientes. Se por
+  // acaso a aba de fornecedores ficou selecionada antes do papel carregar,
+  // volta pra clientes.
+  React.useEffect(() => {
+    if (ehFuncionario && aba === "fornecedores") setAba("clientes");
+  }, [ehFuncionario, aba]);
 
   const [clientes, setClientes] = React.useState<Cliente[]>([]);
   const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
@@ -45,14 +54,16 @@ export default function ClientesFornecedoresPage() {
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
   const carregar = React.useCallback(async () => {
-    if (!user) return;
+    if (!negocio) return;
     setCarregando(true);
+    // Funcionário não tem acesso a fornecedores nem a contas a pagar/receber
+    // (RLS bloqueia) — nem tenta buscar, pra não gerar erro à toa na tela.
     const [c, f, v, cp, cr] = await Promise.all([
-      listarClientes(user.id),
-      listarFornecedores(user.id),
-      listarVendas(user.id),
-      listarContasPagar(user.id),
-      listarContasReceber(user.id),
+      listarClientes(negocio.usuarioId),
+      ehFuncionario ? Promise.resolve([]) : listarFornecedores(negocio.usuarioId),
+      listarVendas(negocio.usuarioId),
+      ehFuncionario ? Promise.resolve([]) : listarContasPagar(negocio.usuarioId),
+      ehFuncionario ? Promise.resolve([]) : listarContasReceber(negocio.usuarioId),
     ]);
     setClientes(c);
     setFornecedores(f);
@@ -60,7 +71,7 @@ export default function ClientesFornecedoresPage() {
     setContasPagar(cp.filter((c2) => c2.categoria !== "das"));
     setContasReceber(cr);
     setCarregando(false);
-  }, [user]);
+  }, [negocio, ehFuncionario]);
 
   React.useEffect(() => {
     carregar();
@@ -86,7 +97,7 @@ export default function ClientesFornecedoresPage() {
 
   async function handleSalvar(e: React.FormEvent) {
     e.preventDefault();
-    if (!user) return;
+    if (!negocio) return;
     if (nome.trim().length < 2) {
       setErro("Digite um nome.");
       return;
@@ -98,10 +109,10 @@ export default function ClientesFornecedoresPage() {
       aba === "clientes"
         ? editandoId
           ? await atualizarCliente(editandoId, nome.trim(), telefone.trim() || null, email.trim() || null)
-          : await criarCliente(user.id, nome.trim(), telefone.trim() || null, email.trim() || null)
+          : await criarCliente(negocio.usuarioId, nome.trim(), telefone.trim() || null, email.trim() || null)
         : editandoId
         ? await atualizarFornecedor(editandoId, nome.trim(), telefone.trim() || null, email.trim() || null)
-        : await criarFornecedor(user.id, nome.trim(), telefone.trim() || null, email.trim() || null);
+        : await criarFornecedor(negocio.usuarioId, nome.trim(), telefone.trim() || null, email.trim() || null);
     setSalvando(false);
 
     if (error) {
@@ -137,7 +148,7 @@ export default function ClientesFornecedoresPage() {
       </div>
 
       <div className="flex gap-1 rounded-full bg-muted/10 p-1 self-start">
-        {(["clientes", "fornecedores"] as const).map((a) => (
+        {(ehFuncionario ? (["clientes"] as const) : (["clientes", "fornecedores"] as const)).map((a) => (
           <button
             key={a}
             type="button"

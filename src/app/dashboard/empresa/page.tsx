@@ -44,7 +44,7 @@ function emBreveOuAtrasada(item: { vencimento: string; status: string }, dias = 
 }
 
 export default function PainelEmpresaPage() {
-  const { user, perfil } = useAuth();
+  const { perfil, papel, negocio } = useAuth();
   const hoje = new Date();
   const [mes, setMes] = React.useState(hoje.getMonth() + 1);
   const [ano, setAno] = React.useState(hoje.getFullYear());
@@ -56,17 +56,34 @@ export default function PainelEmpresaPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
 
+  const ehFuncionario = papel === "funcionario";
+
   const carregar = React.useCallback(async () => {
-    if (!user) return;
+    if (!negocio) return;
     setCarregando(true);
+
+    // Funcionário não tem acesso ao financeiro do negócio (contas a pagar/
+    // receber e o extrato de transações ficam bloqueados pelo RLS) — só
+    // busca o que ele pode ver de fato, que é o estoque (pro alerta de
+    // estoque baixo). O resumo financeiro fica reservado pra dono/sócio.
+    if (ehFuncionario) {
+      setProdutos(await listarProdutos(negocio.usuarioId));
+      setResumo(null);
+      setLancamentos([]);
+      setContasPagar([]);
+      setContasReceber([]);
+      setCarregando(false);
+      return;
+    }
+
     const inicio = new Date(ano, mes - 1, 1).toISOString().slice(0, 10);
     const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
     const [res, lista, listaProdutos, listaPagar, listaReceber] = await Promise.all([
-      gerarResumoEmpresa(user.id, ano, mes),
-      listarTransacoes(user.id, { inicio, fim }),
-      listarProdutos(user.id),
-      listarContasPagar(user.id),
-      listarContasReceber(user.id),
+      gerarResumoEmpresa(negocio.usuarioId, ano, mes),
+      listarTransacoes(negocio.usuarioId, { inicio, fim }),
+      listarProdutos(negocio.usuarioId),
+      listarContasPagar(negocio.usuarioId),
+      listarContasReceber(negocio.usuarioId),
     ]);
     setResumo(res);
     setLancamentos(lista.filter((t) => t.tipo_negocio === "negocio").slice(0, 8));
@@ -74,7 +91,7 @@ export default function PainelEmpresaPage() {
     setContasPagar(listaPagar);
     setContasReceber(listaReceber);
     setCarregando(false);
-  }, [user, ano, mes]);
+  }, [negocio, ehFuncionario, ano, mes]);
 
   React.useEffect(() => {
     carregar();
@@ -100,12 +117,73 @@ export default function PainelEmpresaPage() {
     ...contasReceber.filter((c) => emBreveOuAtrasada(c)).map((c) => ({ ...c, tipo: "receber" as const })),
   ];
 
+  // Funcionário não vê o financeiro do negócio (faturamento, custos, contas
+  // a pagar/receber) — só estoque e vendas, então essa página mostra uma
+  // versão bem mais enxuta, focada nisso, em vez do painel financeiro
+  // completo que dono e sócio veem.
+  if (ehFuncionario) {
+    return (
+      <Container full className="flex flex-col gap-8 py-8">
+        <div>
+          <h1 className="text-h2 text-foreground">Painel da empresa</h1>
+          <p className="text-body text-muted">
+            {negocio?.nome ? `Você está na empresa de ${negocio.nome.split(" ")[0]}.` : "Bem-vindo(a)."}
+          </p>
+        </div>
+
+        {!carregando && produtosBaixos.length > 0 && (
+          <Card className="flex items-start gap-3 border-amber-200 bg-amber-50/60">
+            <PackageX size={20} className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="flex flex-col gap-1">
+              <p className="text-body font-medium text-foreground">
+                {produtosBaixos.length} produto{produtosBaixos.length > 1 ? "s" : ""} com estoque baixo
+              </p>
+              <p className="text-small text-muted">{produtosBaixos.map((p) => p.nome).join(", ")}</p>
+              <Link href="/dashboard/empresa/produtos" className="text-small font-medium text-accent-700 hover:underline">
+                Ver estoque
+              </Link>
+            </div>
+          </Card>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Link href="/dashboard/empresa/vendas">
+            <Card variant="interactive" className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
+                <Receipt size={20} />
+              </span>
+              <div>
+                <p className="text-body font-medium text-foreground">Vendas</p>
+                <p className="text-small text-muted">Registrar e acompanhar vendas</p>
+              </div>
+            </Card>
+          </Link>
+          <Link href="/dashboard/empresa/produtos">
+            <Card variant="interactive" className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
+                <PackageX size={20} />
+              </span>
+              <div>
+                <p className="text-body font-medium text-foreground">Estoque</p>
+                <p className="text-small text-muted">Ver e ajustar produtos</p>
+              </div>
+            </Card>
+          </Link>
+        </div>
+      </Container>
+    );
+  }
+
   return (
     <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-h2 text-foreground">Painel da empresa</h1>
-          <p className="text-body text-muted">Como está indo o seu negócio, {perfil?.nome.split(" ")[0]}.</p>
+          <p className="text-body text-muted">
+            {papel === "socio" && negocio?.nome
+              ? `Como está indo a empresa de ${negocio.nome.split(" ")[0]}, ${perfil?.nome.split(" ")[0]}.`
+              : `Como está indo o seu negócio, ${perfil?.nome.split(" ")[0]}.`}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1">

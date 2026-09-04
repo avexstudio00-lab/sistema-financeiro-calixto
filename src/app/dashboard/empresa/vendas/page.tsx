@@ -39,7 +39,7 @@ function limitesDosUltimosMeses(meses: number) {
 }
 
 export default function VendasPage() {
-  const { user } = useAuth();
+  const { negocio } = useAuth();
   const hoje = new Date();
 
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
@@ -64,14 +64,14 @@ export default function VendasPage() {
   const [periodo, setPeriodo] = React.useState<"dia" | "semana" | "mes">("dia");
 
   const carregar = React.useCallback(async () => {
-    if (!user) return;
+    if (!negocio) return;
     setCarregando(true);
     const { inicio, fim } = limitesDosUltimosMeses(6);
     const [listaProdutos, listaClientes, listaContas, listaVendas] = await Promise.all([
-      listarProdutos(user.id),
-      listarClientes(user.id),
-      listarContas(user.id),
-      listarVendas(user.id, { inicio, fim }),
+      listarProdutos(negocio.usuarioId),
+      listarClientes(negocio.usuarioId),
+      listarContas(negocio.usuarioId),
+      listarVendas(negocio.usuarioId, { inicio, fim }),
     ]);
     setProdutos(listaProdutos);
     setClientes(listaClientes);
@@ -79,12 +79,12 @@ export default function VendasPage() {
     setVendas(listaVendas);
     if (!contaId && listaContas[0]) setContaId(listaContas[0].id);
     setCarregando(false);
-  }, [user, contaId]);
+  }, [negocio, contaId]);
 
   React.useEffect(() => {
     carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [negocio]);
 
   const produtoSelecionado = produtos.find((p) => p.id === produtoId) ?? null;
 
@@ -96,7 +96,7 @@ export default function VendasPage() {
 
   async function handleRegistrarVenda(e: React.FormEvent) {
     e.preventDefault();
-    if (!user || !produtoSelecionado) return;
+    if (!negocio || !produtoSelecionado) return;
     const qtd = Number(quantidade.replace(",", "."));
     const valorUnit = Number(valorUnitario.replace(",", "."));
     if (!qtd || qtd <= 0) {
@@ -111,7 +111,7 @@ export default function VendasPage() {
     setAviso(null);
     setSalvando(true);
     const resultado = await registrarVenda({
-      usuarioId: user.id,
+      usuarioId: negocio.usuarioId,
       produto: produtoSelecionado,
       quantidade: qtd,
       valorUnitario: valorUnit,

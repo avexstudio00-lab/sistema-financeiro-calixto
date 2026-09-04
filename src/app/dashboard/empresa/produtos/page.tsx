@@ -30,7 +30,7 @@ interface FormularioProduto {
 const FORM_VAZIO: FormularioProduto = { nome: "", custo: "", precoVenda: "", quantidade: "", estoqueMinimo: "" };
 
 export default function ProdutosPage() {
-  const { user } = useAuth();
+  const { negocio } = useAuth();
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [formAberto, setFormAberto] = React.useState(false);
@@ -41,11 +41,11 @@ export default function ProdutosPage() {
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
   const carregar = React.useCallback(async () => {
-    if (!user) return;
+    if (!negocio) return;
     setCarregando(true);
-    setProdutos(await listarProdutos(user.id));
+    setProdutos(await listarProdutos(negocio.usuarioId));
     setCarregando(false);
-  }, [user]);
+  }, [negocio]);
 
   React.useEffect(() => {
     carregar();
@@ -73,7 +73,7 @@ export default function ProdutosPage() {
 
   async function handleSalvar(e: React.FormEvent) {
     e.preventDefault();
-    if (!user) return;
+    if (!negocio) return;
 
     const custo = Number(form.custo.replace(",", ".")) || 0;
     const precoVenda = Number(form.precoVenda.replace(",", ".")) || 0;
@@ -100,7 +100,7 @@ export default function ProdutosPage() {
     };
     const { error } = editandoId
       ? await atualizarProduto(editandoId, dados)
-      : await criarProduto({ usuario_id: user.id, ...dados });
+      : await criarProduto({ usuario_id: negocio.usuarioId, ...dados });
     setSalvando(false);
 
     if (error) {
