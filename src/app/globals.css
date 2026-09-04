@@ -48,3 +48,24 @@
     display: none; /* Chrome/Safari/Edge novo */
   }
 }
+
+/* Fora do @layer de propósito: precisa ganhar de qualquer variável de tema
+   (inclusive modo escuro) na hora de imprimir/exportar em PDF — o
+   "Exportar PDF" do Resumo do mês usa window.print(), e o relatório fica
+   ilegível se sair com fundo escuro. Estilos fora de @layer sempre vencem
+   os de dentro, então isso funciona independente da ordem no arquivo. */
+@media print {
+  :root,
+  .dark {
+    --background: 255 255 255;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --border: 226 232 240;
+    --muted: 100 116 139;
+    --muted-foreground: 148 163 184;
+  }
+
+  body {
+    background: white !important;
+  }
+}
