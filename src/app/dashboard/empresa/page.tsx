@@ -13,6 +13,7 @@ import {
   ArrowDownCircle,
   AlertTriangle,
   PackageX,
+  Receipt,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -124,6 +125,25 @@ export default function PainelEmpresaPage() {
           </Button>
         </div>
       </div>
+
+      <Card className="flex items-start gap-3 border-primary-200 bg-primary-50/60">
+        <Receipt size={20} className="mt-0.5 shrink-0 text-primary-600" />
+        <div className="flex flex-col gap-1">
+          <p className="text-body font-medium text-foreground">Precisa emitir nota fiscal?</p>
+          <p className="text-small text-muted">
+            A gente ainda não emite nota fiscal por aqui. Pra serviços, use o Emissor Nacional gratuito do
+            governo; pra produtos, a nota é emitida pela Sefaz do seu estado.
+          </p>
+          <a
+            href="https://www.nfse.gov.br/EmissorNacional"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-small font-medium text-accent-700 hover:underline"
+          >
+            Abrir o Emissor Nacional de NFS-e ↗
+          </a>
+        </div>
+      </Card>
 
       {carregando || !resumo ? (
         <p className="py-8 text-center text-body text-muted">Carregando...</p>
