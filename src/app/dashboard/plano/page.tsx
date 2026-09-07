@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { PLANOS, type Plano } from "@/lib/planos";
-import { assinarPlano, cancelarAssinatura, ultimaAssinatura } from "@/lib/data/assinaturas";
+import { iniciarCheckoutAssinatura, cancelarAssinaturaReal, ultimaAssinatura } from "@/lib/data/assinaturas";
 
 const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado", "grupo"];
 
@@ -35,6 +35,7 @@ export default function PlanoPage() {
   const [processando, setProcessando] = React.useState(false);
   const [assinatura, setAssinatura] = React.useState<Awaited<ReturnType<typeof ultimaAssinatura>>>(null);
   const [mensagem, setMensagem] = React.useState<string | null>(null);
+  const [erro, setErro] = React.useState<string | null>(null);
 
   const carregarAssinatura = React.useCallback(async () => {
     if (!user) return;
@@ -55,25 +56,61 @@ export default function PlanoPage() {
     carregarAssinatura();
   }, [carregarAssinatura]);
 
+  // Volta do checkout hospedado do Asaas (?asaas=sucesso|cancelado|expirado).
+  // A ativação em si depende do webhook confirmar o pagamento — pode levar
+  // alguns segundos — então, no caso de sucesso, tenta recarregar a
+  // assinatura algumas vezes antes de desistir.
+  React.useEffect(() => {
+    const parametros = new URLSearchParams(window.location.search);
+    const status = parametros.get("asaas");
+    if (!status) return;
+
+    window.history.replaceState(null, "", window.location.pathname);
+
+    if (status === "sucesso") {
+      setMensagem("Pagamento recebido! Confirmando a ativação do seu plano — isso pode levar alguns instantes...");
+      let tentativas = 0;
+      const intervalo = setInterval(async () => {
+        tentativas += 1;
+        await recarregarPerfil();
+        await carregarAssinatura();
+        if (tentativas >= 6) clearInterval(intervalo);
+      }, 3000);
+      return () => clearInterval(intervalo);
+    } else if (status === "cancelado") {
+      setMensagem("Checkout cancelado — nenhuma cobrança foi feita.");
+    } else if (status === "expirado") {
+      setMensagem("O checkout expirou antes de o pagamento ser concluído. Tente novamente.");
+    }
+  }, [recarregarPerfil, carregarAssinatura]);
+
   async function handleConfirmarAssinatura(plano: Plano) {
-    if (!user) return;
+    if (!user || plano === "gratis") return;
     setProcessando(true);
-    await assinarPlano(user.id, plano);
-    await recarregarPerfil();
-    await carregarAssinatura();
-    setProcessando(false);
-    setPlanoSelecionado(null);
-    setMensagem(`Assinatura do plano ${PLANOS[plano].nome} confirmada com sucesso.`);
+    setErro(null);
+    try {
+      const checkoutUrl = await iniciarCheckoutAssinatura(plano);
+      window.location.href = checkoutUrl;
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível iniciar o checkout.");
+      setProcessando(false);
+    }
   }
 
   async function handleCancelar() {
     if (!user) return;
     setProcessando(true);
-    await cancelarAssinatura(user.id);
-    await recarregarPerfil();
-    await carregarAssinatura();
-    setProcessando(false);
-    setMensagem("Sua assinatura foi cancelada. Você voltou para o plano Grátis.");
+    setErro(null);
+    try {
+      await cancelarAssinaturaReal();
+      await recarregarPerfil();
+      await carregarAssinatura();
+      setMensagem("Sua assinatura foi cancelada. Você voltou para o plano Grátis.");
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível cancelar a assinatura.");
+    } finally {
+      setProcessando(false);
+    }
   }
 
   if (!perfil) return null;
@@ -91,6 +128,12 @@ export default function PlanoPage() {
         <Card className="flex items-center gap-3 border-primary-200 bg-primary-50">
           <ShieldCheck size={20} className="text-primary-600" />
           <p className="text-body text-primary-800">{mensagem}</p>
+        </Card>
+      )}
+
+      {erro && (
+        <Card className="flex items-center gap-3 border-red-200 bg-red-50">
+          <p className="text-body text-red-800">{erro}</p>
         </Card>
       )}
 
@@ -153,10 +196,10 @@ export default function PlanoPage() {
               ) : confirmando ? (
                 <div className="flex flex-col gap-2">
                   <p className="text-small text-muted">
-                    Pagamento simulado — nenhum valor real será cobrado neste ambiente de testes.
+                    Você será redirecionado para o checkout seguro do Asaas (Pix ou cartão de crédito).
                   </p>
                   <Button onClick={() => handleConfirmarAssinatura(planoId)} disabled={processando} className="w-full">
-                    {processando ? "Confirmando..." : `Confirmar por ${dados.precoLabel}`}
+                    {processando ? "Abrindo checkout..." : `Assinar por ${dados.precoLabel}`}
                   </Button>
                   <Button variant="tertiary" onClick={() => setPlanoSelecionado(null)} className="w-full">
                     Cancelar
