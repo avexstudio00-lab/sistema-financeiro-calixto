@@ -78,7 +78,8 @@ const IMAGEM_ITEM_CHECKOUT_BASE64 =
 
 /**
  * Cria um checkout hospedado do Asaas para uma assinatura mensal recorrente
- * (Pix ou cartão de crédito). O pagador preenche os próprios dados (nome,
+ * (por enquanto só cartão de crédito — ver comentário sobre Pix logo abaixo,
+ * dentro do corpo da requisição). O pagador preenche os próprios dados (nome,
  * e-mail, CPF/CNPJ) na página do Asaas — o app não coleta nem armazena CPF,
  * então não precisamos de um `customer` pré-cadastrado nem de `customerData`.
  *
@@ -103,7 +104,15 @@ export async function criarCheckout(params: {
   const resposta = await asaasFetch<CheckoutAsaasResposta>("/checkouts", {
     method: "POST",
     body: JSON.stringify({
-      billingTypes: ["PIX", "CREDIT_CARD"],
+      // TEMPORÁRIO: só cartão de crédito. Incluir "PIX" aqui faz o Asaas
+      // rejeitar a CRIAÇÃO do checkout inteiro (não só a opção Pix na tela)
+      // com "Para gerar cobranças com Pix é necessário criar uma chave Pix
+      // no Asaas" — confirmado nos logs de produção em 07/set/2026. Voltar
+      // a incluir "PIX" assim que o usuário cadastrar uma chave Pix na
+      // conta Asaas (painel do Asaas > Configurações > Chaves Pix); até lá,
+      // deixar assim faz o checkout funcionar de verdade em vez de sempre
+      // falhar. Ver seção 6 do contexto do projeto.
+      billingTypes: ["CREDIT_CARD"],
       chargeTypes: ["RECURRENT"],
       minutesToExpire: 60,
       externalReference: params.externalReference,
