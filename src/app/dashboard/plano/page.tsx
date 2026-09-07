@@ -196,7 +196,7 @@ export default function PlanoPage() {
               ) : confirmando ? (
                 <div className="flex flex-col gap-2">
                   <p className="text-small text-muted">
-                    Você será redirecionado para o checkout seguro do Asaas (Pix ou cartão de crédito).
+                    Você será redirecionado para o checkout seguro do Asaas (cartão de crédito).
                   </p>
                   <Button onClick={() => handleConfirmarAssinatura(planoId)} disabled={processando} className="w-full">
                     {processando ? "Abrindo checkout..." : `Assinar por ${dados.precoLabel}`}
