@@ -106,8 +106,10 @@ async function cancelarOutrasAssinaturasAtivas(supabase: SupabaseClient, usuario
  *    recente", porque pode haver mais de uma tentativa de checkout em
  *    aberto ao mesmo tempo.
  */
+type LinhaAssinatura = { id: string; usuario_id: string; plano: Plano; status: string };
+
 async function processarPagamentoConfirmado(payment: NonNullable<EventoAsaas["payment"]>, admin: SupabaseClient) {
-  let linha: { id: string; usuario_id: string; plano: Plano; status: string } | null = null;
+  let linha: LinhaAssinatura | null = null;
 
   if (payment.externalReference) {
     const { data } = await admin
@@ -115,7 +117,7 @@ async function processarPagamentoConfirmado(payment: NonNullable<EventoAsaas["pa
       .select("id, usuario_id, plano, status")
       .eq("id", payment.externalReference)
       .maybeSingle();
-    if (data) linha = data as typeof linha;
+    if (data) linha = data as LinhaAssinatura;
   }
 
   if (!linha) {
