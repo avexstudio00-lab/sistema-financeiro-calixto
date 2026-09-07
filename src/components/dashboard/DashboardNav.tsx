@@ -71,8 +71,21 @@ export function DashboardNav() {
   const [scrollInfo, setScrollInfo] = React.useState({ podeEsquerda: false, podeDireita: false });
 
   const mundo: "pessoal" | "negocio" = pathname?.startsWith("/dashboard/empresa") ? "negocio" : "pessoal";
-  const linksPessoal = papel === "dono" ? [...LINKS_PESSOAL, LINK_EQUIPE] : LINKS_PESSOAL;
-  const linksEmpresa = papel === "funcionario" ? LINKS_EMPRESA.filter((l) => !LINKS_EMPRESA_FINANCEIRO.has(l.href)) : LINKS_EMPRESA;
+  // IMPORTANTE: memoizado por `papel` — "[...LINKS_PESSOAL, LINK_EQUIPE]" cria
+  // um array NOVO a cada render. Sem o useMemo, `links` (abaixo) muda de
+  // referência em todo render, o que faz o useEffect que depende de `links`
+  // (mais abaixo) disparar em loop infinito pra quem é "dono" — e esse loop
+  // rodando sem parar é o que trava a navegação por clique no menu (a troca
+  // de rota nunca consegue "vencer" a fila de re-renders). Navegação direta
+  // por URL não sofre isso porque monta o componente do zero uma vez só.
+  const linksPessoal = React.useMemo(
+    () => (papel === "dono" ? [...LINKS_PESSOAL, LINK_EQUIPE] : LINKS_PESSOAL),
+    [papel]
+  );
+  const linksEmpresa = React.useMemo(
+    () => (papel === "funcionario" ? LINKS_EMPRESA.filter((l) => !LINKS_EMPRESA_FINANCEIRO.has(l.href)) : LINKS_EMPRESA),
+    [papel]
+  );
   const links = mundo === "negocio" ? linksEmpresa : linksPessoal;
   const corAtiva = mundo === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700";
   const iniciais = perfil?.nome
@@ -88,10 +101,15 @@ export function DashboardNav() {
   const atualizarScrollInfo = React.useCallback(() => {
     const el = navRef.current;
     if (!el) return;
-    setScrollInfo({
-      podeEsquerda: el.scrollLeft > 4,
-      podeDireita: el.scrollLeft < el.scrollWidth - el.clientWidth - 4,
-    });
+    const podeEsquerda = el.scrollLeft > 4;
+    const podeDireita = el.scrollLeft < el.scrollWidth - el.clientWidth - 4;
+    // Só atualiza o estado se algum valor realmente mudou — evita criar um
+    // objeto novo (e um re-render) a cada chamada quando nada mudou de fato.
+    setScrollInfo((atual) =>
+      atual.podeEsquerda === podeEsquerda && atual.podeDireita === podeDireita
+        ? atual
+        : { podeEsquerda, podeDireita }
+    );
   }, []);
 
   React.useEffect(() => {
