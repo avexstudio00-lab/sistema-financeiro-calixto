@@ -63,6 +63,20 @@ interface CheckoutAsaasResposta {
 }
 
 /**
+ * Imagem do item mostrada na tela do checkout hospedado do Asaas — campo
+ * `imageBase64` é OBRIGATÓRIO no schema da API (`POST /v3/checkouts`,
+ * `items[].imageBase64`), mesmo não aparecendo em todo exemplo da
+ * documentação. Sem ele, o Asaas rejeita a requisição com erro de validação
+ * e o app nunca chega a abrir o checkout (ver histórico no contexto do
+ * projeto). Quadrado azul liso 48x48 (~120 bytes) — deliberadamente minúsculo
+ * e sem texto pra ficar curto/simples de manter aqui hardcoded (evita
+ * depender de asset externo) sem arriscar corromper uma string base64 gigante
+ * ao editar. Só precisa satisfazer o schema; não afeta nenhuma outra tela.
+ */
+const IMAGEM_ITEM_CHECKOUT_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAPElEQVR42u3OAQ0AMAgAIH0XkxnfEq/hHCQgqyc2ebGMkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQ0OXQB5moAdNbwfLNAAAAAElFTkSuQmCC";
+
+/**
  * Cria um checkout hospedado do Asaas para uma assinatura mensal recorrente
  * (Pix ou cartão de crédito). O pagador preenche os próprios dados (nome,
  * e-mail, CPF/CNPJ) na página do Asaas — o app não coleta nem armazena CPF,
@@ -99,6 +113,7 @@ export async function criarCheckout(params: {
           description: `Assinatura mensal — Sistema Financeiro Calixto (Avex Studio)`,
           quantity: 1,
           value: dadosPlano.preco,
+          imageBase64: IMAGEM_ITEM_CHECKOUT_BASE64,
         },
       ],
       subscription: {
