@@ -74,6 +74,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ checkoutUrl: checkout.link });
   } catch (erro) {
     if (erro instanceof AsaasError) {
+      // Loga a mensagem de validação/erro que o Asaas devolveu — sem isso,
+      // um 502 aqui fica invisível nos logs da Vercel (o corpo de resposta
+      // de APIs externas só aparece com o add-on pago Observability Plus).
+      console.error(`Erro do Asaas ao criar checkout (status ${erro.status}):`, erro.message);
       return NextResponse.json({ erro: erro.message }, { status: 502 });
     }
     console.error("Erro ao criar checkout Asaas:", erro);
