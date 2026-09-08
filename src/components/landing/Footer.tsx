@@ -28,6 +28,9 @@ export function Footer() {
           <Link href="/login" className="text-small text-muted hover:text-foreground">
             Entrar
           </Link>
+          <Link href="/termos" className="text-small text-muted hover:text-foreground">
+            Termos de uso
+          </Link>
         </nav>
 
         <p className="text-small text-muted">
