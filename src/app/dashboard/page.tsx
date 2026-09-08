@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowDownCircle, ArrowUpCircle, Wallet, Plus, Filter, Lock } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, Wallet, Plus, Filter, Lock, AlertTriangle } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarTransacoes, contarTransacoesDoMes } from "@/lib/data/transacoes";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarMetas } from "@/lib/data/metas";
+import { listarLimites } from "@/lib/data/limitesCategoria";
 import { listarEvolucaoMensal, type PontoEvolucaoMensal } from "@/lib/data/graficos";
 import { LIMITE_TRANSACOES_GRATIS, nivelPlano } from "@/lib/planos";
 import { agruparGastosPorCategoria, heatmapDoMes } from "@/lib/graficos-utils";
@@ -23,7 +24,7 @@ import { GraficoDonutCategorias } from "@/components/dashboard/graficos/GraficoD
 import { GraficoRankingGastos } from "@/components/dashboard/graficos/GraficoRankingGastos";
 import { GraficoColunasComparativo } from "@/components/dashboard/graficos/GraficoColunasComparativo";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
-import type { Categoria, Transacao, Meta } from "@/lib/data/tipos";
+import type { Categoria, Transacao, Meta, LimiteCategoria } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO_FILTRO = [
   { id: "pix", label: "Pix" },
@@ -54,6 +55,7 @@ export default function DashboardPage() {
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
   const [evolucaoMensal, setEvolucaoMensal] = React.useState<PontoEvolucaoMensal[]>([]);
   const [metas, setMetas] = React.useState<Meta[]>([]);
+  const [limites, setLimites] = React.useState<LimiteCategoria[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [bloqueado, setBloqueado] = React.useState(false);
@@ -71,14 +73,16 @@ export default function DashboardPage() {
     if (!user) return;
     setCarregando(true);
     const { inicio, fim } = limitesDoMesAtual();
-    const [lista, cats, evolucao] = await Promise.all([
+    const [lista, cats, evolucao, lims] = await Promise.all([
       listarTransacoes(user.id, { inicio, fim }),
       listarCategorias(user.id),
       listarEvolucaoMensal(user.id, 6, "pessoal"),
+      listarLimites(user.id),
     ]);
     setTransacoes(lista);
     setCategorias(cats);
     setEvolucaoMensal(evolucao);
+    setLimites(lims);
     setCarregando(false);
   }, [user]);
 
@@ -137,6 +141,25 @@ export default function DashboardPage() {
   const saidas = transacoesPessoais.filter((t) => t.tipo === "despesa").reduce((acc, t) => acc + Number(t.valor), 0);
   const saldo = entradas - saidas;
 
+  // Alerta de orçamento (ver /dashboard/orcamento): categorias com limite
+  // mensal definido cujo gasto do mês já está em 80% ou mais do limite.
+  const alertasOrcamento = React.useMemo(() => {
+    if (limites.length === 0) return [];
+    const gastoPorCategoria = new Map<string, number>();
+    for (const t of transacoesPessoais) {
+      if (t.tipo !== "despesa" || !t.categoria_id) continue;
+      gastoPorCategoria.set(t.categoria_id, (gastoPorCategoria.get(t.categoria_id) ?? 0) + Number(t.valor));
+    }
+    return limites
+      .map((l) => {
+        const gasto = gastoPorCategoria.get(l.categoria_id) ?? 0;
+        const nome = categorias.find((c) => c.id === l.categoria_id)?.nome ?? "Categoria";
+        return { nome, gasto, limite: Number(l.limite_mensal), percentual: (gasto / Number(l.limite_mensal)) * 100 };
+      })
+      .filter((a) => a.percentual >= 80)
+      .sort((a, b) => b.percentual - a.percentual);
+  }, [limites, transacoesPessoais, categorias]);
+
   const transacoesFiltradas = transacoesPessoais.filter((t) => {
     if (filtroTipo !== "todos" && t.tipo !== filtroTipo) return false;
     if (filtroCategoria && t.categoria_id !== filtroCategoria) return false;
@@ -192,6 +215,27 @@ export default function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      {alertasOrcamento.length > 0 && (
+        <Link href="/dashboard/orcamento">
+          <Card className="flex flex-wrap items-center gap-3 border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100">
+            <AlertTriangle size={20} className="shrink-0 text-amber-600" />
+            <p className="text-body text-amber-900">
+              {alertasOrcamento.length === 1 ? (
+                <>
+                  <strong>{alertasOrcamento[0].nome}</strong> já está em{" "}
+                  {Math.round(alertasOrcamento[0].percentual)}% do limite mensal.
+                </>
+              ) : (
+                <>
+                  <strong>{alertasOrcamento.length} categorias</strong> estão perto (ou já passaram) do limite mensal —
+                  toque para ver.
+                </>
+              )}
+            </p>
+          </Card>
+        </Link>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="flex flex-col gap-2">
