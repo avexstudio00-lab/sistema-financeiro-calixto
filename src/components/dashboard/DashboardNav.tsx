@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Sparkles,
   PiggyBank,
+  Target,
   CreditCard,
   LogOut,
   Wallet,
@@ -39,6 +40,7 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
   { href: "/dashboard/investimentos", label: "Investimentos", icon: TrendingUp },
   { href: "/dashboard/metas", label: "Metas", icon: PiggyBank },
+  { href: "/dashboard/orcamento", label: "Orçamento", icon: Target },
   { href: "/dashboard/carteiras", label: "Carteiras", icon: Wallet },
   { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
 ];
