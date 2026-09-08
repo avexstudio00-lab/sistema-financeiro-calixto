@@ -35,6 +35,18 @@ export interface Transacao {
   categorias?: Categoria | null;
 }
 
+/** Limite mensal opcional que o usuário define pra uma categoria de despesa
+ * (ver src/lib/data/limitesCategoria.ts) -- usado pro alerta de "perto de
+ * estourar orçamento". Sempre amarrado ao usuário (nunca na `categoria` em
+ * si), porque categorias padrão são compartilhadas entre todo mundo. */
+export interface LimiteCategoria {
+  id: string;
+  usuario_id: string;
+  categoria_id: string;
+  limite_mensal: number;
+  criado_em: string;
+}
+
 export interface Meta {
   id: string;
   usuario_id: string;
