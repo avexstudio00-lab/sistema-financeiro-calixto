@@ -147,6 +147,14 @@ function CadastroConteudo() {
       </form>
 
       <p className="text-center text-small text-muted">
+        Ao criar sua conta, você concorda com os{" "}
+        <Link href="/termos" className="font-semibold text-primary-600">
+          Termos de uso e política de cancelamento
+        </Link>
+        .
+      </p>
+
+      <p className="text-center text-small text-muted">
         Já tem uma conta?{" "}
         <Link href="/login" className="font-semibold text-primary-600">
           Entrar
