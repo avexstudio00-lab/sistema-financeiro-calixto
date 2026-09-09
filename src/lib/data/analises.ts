@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Transacao, AnaliseIA } from "./tipos";
 import type { Perfil } from "@/lib/auth/AuthProvider";
+import { listarMetas } from "./metas";
 
 function limitesDoMes(ano: number, mes: number) {
   const inicio = new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10);
@@ -47,6 +48,11 @@ export async function gerarResumoMensal(
   const atualCompleto = await transacoesDoMes(usuarioId, ano, mes);
   const mesAnteriorData = mes === 1 ? { ano: ano - 1, mes: 12 } : { ano, mes: mes - 1 };
   const anteriorCompleto = await transacoesDoMes(usuarioId, mesAnteriorData.ano, mesAnteriorData.mes);
+  // Buscado pra evitar sugerir "guarde numa meta" como se o usuário ainda não
+  // tivesse guardado nada — antes disso acontecia mesmo quando ele já tinha
+  // uma meta em andamento com progresso real (ver histórico de bug 09/set/2026).
+  const metas = await listarMetas(usuarioId);
+  const metasEmAndamento = metas.filter((m) => m.status !== "concluida" && Number(m.valor_meta) > 0);
 
   const atual = atualCompleto.filter((t) => t.tipo_negocio !== "negocio");
   const anterior = anteriorCompleto.filter((t) => t.tipo_negocio !== "negocio");
@@ -87,7 +93,18 @@ export async function gerarResumoMensal(
     );
   }
   if (saldo > 0) {
-    recomendacoes.push(`Sobraram R$ ${saldo.toFixed(2)} este mês. Que tal guardar uma parte numa meta?`);
+    if (metasEmAndamento.length > 0) {
+      // Destaca a meta com menor progresso relativo — mesmo critério usado
+      // no card de "Meta em destaque" do painel principal.
+      const metaDestaque = [...metasEmAndamento].sort(
+        (a, b) => Number(a.valor_atual) / Number(a.valor_meta) - Number(b.valor_atual) / Number(b.valor_meta)
+      )[0];
+      recomendacoes.push(
+        `Sobraram R$ ${saldo.toFixed(2)} este mês. Você já guardou R$ ${Number(metaDestaque.valor_atual).toFixed(2)} de R$ ${Number(metaDestaque.valor_meta).toFixed(2)} em "${metaDestaque.nome}" — que tal reforçar ainda mais?`
+      );
+    } else {
+      recomendacoes.push(`Sobraram R$ ${saldo.toFixed(2)} este mês. Que tal criar uma meta e começar a guardar uma parte?`);
+    }
   } else if (saldo < 0) {
     recomendacoes.push(`Este mês as saídas passaram as entradas em R$ ${Math.abs(saldo).toFixed(2)}. Vamos ajustar o próximo mês juntos.`);
   }
