@@ -32,6 +32,10 @@ export interface Transacao {
   tipo_negocio: "pessoal" | "negocio" | null;
   is_recorrente: boolean;
   recorrencia: "mensal" | "semanal" | "diaria" | null;
+  /** Preenchido só quando a transação foi gerada automaticamente por uma
+   * conta fixa recorrente (ver ContaFixa abaixo) — nulo em todo lançamento
+   * manual, como sempre foi. */
+  conta_fixa_id: string | null;
   categorias?: Categoria | null;
 }
 
@@ -45,6 +49,29 @@ export interface LimiteCategoria {
   categoria_id: string;
   limite_mensal: number;
   criado_em: string;
+}
+
+/** Conta fixa recorrente (aluguel, assinatura de streaming etc.) — o usuário
+ * define uma vez e o app lança o gasto/receita em `transacoes` sozinho, todo
+ * mês, no dia de vencimento (ver src/lib/data/contasFixas.ts). Conceito de
+ * vida pessoal (mesma regra "pessoal é pessoal" de metas/orçamento). */
+export interface ContaFixa {
+  id: string;
+  usuario_id: string;
+  descricao: string;
+  valor: number;
+  tipo: "receita" | "despesa";
+  categoria_id: string | null;
+  conta_id: string | null;
+  dia_vencimento: number;
+  ativa: boolean;
+  data_inicio: string;
+  data_fim: string | null;
+  ultimo_ano_gerado: number | null;
+  ultimo_mes_gerado: number | null;
+  criado_em: string;
+  categorias?: Categoria | null;
+  contas?: Conta | null;
 }
 
 export interface Meta {
