@@ -11,6 +11,12 @@ export interface NovaTransacao {
   data: string;
   forma_pagamento: Transacao["forma_pagamento"];
   tipo_negocio: Transacao["tipo_negocio"];
+  /** Opcionais: só preenchidos quando a transação vem de uma conta fixa
+   * recorrente (ver src/lib/data/contasFixas.ts). Omitidos em todo
+   * lançamento manual, que continua exatamente como antes. */
+  is_recorrente?: boolean;
+  recorrencia?: Transacao["recorrencia"];
+  conta_fixa_id?: string | null;
 }
 
 export async function listarTransacoes(
