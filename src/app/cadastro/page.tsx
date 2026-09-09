@@ -34,7 +34,7 @@ function CadastroConteudo() {
   function validar(): string | null {
     if (nome.trim().length < 2) return "Digite seu nome completo.";
     if (!email.includes("@")) return "Digite um e-mail válido.";
-    if (senha.length < 6) return "A senha precisa ter pelo menos 6 caracteres.";
+    if (senha.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
     if (senha !== confirmacao) return "As senhas não coincidem.";
     return null;
   }
@@ -123,7 +123,7 @@ function CadastroConteudo() {
           label="Senha"
           type="password"
           leftIcon={Lock}
-          placeholder="Pelo menos 6 caracteres"
+          placeholder="Pelo menos 8 caracteres"
           value={senha}
           onChange={(e) => setSenha(e.target.value)}
           autoComplete="new-password"
