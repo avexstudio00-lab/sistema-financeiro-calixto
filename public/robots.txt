@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /dashboard/
+Disallow: /onboarding/
+Disallow: /convite/
+Disallow: /api/
