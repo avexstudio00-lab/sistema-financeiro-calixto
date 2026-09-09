@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
-import type { ContaFixa } from "./tipos";
+import type { ContaFixa, Transacao } from "./tipos";
 import { criarTransacao } from "./transacoes";
 
 export interface NovaContaFixa {
@@ -35,11 +35,31 @@ export async function alternarAtivaContaFixa(id: string, ativa: boolean) {
   return supabase.from("contas_fixas").update({ ativa }).eq("id", id);
 }
 
-/** Apaga a conta fixa em si. Nunca apaga (nem desfaz) os lançamentos que ela
- * já gerou em `transacoes` — eles ficam como lançamentos normais, só perdem
- * a referência de origem (`conta_fixa_id` vira nulo pela FK ON DELETE SET NULL). */
+/** Apaga a conta fixa em si. Nunca apaga (nem desfaz) sozinho os lançamentos
+ * que ela já gerou em `transacoes` — eles ficam como lançamentos normais, só
+ * perdem a referência de origem (`conta_fixa_id` vira nulo pela FK ON DELETE
+ * SET NULL). Quem chama decide separadamente (ver `buscarUltimoLancamentoGerado`
+ * abaixo) se quer apagar também o lançamento já gerado, pra reverter o efeito
+ * no saldo da carteira. */
 export async function removerContaFixa(id: string) {
   return supabase.from("contas_fixas").delete().eq("id", id);
+}
+
+/** Busca o lançamento mais recente que essa conta fixa já gerou (se algum).
+ * Usado na hora de remover uma conta fixa, pra avisar o usuário que ela já
+ * lançou algo este mês e oferecer a opção de apagar esse lançamento também
+ * (revertendo o valor do saldo da carteira) — sem isso, apagar a conta fixa
+ * some da lista mas o valor continua descontado/somado no saldo, e o
+ * lançamento continua contando nos resumos e alertas de orçamento. */
+export async function buscarUltimoLancamentoGerado(contaFixaId: string): Promise<Transacao | null> {
+  const { data } = await supabase
+    .from("transacoes")
+    .select("*, categorias(*)")
+    .eq("conta_fixa_id", contaFixaId)
+    .order("data", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as Transacao) ?? null;
 }
 
 function ultimoDiaDoMes(ano: number, mesIndex0: number): number {
