@@ -15,10 +15,12 @@ import {
   criarContaFixa,
   alternarAtivaContaFixa,
   removerContaFixa,
+  buscarUltimoLancamentoGerado,
   gerarLancamentosPendentes,
 } from "@/lib/data/contasFixas";
+import { deletarTransacao } from "@/lib/data/transacoes";
 import { formatarMoeda } from "@/lib/format";
-import type { Categoria, Conta, ContaFixa } from "@/lib/data/tipos";
+import type { Categoria, Conta, ContaFixa, Transacao } from "@/lib/data/tipos";
 
 const SELECT_CLASSE =
   "h-11 w-full rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100";
@@ -45,6 +47,13 @@ export default function ContasFixasPage() {
   const [alternando, setAlternando] = React.useState<string | null>(null);
   const [avisoGeracao, setAvisoGeracao] = React.useState<number | null>(null);
   const [form, setForm] = React.useState(estadoInicialForm());
+  // Fluxo de confirmação ao remover uma conta fixa (ver iniciarRemocao abaixo):
+  // antes de apagar, checa se ela já gerou algum lançamento este mês, pra
+  // oferecer a opção de apagar esse lançamento também (revertendo o saldo)
+  // em vez de deixá-lo "esquecido" contando no saldo e nos resumos.
+  const [confirmandoRemocaoId, setConfirmandoRemocaoId] = React.useState<string | null>(null);
+  const [verificandoLancamento, setVerificandoLancamento] = React.useState(false);
+  const [lancamentoVinculado, setLancamentoVinculado] = React.useState<Transacao | null>(null);
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
@@ -105,15 +114,43 @@ export default function ContasFixasPage() {
     setAlternando(null);
   }
 
-  async function handleRemover(cf: ContaFixa) {
+  const mesAtual = new Date().getMonth() + 1;
+  const anoAtual = new Date().getFullYear();
+
+  // Passo 1 do fluxo de remoção: abre a confirmação e, se essa conta fixa já
+  // gerou lançamento este mês (mesma checagem do badge "Já lançada este
+  // mês"), busca esse lançamento pra oferecer a opção de apagá-lo também.
+  async function iniciarRemocao(cf: ContaFixa) {
+    setConfirmandoRemocaoId(cf.id);
+    setLancamentoVinculado(null);
+    const geradaEsteMes = cf.ultimo_ano_gerado === anoAtual && cf.ultimo_mes_gerado === mesAtual;
+    if (!geradaEsteMes) return;
+    setVerificandoLancamento(true);
+    const lancamento = await buscarUltimoLancamentoGerado(cf.id);
+    setLancamentoVinculado(lancamento);
+    setVerificandoLancamento(false);
+  }
+
+  function cancelarRemocao() {
+    setConfirmandoRemocaoId(null);
+    setLancamentoVinculado(null);
+    setVerificandoLancamento(false);
+  }
+
+  // Passo 2: remove de fato. `apagarLancamento` só é oferecido quando existe
+  // um lançamento vinculado este mês — se o usuário escolher apagar também,
+  // reaproveita `deletarTransacao` (mesma função usada em "Lançamentos do
+  // mês"), que já reverte o efeito no saldo da carteira sozinha.
+  async function confirmarRemocao(cf: ContaFixa, apagarLancamento: boolean) {
     setAlternando(cf.id);
+    if (apagarLancamento && lancamentoVinculado) {
+      await deletarTransacao(lancamentoVinculado);
+    }
     await removerContaFixa(cf.id);
     await carregar();
     setAlternando(null);
+    cancelarRemocao();
   }
-
-  const mesAtual = new Date().getMonth() + 1;
-  const anoAtual = new Date().getFullYear();
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
@@ -241,61 +278,117 @@ export default function ContasFixasPage() {
         <div className="flex flex-col gap-3">
           {contasFixas.map((cf) => {
             const geradaEsteMes = cf.ultimo_ano_gerado === anoAtual && cf.ultimo_mes_gerado === mesAtual;
+            const confirmandoEsta = confirmandoRemocaoId === cf.id;
             return (
-              <Card key={cf.id} className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                      cf.tipo === "receita" ? "bg-primary-50 text-primary-600" : "bg-rose-50 text-red-500"
-                    }`}
-                  >
-                    <CalendarClock size={18} />
-                  </span>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-body font-medium text-foreground">{cf.descricao}</p>
-                      {!cf.ativa && (
-                        <Badge variant="neutral" size="sm">
-                          Pausada
-                        </Badge>
-                      )}
-                      {cf.ativa && geradaEsteMes && (
-                        <Badge variant="accent" size="sm">
-                          Já lançada este mês
-                        </Badge>
-                      )}
+              <Card key={cf.id} className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                        cf.tipo === "receita" ? "bg-primary-50 text-primary-600" : "bg-rose-50 text-red-500"
+                      }`}
+                    >
+                      <CalendarClock size={18} />
+                    </span>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-body font-medium text-foreground">{cf.descricao}</p>
+                        {!cf.ativa && (
+                          <Badge variant="neutral" size="sm">
+                            Pausada
+                          </Badge>
+                        )}
+                        {cf.ativa && geradaEsteMes && (
+                          <Badge variant="accent" size="sm">
+                            Já lançada este mês
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-small text-muted">
+                        Todo dia {cf.dia_vencimento}
+                        {cf.categorias?.nome ? ` · ${cf.categorias.nome}` : ""}
+                        {cf.contas?.nome ? ` · ${cf.contas.nome}` : ""}
+                      </p>
                     </div>
-                    <p className="text-small text-muted">
-                      Todo dia {cf.dia_vencimento}
-                      {cf.categorias?.nome ? ` · ${cf.categorias.nome}` : ""}
-                      {cf.contas?.nome ? ` · ${cf.contas.nome}` : ""}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className={`text-body font-semibold ${cf.tipo === "receita" ? "text-primary-600" : "text-red-500"}`}>
+                      {cf.tipo === "receita" ? "+" : "-"}
+                      {formatarMoeda(Number(cf.valor))}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => handleAlternarAtiva(cf)}
+                      disabled={alternando === cf.id}
+                      aria-label={cf.ativa ? "Pausar conta fixa" : "Reativar conta fixa"}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
+                    >
+                      {cf.ativa ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => (confirmandoEsta ? cancelarRemocao() : iniciarRemocao(cf))}
+                      disabled={alternando === cf.id}
+                      aria-label="Remover conta fixa"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-rose-600"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <p className={`text-body font-semibold ${cf.tipo === "receita" ? "text-primary-600" : "text-red-500"}`}>
-                    {cf.tipo === "receita" ? "+" : "-"}
-                    {formatarMoeda(Number(cf.valor))}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => handleAlternarAtiva(cf)}
-                    disabled={alternando === cf.id}
-                    aria-label={cf.ativa ? "Pausar conta fixa" : "Reativar conta fixa"}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
-                  >
-                    {cf.ativa ? <Pause size={16} /> : <Play size={16} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRemover(cf)}
-                    disabled={alternando === cf.id}
-                    aria-label="Remover conta fixa"
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-rose-600"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+
+                {confirmandoEsta && (
+                  <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    {verificandoLancamento ? (
+                      <p className="text-small text-amber-900">Verificando lançamentos desta conta fixa...</p>
+                    ) : lancamentoVinculado ? (
+                      <>
+                        <p className="text-small text-amber-900">
+                          Essa conta fixa já gerou o lançamento <strong>&quot;{lancamentoVinculado.descricao}&quot;</strong> de{" "}
+                          <strong>{formatarMoeda(Number(lancamentoVinculado.valor))}</strong> este mês. O que você quer fazer com ele?
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="tertiary" onClick={cancelarRemocao}>
+                            Cancelar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={alternando === cf.id}
+                            onClick={() => confirmarRemocao(cf, false)}
+                          >
+                            Remover só a conta fixa (manter o lançamento)
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={alternando === cf.id}
+                            onClick={() => confirmarRemocao(cf, true)}
+                            className="bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700"
+                          >
+                            Remover conta fixa e o lançamento
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-small text-amber-900">Tem certeza que quer remover essa conta fixa?</p>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="tertiary" onClick={cancelarRemocao}>
+                            Não
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={alternando === cf.id}
+                            onClick={() => confirmarRemocao(cf, false)}
+                            className="bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700"
+                          >
+                            Sim, apagar
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </Card>
             );
           })}
