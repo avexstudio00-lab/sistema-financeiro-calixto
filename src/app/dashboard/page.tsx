@@ -12,6 +12,7 @@ import { listarTransacoes, contarTransacoesDoMes } from "@/lib/data/transacoes";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarMetas } from "@/lib/data/metas";
 import { listarLimites } from "@/lib/data/limitesCategoria";
+import { gerarLancamentosPendentes } from "@/lib/data/contasFixas";
 import { listarEvolucaoMensal, type PontoEvolucaoMensal } from "@/lib/data/graficos";
 import { LIMITE_TRANSACOES_GRATIS, nivelPlano } from "@/lib/planos";
 import { agruparGastosPorCategoria, heatmapDoMes } from "@/lib/graficos-utils";
@@ -72,6 +73,12 @@ export default function DashboardPage() {
   const carregar = React.useCallback(async () => {
     if (!user) return;
     setCarregando(true);
+    // Lança automaticamente (se ainda não lançou este mês) as contas fixas
+    // recorrentes cujo dia de vencimento já chegou -- ver
+    // src/lib/data/contasFixas.ts e /dashboard/contas-fixas. Roda antes de
+    // buscar as transações do mês, pra qualquer lançamento novo já aparecer
+    // no painel nesta mesma carga.
+    await gerarLancamentosPendentes(user.id);
     const { inicio, fim } = limitesDoMesAtual();
     const [lista, cats, evolucao, lims] = await Promise.all([
       listarTransacoes(user.id, { inicio, fim }),
