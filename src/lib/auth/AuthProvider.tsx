@@ -4,6 +4,7 @@ import * as React from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import { podeAcessarNegocio, type Plano } from "@/lib/planos";
+import { iniciarTrial, verificarExpiracaoTrial } from "@/lib/data/assinaturas";
 
 export interface Perfil {
   id: string;
@@ -93,7 +94,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const carregarPerfil = React.useCallback(
     async (userId: string) => {
       const { data } = await supabase.from("usuarios").select("*").eq("id", userId).maybeSingle();
-      const perfilCarregado = data as Perfil | null;
+      let perfilCarregado = data as Perfil | null;
+
+      // Verificação preguiçosa do trial (mesmo padrão de contas fixas):
+      // se o trial grátis desse usuário já venceu, rebaixa pra "gratis"
+      // agora e relê o perfil atualizado antes de publicar no estado.
+      if (perfilCarregado) {
+        const trialExpirouAgora = await verificarExpiracaoTrial(userId);
+        if (trialExpirouAgora) {
+          const { data: atualizado } = await supabase.from("usuarios").select("*").eq("id", userId).maybeSingle();
+          perfilCarregado = atualizado as Perfil | null;
+        }
+      }
+
       setPerfil(perfilCarregado);
       await carregarPapelENegocio(userId, perfilCarregado);
     },
@@ -150,12 +163,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Se já existe sessão (confirmação de e-mail desativada no projeto), cria o perfil na hora.
     if (data.session && data.user) {
-      await supabase.from("usuarios").insert({
+      const { error: erroPerfil } = await supabase.from("usuarios").insert({
         id: data.user.id,
         nome,
         email,
         plano: "gratis",
       });
+      if (erroPerfil) {
+        // Erro real (não só "não deu pra dar trial"): loga em vez de
+        // seguir como se tivesse dado certo — sem a linha em `usuarios`, a
+        // FK de `assinaturas` não tem o que referenciar e o trial abaixo
+        // falharia de qualquer forma.
+        console.error("Erro ao criar perfil no cadastro:", erroPerfil.message);
+      } else {
+        // Trial grátis de DIAS_TRIAL dias no plano PLANO_TRIAL — ver
+        // src/lib/data/assinaturas.ts. Roda depois do insert acima (precisa
+        // da linha em `usuarios` já existir) e antes de carregar o perfil,
+        // pra `plano` já vir liberado na primeira leitura.
+        await iniciarTrial();
+      }
       await carregarPerfil(data.user.id);
       return { error: null, precisaConfirmarEmail: false };
     }
@@ -176,12 +202,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!perfilExistente) {
         const nome = (data.user.user_metadata?.nome as string) || data.user.email || "Usuário";
-        await supabase.from("usuarios").insert({
+        const { error: erroPerfil } = await supabase.from("usuarios").insert({
           id: data.user.id,
           nome,
           email: data.user.email,
           plano: "gratis",
         });
+        if (erroPerfil) {
+          // Ex.: duas abas fazendo login juntas pela primeira vez — a
+          // segunda esbarra na PK de `usuarios.id` já criada pela primeira.
+          // Não é motivo pra tentar de novo aqui nem pra dar um segundo
+          // trial; só loga.
+          console.error("Erro ao criar perfil no primeiro login:", erroPerfil.message);
+        } else {
+          // Mesmo trial grátis do cadastro normal (ver signUp acima) — esse
+          // caminho cobre quem confirmou o e-mail e só ganha a linha em
+          // `usuarios` no primeiro login (confirmação de e-mail ativada no
+          // projeto).
+          await iniciarTrial();
+        }
       }
       await carregarPerfil(data.user.id);
     }
