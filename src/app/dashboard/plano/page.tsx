@@ -9,7 +9,13 @@ import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { PLANOS, type Plano } from "@/lib/planos";
-import { iniciarCheckoutAssinatura, cancelarAssinaturaReal, ultimaAssinatura } from "@/lib/data/assinaturas";
+import {
+  iniciarCheckoutAssinatura,
+  cancelarAssinaturaReal,
+  ultimaAssinatura,
+  diasRestantesTrial,
+  PLANO_TRIAL,
+} from "@/lib/data/assinaturas";
 
 const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado", "grupo"];
 
@@ -115,12 +121,16 @@ export default function PlanoPage() {
 
   if (!perfil) return null;
 
+  const emTrial = assinatura?.gateway === "trial" && assinatura.status === "ativa";
+  const diasTrial = emTrial ? diasRestantesTrial(assinatura) : null;
+
   return (
     <Container full className="flex flex-col gap-8 py-8">
       <div>
         <h1 className="text-h2 text-foreground">Meu plano</h1>
         <p className="text-body text-muted">
-          Você está no plano <strong>{PLANOS[perfil.plano].nome}</strong>.
+          Você está no plano <strong>{PLANOS[perfil.plano].nome}</strong>
+          {emTrial && " (trial grátis)"}.
         </p>
       </div>
 
@@ -137,7 +147,30 @@ export default function PlanoPage() {
         </Card>
       )}
 
-      {assinatura && perfil.plano !== "gratis" && (
+      {emTrial && (
+        <Card className="flex flex-wrap items-center justify-between gap-4 border-accent-200 bg-accent-50">
+          <div className="flex items-center gap-3">
+            <ShieldCheck size={20} className="text-accent-700" />
+            <div>
+              <p className="text-body font-medium text-accent-800">
+                Você está no trial grátis do plano {PLANOS[PLANO_TRIAL].nome}
+              </p>
+              <p className="text-small text-accent-700">
+                {diasTrial === null
+                  ? "Aproveite enquanto dura."
+                  : diasTrial === 0
+                    ? "Termina hoje — assine antes pra não voltar pro Grátis."
+                    : `Termina em ${diasTrial} dia${diasTrial === 1 ? "" : "s"} — assine antes pra não voltar pro Grátis.`}
+              </p>
+            </div>
+          </div>
+          <Button onClick={() => setPlanoSelecionado(PLANO_TRIAL)} disabled={processando} className="shrink-0">
+            Assinar de verdade
+          </Button>
+        </Card>
+      )}
+
+      {assinatura && perfil.plano !== "gratis" && !emTrial && (
         <Card className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <CreditCard size={20} className="text-muted" />
@@ -189,7 +222,25 @@ export default function PlanoPage() {
                 ))}
               </ul>
 
-              {ehAtual ? (
+              {ehAtual && emTrial ? (
+                confirmando ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-small text-muted">
+                      Você será redirecionado para o checkout seguro do Asaas (cartão de crédito).
+                    </p>
+                    <Button onClick={() => handleConfirmarAssinatura(planoId)} disabled={processando} className="w-full">
+                      {processando ? "Abrindo checkout..." : `Assinar por ${dados.precoLabel}`}
+                    </Button>
+                    <Button variant="tertiary" onClick={() => setPlanoSelecionado(null)} className="w-full">
+                      Cancelar
+                    </Button>
+                  </div>
+                ) : (
+                  <Button onClick={() => setPlanoSelecionado(planoId)} disabled={processando} className="w-full">
+                    Assinar de verdade por {dados.precoLabel}
+                  </Button>
+                )
+              ) : ehAtual ? (
                 <Button variant="tertiary" disabled className="w-full">
                   Plano atual
                 </Button>
