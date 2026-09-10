@@ -20,6 +20,15 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Meu Controle",
   },
+  // `appleWebApp.capable` acima só gera a meta tag prefixada
+  // "apple-mobile-web-app-capable" (Safari/iOS). O Chrome (DevTools)
+  // passou a reconhecer também a tag padrão sem prefixo de fabricante,
+  // "mobile-web-app-capable", e mostra um aviso de "deprecated" quando só
+  // a versão da Apple existe. A tag da Apple continua necessária — o
+  // Safari/iOS não entende a nova — então mantemos as duas.
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
