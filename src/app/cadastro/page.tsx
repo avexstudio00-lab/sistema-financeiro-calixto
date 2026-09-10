@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { PLANOS } from "@/lib/planos";
+import { DIAS_TRIAL, PLANO_TRIAL } from "@/lib/data/assinaturas";
 
 function CadastroConteudo() {
   const router = useRouter();
@@ -97,8 +99,13 @@ function CadastroConteudo() {
         <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-white">
           <Wallet size={22} />
         </span>
-        <h1 className="text-h2 text-foreground">Crie sua conta grátis</h1>
-        <p className="text-body text-muted">Leva menos de um minuto, sem cartão de crédito.</p>
+        <h1 className="text-h2 text-foreground">
+          Comece grátis com {DIAS_TRIAL} dias do {PLANOS[PLANO_TRIAL].nome}
+        </h1>
+        <p className="text-body text-muted">
+          Leva menos de um minuto, sem cartão de crédito. Depois do trial, se você não assinar,
+          sua conta continua no plano Grátis normalmente.
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
