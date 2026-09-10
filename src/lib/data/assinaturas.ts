@@ -1,6 +1,12 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Plano } from "@/lib/planos";
 
+/** Duração do trial grátis dado no cadastro, em dias. */
+export const DIAS_TRIAL = 7;
+
+/** Plano liberado durante o trial grátis do cadastro. */
+export const PLANO_TRIAL: Plano = "clt";
+
 /**
  * Inicia a assinatura de um plano pago de verdade via Asaas: chama a Route
  * Handler /api/asaas/checkout (que cria o checkout hospedado no Asaas e a
@@ -86,4 +92,91 @@ export async function ultimaAssinatura(usuarioId: string) {
     .limit(1)
     .maybeSingle();
   return maisRecente;
+}
+
+/**
+ * Dá o trial grátis de `DIAS_TRIAL` dias no plano `PLANO_TRIAL`, sem
+ * checkout nem cartão — chamado uma única vez, na criação da conta (ver
+ * `signUp`/`signIn` em AuthProvider.tsx).
+ *
+ * A ativação de verdade acontece em /api/trial/iniciar, com a service role
+ * — NUNCA escrevendo `status: "ativa"` direto do client. Ver Finding #1 da
+ * revisão adversarial (contexto-projeto-completo.md seção 13): a versão
+ * anterior desta função fazia exatamente isso (insert direto em
+ * `assinaturas` + update direto em `usuarios.plano` pelo client comum), o
+ * que — combinado com o gap de RLS corrigido na mesma sessão — permitia
+ * qualquer usuário autenticado se auto-conceder o trial (ou qualquer plano
+ * pago) quantas vezes quisesse, só replicando a chamada.
+ *
+ * Esta função aqui só chama a rota e nunca lança erro — pior caso (rota
+ * fora do ar, sem sessão etc.), a conta segue no Grátis normalmente
+ * (comportamento de antes do trial existir), sem travar cadastro/login.
+ */
+export async function iniciarTrial(): Promise<void> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return;
+
+  try {
+    const resposta = await fetch("/api/trial/iniciar", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!resposta.ok) {
+      const corpo = await resposta.json().catch(() => null);
+      console.error("Erro ao iniciar trial:", corpo?.erro ?? `HTTP ${resposta.status}`);
+    }
+  } catch (erro) {
+    console.error("Erro ao iniciar trial:", erro);
+  }
+}
+
+/**
+ * Verificação "preguiçosa" do trial, mesmo padrão de
+ * `gerarLancamentosPendentes` em `contasFixas.ts`: roda a cada carregamento
+ * de perfil (ver `AuthProvider.carregarPerfil`) e, se o trial ativo do
+ * usuário já passou da data de expiração, marca a assinatura como
+ * "expirada" e volta `usuarios.plano` pra "gratis". Devolve `true` quando
+ * algo expirou agora de fato, pra quem chamou saber que precisa reler o
+ * perfil atualizado.
+ */
+export async function verificarExpiracaoTrial(usuarioId: string): Promise<boolean> {
+  const { data: trialAtivo } = await supabase
+    .from("assinaturas")
+    .select("id, data_proximo_pagamento")
+    .eq("usuario_id", usuarioId)
+    .eq("gateway", "trial")
+    .eq("status", "ativa")
+    .maybeSingle();
+
+  if (!trialAtivo || !trialAtivo.data_proximo_pagamento) return false;
+  if (new Date(trialAtivo.data_proximo_pagamento).getTime() > Date.now()) return false;
+
+  await supabase.from("assinaturas").update({ status: "expirada" }).eq("id", trialAtivo.id);
+
+  // Só rebaixa pra "gratis" se `usuarios.plano` ainda for o plano do
+  // trial — se a pessoa já assinou de verdade por cima do trial (upgrade
+  // no meio do período), o plano pago não pode ser derrubado aqui.
+  await supabase
+    .from("usuarios")
+    .update({ plano: "gratis" })
+    .eq("id", usuarioId)
+    .eq("plano", PLANO_TRIAL);
+
+  return true;
+}
+
+/**
+ * Quantos dias faltam pro fim do trial (arredondado pra cima), ou `null`
+ * se a assinatura passada não for um trial ativo. Uso só de exibição — a
+ * expiração de verdade é feita por `verificarExpiracaoTrial`.
+ */
+export function diasRestantesTrial(
+  assinatura: { gateway?: string; status?: string; data_proximo_pagamento?: string | null } | null | undefined
+): number | null {
+  if (!assinatura || assinatura.gateway !== "trial" || assinatura.status !== "ativa") return null;
+  if (!assinatura.data_proximo_pagamento) return null;
+  const ms = new Date(assinatura.data_proximo_pagamento).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
 }
