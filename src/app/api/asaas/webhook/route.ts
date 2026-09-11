@@ -3,6 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { cancelarAssinaturaAsaas } from "@/lib/asaas/client";
 import { PLANOS, type Plano } from "@/lib/planos";
+import { registrarEventoSeguranca } from "@/lib/auditoria";
+
+// Sem rate limit nesta rota de propósito: quem chama é o próprio Asaas
+// (server-to-server, protegido pelo token compartilhado abaixo, não pelo
+// usuário final), e bloquear uma reentrega legítima de webhook seria pior
+// do que o risco que o rate limiting resolve nas outras rotas.
 
 export const runtime = "nodejs";
 
@@ -164,6 +170,11 @@ async function processarPagamentoConfirmado(payment: NonNullable<EventoAsaas["pa
 
   await admin.from("usuarios").update({ plano: linha.plano }).eq("id", linha.usuario_id);
   await cancelarOutrasAssinaturasAtivas(admin, linha.usuario_id, linha.id);
+  await registrarEventoSeguranca(linha.usuario_id, "assinatura_ativada_webhook", {
+    assinaturaId: linha.id,
+    plano: linha.plano,
+    paymentId: payment.id,
+  });
 }
 
 /** Espelha no banco um cancelamento feito direto no painel do Asaas (sem
@@ -183,6 +194,10 @@ async function processarAssinaturaCancelada(subscription: NonNullable<EventoAsaa
   await admin.from("assinaturas").update({ status: "cancelada" }).eq("id", linha.id);
   await admin.from("usuarios").update({ plano: "gratis" }).eq("id", linha.usuario_id);
   await revogarCompartilhamento(admin, linha.usuario_id);
+  await registrarEventoSeguranca(linha.usuario_id, "assinatura_cancelada_webhook", {
+    assinaturaId: linha.id,
+    asaasSubscriptionId: subscription.id,
+  });
 }
 
 export async function POST(request: Request) {
