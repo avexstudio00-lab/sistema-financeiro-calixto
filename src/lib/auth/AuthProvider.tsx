@@ -47,6 +47,14 @@ interface AuthContextValue {
   negocio: NegocioInfo | null;
   podeAcessarMinhaEmpresa: boolean;
   carregando: boolean;
+  /** True só quando a sessão atual veio do link de e-mail de "esqueci
+   * minha senha" (evento `PASSWORD_RECOVERY` do Supabase Auth) — usado por
+   * `/redefinir-senha` pra decidir se mostra o formulário de nova senha.
+   * Sem isso, qualquer usuário já logado normalmente que abrisse aquela
+   * URL conseguiria trocar a senha sem confirmar a atual (achado da
+   * revisão adversarial de 10/set/2026). Fica `false` de novo assim que um
+   * login normal (`SIGNED_IN`) ou logout (`SIGNED_OUT`) acontecer. */
+  recuperacaoSenhaAtiva: boolean;
   recarregarPerfil: () => Promise<void>;
   signUp: (nome: string, email: string, senha: string) => Promise<{ error: string | null; precisaConfirmarEmail: boolean }>;
   signIn: (email: string, senha: string) => Promise<{ error: string | null }>;
@@ -63,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [papel, setPapel] = React.useState<Papel>("dono");
   const [negocio, setNegocio] = React.useState<NegocioInfo | null>(null);
   const [carregando, setCarregando] = React.useState(true);
+  const [recuperacaoSenhaAtiva, setRecuperacaoSenhaAtiva] = React.useState(false);
 
   /** Descobre se quem está logado é dono da própria conta ou foi convidado
    * (sócio/funcionário) — e, nesse caso, busca os dados básicos (nome,
@@ -126,7 +135,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCarregando(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, novaSessao) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (evento, novaSessao) => {
+      // Registrado aqui de propósito (o ponto mais cedo possível do app,
+      // dentro do AuthProvider que envolve todo o layout raiz) — é o único
+      // jeito confiável de pegar o evento `PASSWORD_RECOVERY` disparado
+      // pelo Supabase ao processar o token do link de e-mail, que acontece
+      // assim que o client é criado, antes de qualquer página específica
+      // (ex: /redefinir-senha) montar o próprio listener.
+      if (evento === "PASSWORD_RECOVERY") {
+        setRecuperacaoSenhaAtiva(true);
+      } else if (evento === "SIGNED_IN" || evento === "SIGNED_OUT") {
+        setRecuperacaoSenhaAtiva(false);
+      }
+
       setSession(novaSessao);
       setUser(novaSessao?.user ?? null);
       if (novaSessao?.user) {
@@ -236,7 +257,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resetPassword = React.useCallback(async (email: string) => {
-    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/login` : undefined;
+    // Antes mandava pra `/login` — como o link de recuperação já autentica
+    // o usuário (o Supabase troca o token do e-mail por uma sessão de
+    // verdade ao carregar a página), ele caía direto no painel logado com
+    // a senha ANTIGA intacta, sem nunca ter escolhido uma nova (bug
+    // relatado pelo usuário em 10/set/2026: "clico no email e ele já me
+    // volta pro site" — sem passar por trocar a senha, ele teria que
+    // repetir isso pra sempre). Agora manda pra uma página dedicada que
+    // pede a nova senha antes de liberar o painel — ver
+    // src/app/redefinir-senha/page.tsx.
+    const redirectTo =
+      typeof window !== "undefined" ? `${window.location.origin}/redefinir-senha` : undefined;
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
     return { error: error?.message ?? null };
   }, []);
@@ -249,6 +280,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     negocio,
     podeAcessarMinhaEmpresa,
     carregando,
+    recuperacaoSenhaAtiva,
     recarregarPerfil,
     signUp,
     signIn,
@@ -264,3 +296,4 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth deve ser usado dentro de <AuthProvider>");
   return ctx;
 }
+
