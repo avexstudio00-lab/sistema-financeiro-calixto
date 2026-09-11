@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { usuarioAutenticadoDaRequisicao, supabaseAdmin } from "@/lib/supabase/admin";
 import { DIAS_TRIAL, PLANO_TRIAL } from "@/lib/data/assinaturas";
+import { limitarRequisicoes, RESPOSTA_RATE_LIMIT } from "@/lib/rateLimit";
+import { registrarEventoSeguranca } from "@/lib/auditoria";
 
 export const runtime = "nodejs";
 
@@ -30,6 +32,20 @@ export async function POST(request: Request) {
   }
   const { user } = autenticado;
   const admin = supabaseAdmin();
+
+  // Rate limit: esta rota só deveria mesmo ser chamada com sucesso uma vez
+  // na vida de cada usuário (ver idempotência abaixo) — 5 tentativas por
+  // hora cobre retries legítimos (rede instável, duas abas concorrendo) sem
+  // abrir espaço pra alguém martelar o endpoint.
+  const { permitido } = await limitarRequisicoes("trial-iniciar", {
+    limite: 5,
+    janelaSegundos: 3600,
+    identificador: user.id,
+  });
+  if (!permitido) {
+    await registrarEventoSeguranca(user.id, "trial_rate_limitado");
+    return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
+  }
 
   // Idempotência: nunca mais de um trial por usuário, nem numa corrida
   // entre duas chamadas simultâneas (ex.: duas abas fazendo login ao mesmo
@@ -77,6 +93,8 @@ export async function POST(request: Request) {
   if (erroUsuario) {
     console.error("Erro ao liberar plano do trial:", erroUsuario.message);
   }
+
+  await registrarEventoSeguranca(user.id, "trial_iniciado", { plano: PLANO_TRIAL, dias: DIAS_TRIAL });
 
   return NextResponse.json({ ok: true });
 }
