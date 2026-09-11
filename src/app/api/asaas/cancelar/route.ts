@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { usuarioAutenticadoDaRequisicao } from "@/lib/supabase/admin";
 import { cancelarAssinaturaAsaas } from "@/lib/asaas/client";
+import { limitarRequisicoes, RESPOSTA_RATE_LIMIT } from "@/lib/rateLimit";
+import { registrarEventoSeguranca } from "@/lib/auditoria";
 
 export const runtime = "nodejs";
 
@@ -39,6 +41,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ erro: "Não autenticado." }, { status: 401 });
   }
   const { supabase, user } = autenticado;
+
+  // Rate limit: cancelamento é uma ação rara — 5 tentativas a cada 5
+  // minutos é mais que suficiente pra um usuário de verdade (inclusive se
+  // a primeira tentativa falhar parcialmente e ele tentar de novo).
+  const { permitido } = await limitarRequisicoes("cancelar", {
+    limite: 5,
+    janelaSegundos: 300,
+    identificador: user.id,
+  });
+  if (!permitido) {
+    await registrarEventoSeguranca(user.id, "cancelamento_rate_limitado");
+    return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
+  }
 
   const { data: assinaturasAtivas, error: erroBusca } = await supabase
     .from("assinaturas")
@@ -91,6 +106,7 @@ export async function POST(request: Request) {
 
   await supabase.from("usuarios").update({ plano: "gratis" }).eq("id", user.id);
   await revogarCompartilhamento(supabase, user.id);
+  await registrarEventoSeguranca(user.id, "assinatura_cancelada", { canceladas });
 
   return NextResponse.json({ ok: true, canceladas });
 }
