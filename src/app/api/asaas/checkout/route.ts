@@ -3,6 +3,8 @@ import { randomUUID } from "crypto";
 import { usuarioAutenticadoDaRequisicao } from "@/lib/supabase/admin";
 import { criarCheckout, AsaasError } from "@/lib/asaas/client";
 import type { Plano } from "@/lib/planos";
+import { limitarRequisicoes, RESPOSTA_RATE_LIMIT } from "@/lib/rateLimit";
+import { registrarEventoSeguranca } from "@/lib/auditoria";
 
 export const runtime = "nodejs";
 
@@ -21,6 +23,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ erro: "Não autenticado." }, { status: 401 });
   }
   const { supabase, user } = autenticado;
+
+  // Rate limit: no máximo 8 tentativas de checkout por usuário a cada 5
+  // minutos — dá espaço de sobra pra alguém testar planos diferentes, mas
+  // barra um script martelando a rota (cada chamada bem-sucedida cria um
+  // checkout de verdade no Asaas, então isso também evita gerar lixo lá).
+  const { permitido } = await limitarRequisicoes("checkout", {
+    limite: 8,
+    janelaSegundos: 300,
+    identificador: user.id,
+  });
+  if (!permitido) {
+    await registrarEventoSeguranca(user.id, "checkout_rate_limitado");
+    return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
+  }
 
   let plano: Plano | undefined;
   try {
@@ -70,6 +86,12 @@ export async function POST(request: Request) {
     if (erroInsercao) {
       return NextResponse.json({ erro: erroInsercao.message }, { status: 500 });
     }
+
+    await registrarEventoSeguranca(user.id, "checkout_criado", {
+      plano,
+      assinaturaId: id,
+      asaasCheckoutId: checkout.id,
+    });
 
     return NextResponse.json({ checkoutUrl: checkout.link });
   } catch (erro) {
