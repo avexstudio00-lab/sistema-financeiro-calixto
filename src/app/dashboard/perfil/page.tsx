@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Briefcase, Building2, User, Camera, Check, Loader2, LogOut, Trash2 } from "lucide-react";
+import { Briefcase, Building2, User, Camera, Check, Loader2, LogOut, Trash2, KeyRound, Lock } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -11,6 +11,7 @@ import { Icon } from "@/components/ui/Icon";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { atualizarNome, atualizarTipoPerfil, deletarFotoPerfil, enviarFotoPerfil } from "@/lib/data/usuarios";
+import { supabase } from "@/lib/supabase/client";
 
 type TipoPerfil = "clt" | "mei" | "me";
 
@@ -34,11 +35,31 @@ export default function PerfilPage() {
   const [mensagem, setMensagem] = React.useState<string | null>(null);
   const [erro, setErro] = React.useState<string | null>(null);
   const inputFotoRef = React.useRef<HTMLInputElement>(null);
+  const perfilInicializadoRef = React.useRef(false);
+
+  // Trocar senha (independente do formulário de perfil acima — usa seu
+  // próprio erro/mensagem pra não misturar com o salvamento de nome/foto).
+  const [senhaAtual, setSenhaAtual] = React.useState("");
+  const [novaSenha, setNovaSenha] = React.useState("");
+  const [confirmarNovaSenha, setConfirmarNovaSenha] = React.useState("");
+  const [trocandoSenha, setTrocandoSenha] = React.useState(false);
+  const [mensagemSenha, setMensagemSenha] = React.useState<string | null>(null);
+  const [erroSenha, setErroSenha] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (perfil) {
+    // Só preenche nome/tipo de perfil na PRIMEIRA vez que `perfil` chega
+    // (carregamento inicial da página) — não toda vez que `perfil` mudar
+    // de novo depois. `recarregarPerfil()` é chamado por várias ações
+    // nesta mesma tela (upload/remoção de foto, e agora também a troca de
+    // senha, que reautentica via `signInWithPassword` e dispara o
+    // listener global de auth); se o efeito rodasse a cada mudança, uma
+    // edição de nome/tipo ainda não salva seria apagada silenciosamente
+    // assim que qualquer uma dessas outras ações rodasse (achado da
+    // revisão adversarial de 10/set/2026).
+    if (perfil && !perfilInicializadoRef.current) {
       setNome(perfil.nome);
       setTipoPerfil(perfil.tipo_perfil);
+      perfilInicializadoRef.current = true;
     }
   }, [perfil]);
 
@@ -126,6 +147,77 @@ export default function PerfilPage() {
   async function handleSignOut() {
     await signOut();
     router.push("/");
+  }
+
+  /**
+   * Troca de senha pedida pelo próprio usuário (10/set/2026), diferente do
+   * fluxo de "esqueci minha senha" (ver /redefinir-senha): aqui o usuário
+   * ainda lembra a senha atual, então ela é exigida e conferida de verdade
+   * antes de liberar a troca — "escreve a senha antiga, bate no banco pra
+   * ver se é ele mesmo, aí consegue trocar".
+   *
+   * O Supabase Auth não expõe um jeito de só "conferir a senha atual" sem
+   * autenticar de verdade (a senha fica com hash bcrypt no schema interno
+   * `auth`, nunca comparável direto pelo client) — então a forma correta de
+   * bater no banco é re-autenticar com `signInWithPassword` usando a senha
+   * digitada: se o Supabase aceitar, é porque ela bate; se recusar, a senha
+   * atual está errada e a troca não acontece.
+   */
+  async function handleTrocarSenha(e: React.FormEvent) {
+    e.preventDefault();
+    setErroSenha(null);
+    setMensagemSenha(null);
+
+    if (!senhaAtual) {
+      setErroSenha("Digite sua senha atual.");
+      return;
+    }
+    if (novaSenha.length < 8) {
+      setErroSenha("A nova senha precisa ter pelo menos 8 caracteres.");
+      return;
+    }
+    if (novaSenha !== confirmarNovaSenha) {
+      setErroSenha("A confirmação não bate com a nova senha.");
+      return;
+    }
+    if (!user?.email) {
+      setErroSenha("Não foi possível confirmar seu e-mail. Recarregue a página e tente de novo.");
+      return;
+    }
+
+    setTrocandoSenha(true);
+
+    const { error: erroSenhaAtual } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: senhaAtual,
+    });
+
+    if (erroSenhaAtual) {
+      setTrocandoSenha(false);
+      // "Invalid login credentials" é a mensagem do Supabase Auth
+      // especificamente pra credencial errada — qualquer outro erro (rede,
+      // rate limit do próprio Supabase etc.) tem uma causa diferente e não
+      // deveria ser confundido com "você digitou a senha errada".
+      setErroSenha(
+        erroSenhaAtual.message.toLowerCase().includes("invalid login credentials")
+          ? "Senha atual incorreta."
+          : "Não foi possível confirmar sua senha atual agora. Tente novamente em instantes."
+      );
+      return;
+    }
+
+    const { error: erroAtualizar } = await supabase.auth.updateUser({ password: novaSenha });
+    setTrocandoSenha(false);
+
+    if (erroAtualizar) {
+      setErroSenha("Não foi possível trocar a senha. Tente novamente.");
+      return;
+    }
+
+    setSenhaAtual("");
+    setNovaSenha("");
+    setConfirmarNovaSenha("");
+    setMensagemSenha("Senha alterada com sucesso.");
   }
 
   if (!perfil) return null;
@@ -253,6 +345,64 @@ export default function PerfilPage() {
             </button>
           ))}
         </div>
+      </Card>
+
+      <Card padding="lg" className="flex flex-col gap-5">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/15 text-muted">
+            <Icon icon={KeyRound} />
+          </span>
+          <div>
+            <h2 className="text-h3 text-foreground">Trocar senha</h2>
+            <p className="text-small text-muted">Confirme sua senha atual para criar uma nova.</p>
+          </div>
+        </div>
+
+        {mensagemSenha && (
+          <p className="flex items-center gap-2 text-small text-primary-700">
+            <Check size={16} />
+            {mensagemSenha}
+          </p>
+        )}
+
+        <form onSubmit={handleTrocarSenha} className="flex flex-col gap-4">
+          <Input
+            label="Senha atual"
+            type="password"
+            leftIcon={Lock}
+            placeholder="Sua senha atual"
+            value={senhaAtual}
+            onChange={(e) => setSenhaAtual(e.target.value)}
+            autoComplete="current-password"
+          />
+          <Input
+            label="Nova senha"
+            type="password"
+            leftIcon={Lock}
+            placeholder="Pelo menos 8 caracteres"
+            value={novaSenha}
+            onChange={(e) => setNovaSenha(e.target.value)}
+            autoComplete="new-password"
+          />
+          <Input
+            label="Confirmar nova senha"
+            type="password"
+            leftIcon={Lock}
+            placeholder="Digite a nova senha de novo"
+            value={confirmarNovaSenha}
+            onChange={(e) => setConfirmarNovaSenha(e.target.value)}
+            autoComplete="new-password"
+          />
+          {erroSenha && <p className="text-small text-rose-600">{erroSenha}</p>}
+          <Button
+            type="submit"
+            variant="tertiary"
+            disabled={trocandoSenha}
+            className="w-full self-start sm:w-auto"
+          >
+            {trocandoSenha ? "Trocando..." : "Trocar senha"}
+          </Button>
+        </form>
       </Card>
 
       {erro && <p className="text-small text-rose-600">{erro}</p>}
