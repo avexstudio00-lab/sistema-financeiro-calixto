@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn, user, perfil, carregando } = useAuth();
+  const { signIn, user, perfil, carregando, recuperacaoSenhaAtiva } = useAuth();
 
   const [email, setEmail] = React.useState("");
   const [senha, setSenha] = React.useState("");
@@ -20,10 +20,20 @@ export default function LoginPage() {
   const [enviando, setEnviando] = React.useState(false);
 
   React.useEffect(() => {
-    if (!carregando && user && perfil) {
+    if (carregando) return;
+    // Sessão que veio só do link de "esqueci minha senha" (ainda sem a
+    // senha nova de verdade) não conta como login pra este redirecionamento
+    // — senão a pessoa entra direto no painel sem nunca ter provado a
+    // senha, nem a antiga nem a nova (achado do usuário em 11/set/2026).
+    // Manda de volta pra terminar o fluxo em vez de liberar o painel.
+    if (recuperacaoSenhaAtiva) {
+      router.replace("/redefinir-senha");
+      return;
+    }
+    if (user && perfil) {
       router.replace(perfil.tipo_perfil ? "/dashboard" : "/onboarding");
     }
-  }, [carregando, user, perfil, router]);
+  }, [carregando, user, perfil, recuperacaoSenhaAtiva, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
