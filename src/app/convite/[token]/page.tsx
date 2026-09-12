@@ -21,7 +21,15 @@ export default function ConvitePage() {
   const params = useParams<{ token: string }>();
   const token = params?.token ?? "";
   const router = useRouter();
-  const { user, signIn, signUp, signOut, recarregarPerfil, carregando: carregandoAuth } = useAuth();
+  const {
+    user,
+    signIn,
+    signUp,
+    signOut,
+    recarregarPerfil,
+    carregando: carregandoAuth,
+    recuperacaoSenhaAtiva,
+  } = useAuth();
 
   const [detalhe, setDetalhe] = React.useState<DetalheConvite | null | undefined>(undefined);
   const [modo, setModo] = React.useState<"entrar" | "criar">("entrar");
@@ -38,6 +46,17 @@ export default function ConvitePage() {
     if (!token) return;
     consultarConvite(token).then(setDetalhe);
   }, [token]);
+
+  React.useEffect(() => {
+    // Uma sessão vinda só do link de "esqueci minha senha" não pode
+    // aceitar convite nenhum — aceitar convite muda o banco de verdade
+    // (vira sócio/funcionário de outra conta), e essa sessão nunca provou
+    // senha nenhuma (achado do usuário em 11/set/2026, ver também
+    // login/page.tsx, dashboard/layout.tsx e onboarding/page.tsx).
+    if (recuperacaoSenhaAtiva) {
+      router.replace("/redefinir-senha");
+    }
+  }, [recuperacaoSenhaAtiva, router]);
 
   async function handleEntrar(e: React.FormEvent) {
     e.preventDefault();
@@ -99,7 +118,7 @@ export default function ConvitePage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background py-16">
       <Container className="flex max-w-md flex-col">
-        {detalhe === undefined || carregandoAuth ? (
+        {detalhe === undefined || carregandoAuth || recuperacaoSenhaAtiva ? (
           <Card padding="lg" className="flex flex-col items-center gap-3 py-12 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-white">
               <Wallet size={22} />
