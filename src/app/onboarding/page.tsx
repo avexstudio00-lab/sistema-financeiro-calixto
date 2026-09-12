@@ -34,7 +34,7 @@ const TIPOS_CONTA: { id: Conta["tipo"]; label: string }[] = [
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user, perfil, carregando, recarregarPerfil } = useAuth();
+  const { user, perfil, carregando, recarregarPerfil, recuperacaoSenhaAtiva } = useAuth();
 
   const [etapa, setEtapa] = React.useState(1);
   const [salvando, setSalvando] = React.useState(false);
@@ -57,9 +57,18 @@ export default function OnboardingPage() {
   const [tipoTransacao, setTipoTransacao] = React.useState<"receita" | "despesa">("despesa");
 
   React.useEffect(() => {
-    if (!carregando && !user) router.replace("/login");
-    if (!carregando && perfil?.tipo_perfil) router.replace("/dashboard");
-  }, [carregando, user, perfil, router]);
+    if (carregando) return;
+    // Mesma trava de "esqueci minha senha" usada em login/page.tsx e
+    // dashboard/layout.tsx (achado do usuário em 11/set/2026) — uma sessão
+    // vinda só do link de e-mail não dá acesso a nada do app além da
+    // própria troca de senha.
+    if (recuperacaoSenhaAtiva) {
+      router.replace("/redefinir-senha");
+      return;
+    }
+    if (!user) router.replace("/login");
+    if (perfil?.tipo_perfil) router.replace("/dashboard");
+  }, [carregando, user, perfil, recuperacaoSenhaAtiva, router]);
 
   React.useEffect(() => {
     if (etapa === 3 && user) {
