@@ -8,10 +8,19 @@ import { DashboardNav } from "@/components/dashboard/DashboardNav";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, perfil, carregando } = useAuth();
+  const { user, perfil, carregando, recuperacaoSenhaAtiva } = useAuth();
 
   React.useEffect(() => {
     if (carregando) return;
+    // Sessão que veio só do link de "esqueci minha senha" não dá acesso ao
+    // painel enquanto a senha nova não for definida de verdade — senão dá
+    // pra entrar na conta só recebendo esse e-mail, sem provar senha
+    // nenhuma (achado do usuário em 11/set/2026, ver também login/page.tsx
+    // e redefinir-senha/page.tsx).
+    if (recuperacaoSenhaAtiva) {
+      router.replace("/redefinir-senha");
+      return;
+    }
     if (!user) {
       router.replace("/login");
       return;
@@ -19,9 +28,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!perfil || !perfil.tipo_perfil) {
       router.replace("/onboarding");
     }
-  }, [carregando, user, perfil, router]);
+  }, [carregando, user, perfil, recuperacaoSenhaAtiva, router]);
 
-  if (carregando || !user || !perfil || !perfil.tipo_perfil) {
+  if (carregando || recuperacaoSenhaAtiva || !user || !perfil || !perfil.tipo_perfil) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="animate-spin text-primary-500" size={28} />
