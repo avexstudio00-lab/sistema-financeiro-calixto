@@ -15,7 +15,7 @@ import { DIAS_TRIAL, PLANO_TRIAL } from "@/lib/data/assinaturas";
 function CadastroConteudo() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signUp, user, perfil } = useAuth();
+  const { signUp, user, perfil, recuperacaoSenhaAtiva } = useAuth();
 
   const planoPretendido = searchParams.get("plano");
 
@@ -28,10 +28,18 @@ function CadastroConteudo() {
   const [precisaConfirmarEmail, setPrecisaConfirmarEmail] = React.useState(false);
 
   React.useEffect(() => {
+    // Mesma trava de "esqueci minha senha" das outras páginas de
+    // entrada/saída do app (achado do usuário em 11/set/2026, ver
+    // login/page.tsx, dashboard/layout.tsx, onboarding/page.tsx e
+    // convite/[token]/page.tsx).
+    if (recuperacaoSenhaAtiva) {
+      router.replace("/redefinir-senha");
+      return;
+    }
     if (user && perfil) {
       router.replace(perfil.tipo_perfil ? "/dashboard" : "/onboarding");
     }
-  }, [user, perfil, router]);
+  }, [user, perfil, recuperacaoSenhaAtiva, router]);
 
   function validar(): string | null {
     if (nome.trim().length < 2) return "Digite seu nome completo.";
