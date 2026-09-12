@@ -71,6 +71,19 @@ export default function RedefinirSenhaPage() {
     setTimeout(() => router.replace("/login"), 2500);
   }
 
+  async function handleVoltarLogin() {
+    // Sai da sessão de recuperação antes de voltar pro login — sem isso, a
+    // pessoa cai direto autenticada no painel ao clicar em "voltar", mesmo
+    // sem nunca ter trocado a senha, porque o link de e-mail já cria uma
+    // sessão válida sozinho (achado do usuário em 11/set/2026: clicou em
+    // "voltar" sem redefinir a senha e entrou direto no painel). Ver
+    // também o guard em `login/page.tsx`, `dashboard/layout.tsx` e
+    // `onboarding/page.tsx`, que cobre quem sair desta página por outro
+    // caminho (botão voltar do navegador, digitar outra URL etc).
+    await signOut();
+    router.replace("/login");
+  }
+
   if (carregando) return null;
 
   // IMPORTANTE: checar `concluido` antes de `recuperacaoSenhaAtiva` — depois
@@ -147,13 +160,14 @@ export default function RedefinirSenhaPage() {
           )}
 
           {!concluido && (
-            <Link
-              href="/login"
+            <button
+              type="button"
+              onClick={handleVoltarLogin}
               className="flex items-center justify-center gap-1.5 text-small font-medium text-muted"
             >
               <ArrowLeft size={16} />
               Voltar para o login
-            </Link>
+            </button>
           )}
         </Card>
       </Container>
