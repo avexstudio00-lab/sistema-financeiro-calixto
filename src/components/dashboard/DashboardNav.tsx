@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { MobileTabBar } from "@/components/dashboard/MobileTabBar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
@@ -35,6 +36,24 @@ interface LinkNav {
   label: string;
   icon: LucideIcon;
 }
+
+// Itens que ficam sempre visíveis (com nome) na barra fixa do rodapé no
+// celular -- escolhidos pra cobrir o dia a dia mais comum de cada mundo.
+// O resto continua acessível, só que atrás do botão "Mais" (ver
+// MobileTabBar). No computador isso não é usado: o menu de cima já cabe
+// tudo sem aperto.
+const HREFS_PRINCIPAIS_MOBILE_PESSOAL = [
+  "/dashboard",
+  "/dashboard/resumo",
+  "/dashboard/metas",
+  "/dashboard/carteiras",
+];
+const HREFS_PRINCIPAIS_MOBILE_EMPRESA = [
+  "/dashboard/empresa",
+  "/dashboard/empresa/vendas",
+  "/dashboard/empresa/produtos",
+  "/dashboard/empresa/clientes-fornecedores",
+];
 
 const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard", label: "Painel", icon: LayoutDashboard },
@@ -92,6 +111,18 @@ export function DashboardNav() {
   );
   const links = mundo === "negocio" ? linksEmpresa : linksPessoal;
   const corAtiva = mundo === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700";
+
+  // Divide os links do mundo atual entre "principais" (barra fixa do
+  // rodapé no celular) e "mais" (o resto, atrás do botão "Mais") --
+  // reaproveitando `links`, que já respeita o filtro por papel
+  // (funcionário não vê os financeiros da empresa, só dono vê "Minha
+  // equipe").
+  const hrefsPrincipaisMobile =
+    mundo === "negocio" ? HREFS_PRINCIPAIS_MOBILE_EMPRESA : HREFS_PRINCIPAIS_MOBILE_PESSOAL;
+  const principaisMobile = hrefsPrincipaisMobile
+    .map((href) => links.find((link) => link.href === href))
+    .filter((link): link is LinkNav => Boolean(link));
+  const maisMobile = links.filter((link) => !hrefsPrincipaisMobile.includes(link.href));
   const iniciais = perfil?.nome
     .split(" ")
     .filter(Boolean)
@@ -128,7 +159,8 @@ export function DashboardNav() {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur print:hidden">
+    <>
+      <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur print:hidden">
       <Container full className="flex h-16 items-center justify-between gap-4">
         <Link href="/dashboard" className="flex shrink-0 items-center gap-2 text-foreground">
           <span
@@ -169,7 +201,10 @@ export function DashboardNav() {
           </Link>
         </div>
 
-        <div className="relative min-w-0 flex-1">
+        {/* No celular esse menu vira a barra fixa do rodapé (MobileTabBar,
+            renderizada abaixo) -- aqui só aparece a partir do `md`, onde
+            já cabe tudo sem precisar arrastar nem adivinhar. */}
+        <div className="relative hidden min-w-0 flex-1 md:block">
           <nav
             ref={navRef}
             onScroll={atualizarScrollInfo}
@@ -229,6 +264,9 @@ export function DashboardNav() {
           </button>
         </div>
       </Container>
-    </header>
+      </header>
+
+      <MobileTabBar principais={principaisMobile} mais={maisMobile} mundo={mundo} />
+    </>
   );
 }
