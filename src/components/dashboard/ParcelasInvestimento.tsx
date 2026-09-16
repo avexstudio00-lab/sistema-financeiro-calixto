@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Check, AlertCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, Check, AlertCircle, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatarMoeda } from "@/lib/format";
 import { parcelaEstaAtrasada, resumirParcelas } from "@/lib/data/investimentos";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import type { ParcelaInvestimento } from "@/lib/data/tipos";
 
 export interface ParcelasInvestimentoProps {
@@ -12,6 +13,10 @@ export interface ParcelasInvestimentoProps {
   periodicidade?: "mensal" | "quinzenal" | "semanal" | null;
   salvando: boolean;
   onAlternarPaga: (parcela: ParcelaInvestimento) => void;
+  /** Edita manualmente o vencimento de uma parcela já criada — usado
+   * quando o combinado real tem frequência mista (ex: uma parcela ficou
+   * quinzenal e as outras mensais) e precisa de ajuste depois de cadastrar. */
+  onEditarData?: (parcela: ParcelaInvestimento, novaDataIso: string) => void;
 }
 
 const LABEL_PERIODICIDADE: Record<"quinzenal" | "semanal", string> = {
@@ -19,8 +24,15 @@ const LABEL_PERIODICIDADE: Record<"quinzenal" | "semanal", string> = {
   semanal: "semanais",
 };
 
-export function ParcelasInvestimento({ parcelas, periodicidade, salvando, onAlternarPaga }: ParcelasInvestimentoProps) {
+export function ParcelasInvestimento({
+  parcelas,
+  periodicidade,
+  salvando,
+  onAlternarPaga,
+  onEditarData,
+}: ParcelasInvestimentoProps) {
   const [expandido, setExpandido] = React.useState(false);
+  const [editandoId, setEditandoId] = React.useState<string | null>(null);
   const resumo = React.useMemo(() => resumirParcelas(parcelas), [parcelas]);
   const sufixoPeriodicidade =
     periodicidade === "quinzenal" || periodicidade === "semanal" ? ` ${LABEL_PERIODICIDADE[periodicidade]}` : "";
@@ -62,37 +74,76 @@ export function ParcelasInvestimento({ parcelas, periodicidade, salvando, onAlte
         <div className="flex flex-col gap-1.5">
           {parcelas.map((parcela) => {
             const atrasada = parcelaEstaAtrasada(parcela);
+            const editando = editandoId === parcela.id;
             return (
               <div
                 key={parcela.id}
                 className={cn(
-                  "flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs",
+                  "flex flex-col gap-2 rounded-lg px-2.5 py-1.5 text-xs",
                   parcela.pago ? "bg-primary-50/60" : atrasada ? "bg-rose-50" : "bg-muted/5"
                 )}
               >
-                <div className="flex flex-col">
-                  <span className="font-medium text-foreground">
-                    Parcela {parcela.numero} · {formatarMoeda(Number(parcela.valor))}
-                  </span>
-                  <span className={cn("text-xs", atrasada ? "text-red-600" : "text-muted")}>
-                    Vence {new Date(parcela.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}
-                    {atrasada ? " · atrasada" : ""}
-                  </span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col">
+                    <span className="font-medium text-foreground">
+                      Parcela {parcela.numero} · {formatarMoeda(Number(parcela.valor))}
+                    </span>
+                    {!editando && (
+                      <span className={cn("text-xs", atrasada ? "text-red-600" : "text-muted")}>
+                        Vence {new Date(parcela.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}
+                        {atrasada ? " · atrasada" : ""}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {onEditarData && !editando && (
+                      <button
+                        type="button"
+                        aria-label="Editar data de vencimento"
+                        disabled={salvando}
+                        onClick={() => setEditandoId(parcela.id)}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-muted/10"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={salvando}
+                      onClick={() => onAlternarPaga(parcela)}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all",
+                        parcela.pago
+                          ? "bg-primary-500 text-white hover:bg-primary-600"
+                          : "bg-white text-muted ring-1 ring-inset ring-border hover:bg-muted/10"
+                      )}
+                    >
+                      <Check size={11} />
+                      {parcela.pago ? "Paga" : "Marcar paga"}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  disabled={salvando}
-                  onClick={() => onAlternarPaga(parcela)}
-                  className={cn(
-                    "flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all",
-                    parcela.pago
-                      ? "bg-primary-500 text-white hover:bg-primary-600"
-                      : "bg-white text-muted ring-1 ring-inset ring-border hover:bg-muted/10"
-                  )}
-                >
-                  <Check size={11} />
-                  {parcela.pago ? "Paga" : "Marcar paga"}
-                </button>
+                {editando && onEditarData && (
+                  <div className="flex items-end gap-2">
+                    <div className="w-36">
+                      <DateMaskInput
+                        value={parcela.data_vencimento}
+                        onChange={(iso) => {
+                          if (!iso) return;
+                          onEditarData(parcela, iso);
+                          setEditandoId(null);
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditandoId(null)}
+                      className="h-11 rounded-xl px-3 text-xs font-medium text-muted hover:bg-muted/10"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
