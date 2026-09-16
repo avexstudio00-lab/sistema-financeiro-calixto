@@ -12,9 +12,15 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { criarInvestimento, criarParcelasDoInvestimento, TAXA_CDI_SUGERIDA } from "@/lib/data/investimentos";
+import {
+  criarInvestimento,
+  criarParcelasDoInvestimento,
+  gerarDatasSugeridasParcelas,
+  TAXA_CDI_SUGERIDA,
+} from "@/lib/data/investimentos";
 
 const TIPOS_INVESTIMENTO = [
   {
@@ -38,7 +44,7 @@ const TIPOS_INVESTIMENTO = [
   {
     id: "emprestimo",
     nome: "Empréstimo",
-    descricao: "Dinheiro emprestado com um ganho combinado.",
+    descricao: "Dinheiro emprestado pra alguém, com um valor combinado de volta.",
     icone: HandCoins,
   },
   {
@@ -75,6 +81,10 @@ function parsearValorDigitado(texto: string): number {
   return Number(valor);
 }
 
+function formatarMoedaSimples(valor: number): string {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 export interface NovoInvestimentoModalProps {
   aberto: boolean;
   onFechar: () => void;
@@ -90,11 +100,13 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const [dataInicio, setDataInicio] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [taxa, setTaxa] = React.useState(String(TAXA_CDI_SUGERIDA).replace(".", ","));
   const [descricao, setDescricao] = React.useState("");
-  const [tipoGanho, setTipoGanho] = React.useState<"fixo" | "mensal">("fixo");
   const [formaPagamento, setFormaPagamento] = React.useState<"vista" | "parcelado">("vista");
   const [numeroParcelas, setNumeroParcelas] = React.useState("");
-  const [valorTotalReceber, setValorTotalReceber] = React.useState("");
+  const [valorRetornavel, setValorRetornavel] = React.useState("");
+  const [dataVencimentoFinal, setDataVencimentoFinal] = React.useState("");
   const [periodicidade, setPeriodicidade] = React.useState<Periodicidade>("mensal");
+  const [datasParcelas, setDatasParcelas] = React.useState<string[]>([]);
+  const [datasEditadasManualmente, setDatasEditadasManualmente] = React.useState<boolean[]>([]);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
@@ -106,11 +118,13 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setDataInicio(new Date().toISOString().slice(0, 10));
       setTaxa(String(TAXA_CDI_SUGERIDA).replace(".", ","));
       setDescricao("");
-      setTipoGanho("fixo");
       setFormaPagamento("vista");
       setNumeroParcelas("");
-      setValorTotalReceber("");
+      setValorRetornavel("");
+      setDataVencimentoFinal("");
       setPeriodicidade("mensal");
+      setDatasParcelas([]);
+      setDatasEditadasManualmente([]);
       setErro(null);
     }
   }, [aberto]);
@@ -119,7 +133,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     if (!aberto) return;
     if (tipo === "cdi") {
       setTaxa(String(TAXA_CDI_SUGERIDA).replace(".", ","));
-    } else if (tipo === "tesouro" || tipo === "emprestimo") {
+    } else if (tipo === "tesouro") {
       setTaxa("");
     }
   }, [tipo, aberto]);
@@ -129,41 +143,84 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     if (tipo !== "emprestimo" && tipo !== "revenda") {
       setFormaPagamento("vista");
       setNumeroParcelas("");
-      setValorTotalReceber("");
+      setValorRetornavel("");
+      setDataVencimentoFinal("");
       setPeriodicidade("mensal");
+      setDatasParcelas([]);
+      setDatasEditadasManualmente([]);
     }
   }, [tipo, aberto]);
 
-  if (!aberto) return null;
-
-  const precisaTaxa = tipo === "cdi" || tipo === "tesouro" || tipo === "emprestimo";
+  const precisaTaxa = tipo === "cdi" || tipo === "tesouro";
   const precisaDescricao = tipo === "tesouro" || tipo === "bolsa";
   const podeParcelar = tipo === "emprestimo" || tipo === "revenda";
   const parcelando = podeParcelar && formaPagamento === "parcelado";
-  // Empréstimo parcelado: a pessoa diz direto quanto volta no total (já com o
-  // combinado), em vez de a gente calcular a partir de uma taxa — as parcelas
-  // são geradas em cima desse total, nunca só do valor investido/emprestado.
-  const usaValorTotalReceber = tipo === "emprestimo" && parcelando;
-  const valorParaParcelas = usaValorTotalReceber
-    ? parsearValorDigitado(valorTotalReceber)
-    : parsearValorDigitado(valorInvestido);
+  const ehEmprestimo = tipo === "emprestimo";
+  // Empréstimo (à vista ou parcelado): a pessoa diz direto quanto volta no
+  // total (já com o combinado), em vez de a gente calcular a partir de uma
+  // taxa — o app calcula o juros sozinho como a diferença. Compra e revenda
+  // parcelada continua dividindo o próprio valor investido (sem juros).
   const numeroParcelasNumero = Number(numeroParcelas);
+  const valorInvestidoNumero = parsearValorDigitado(valorInvestido);
+  const valorRetornavelNumero = parsearValorDigitado(valorRetornavel);
+  const valorParaParcelas = ehEmprestimo ? valorRetornavelNumero : valorInvestidoNumero;
   const valorParcelaCalculado =
     parcelando && valorParaParcelas > 0 && numeroParcelasNumero >= 2
       ? valorParaParcelas / numeroParcelasNumero
       : null;
+  const jurosCombinado =
+    ehEmprestimo && valorInvestidoNumero > 0 && valorRetornavelNumero > 0
+      ? valorRetornavelNumero - valorInvestidoNumero
+      : null;
+  const jurosCombinadoPercentual =
+    jurosCombinado != null && valorInvestidoNumero > 0 ? (jurosCombinado / valorInvestidoNumero) * 100 : null;
+
+  // Gera (ou re-sincroniza) as N datas de parcela sempre que o número de
+  // parcelas, a periodicidade ou a data de início mudam — mas sem nunca
+  // sobrescrever uma data que a própria pessoa já editou à mão (pra permitir
+  // frequência combinada mista: ex. 3 parcelas mensais + 2 quinzenais).
+  React.useEffect(() => {
+    if (!aberto || !parcelando || !numeroParcelasNumero || numeroParcelasNumero < 2) {
+      setDatasParcelas([]);
+      setDatasEditadasManualmente([]);
+      return;
+    }
+    const sugeridas = gerarDatasSugeridasParcelas(dataInicio, numeroParcelasNumero, periodicidade);
+    setDatasParcelas((atual) => sugeridas.map((s, i) => (datasEditadasManualmente[i] && atual[i] ? atual[i] : s)));
+    setDatasEditadasManualmente((atual) => {
+      const novo = Array(numeroParcelasNumero).fill(false);
+      for (let i = 0; i < Math.min(atual.length, numeroParcelasNumero); i++) novo[i] = atual[i];
+      return novo;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, parcelando, numeroParcelasNumero, periodicidade, dataInicio]);
+
+  function handleEditarDataParcela(indice: number, novoIso: string) {
+    setDatasParcelas((atual) => {
+      const novo = [...atual];
+      novo[indice] = novoIso;
+      return novo;
+    });
+    setDatasEditadasManualmente((atual) => {
+      const novo = [...atual];
+      novo[indice] = true;
+      return novo;
+    });
+  }
+
+  if (!aberto) return null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!user) return;
 
-    const valorNumero = parsearValorDigitado(valorInvestido);
+    const valorNumero = valorInvestidoNumero;
     if (!valorNumero || valorNumero <= 0) {
-      setErro("Digite um valor investido válido.");
+      setErro(ehEmprestimo ? "Digite um valor emprestado válido." : "Digite um valor investido válido.");
       return;
     }
     if (nome.trim().length < 2) {
-      setErro("Dê um nome para esse investimento.");
+      setErro(ehEmprestimo ? "Digite o nome da pessoa." : "Dê um nome para esse investimento.");
       return;
     }
     if (precisaDescricao && !descricao.trim()) {
@@ -175,23 +232,44 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setErro("Digite uma taxa válida.");
       return;
     }
+    if (ehEmprestimo && (!valorRetornavelNumero || valorRetornavelNumero <= 0)) {
+      setErro("Digite quanto a pessoa vai devolver no total (com o combinado já embutido).");
+      return;
+    }
+    if (ehEmprestimo && valorRetornavelNumero < valorNumero) {
+      setErro(`O valor com juros precisa ser pelo menos o valor emprestado (${formatarMoedaSimples(valorNumero)}).`);
+      return;
+    }
     if (parcelando && (!numeroParcelasNumero || numeroParcelasNumero < 2)) {
       setErro("Digite em quantas parcelas (mínimo 2).");
       return;
     }
-    if (usaValorTotalReceber && (!valorParaParcelas || valorParaParcelas <= 0)) {
-      setErro("Digite o valor total que você vai receber de volta.");
+    if (parcelando && (datasParcelas.length !== numeroParcelasNumero || datasParcelas.some((d) => !d))) {
+      setErro(`Preencha as ${numeroParcelasNumero} datas de parcela.`);
       return;
     }
-    if (usaValorTotalReceber && valorParaParcelas < valorNumero) {
-      setErro(
-        `O valor total a receber precisa ser pelo menos o valor investido (${valorNumero.toLocaleString("pt-BR", {
-          style: "currency",
-          currency: "BRL",
-        })}).`
-      );
+    if (parcelando && datasParcelas.some((d) => d <= dataInicio)) {
+      setErro("Todas as datas de parcela precisam ser depois da data de início.");
       return;
     }
+    if (ehEmprestimo && !parcelando && !dataVencimentoFinal) {
+      setErro("Digite a data combinada de pagamento.");
+      return;
+    }
+    if (ehEmprestimo && !parcelando && dataVencimentoFinal <= dataInicio) {
+      setErro("A data de pagamento precisa ser depois da data de início.");
+      return;
+    }
+
+    // Data em que o valor combinado (valor_retornavel) é atingido por
+    // completo: pra empréstimo parcelado é sempre o vencimento da última
+    // parcela (mesmo se as datas foram editadas manualmente e ficaram fora
+    // de ordem); pra empréstimo à vista é a própria data de pagamento.
+    const dataVencimentoFinalCalculada = !ehEmprestimo
+      ? null
+      : parcelando
+        ? datasParcelas.reduce((maisTarde, d) => (d > maisTarde ? d : maisTarde), datasParcelas[0])
+        : dataVencimentoFinal;
 
     setErro(null);
     setSalvando(true);
@@ -203,12 +281,14 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       valor_atual: valorNumero,
       taxa: taxaNumero,
       descricao: precisaDescricao ? descricao.trim() : null,
-      tipo_ganho: tipo === "emprestimo" ? tipoGanho : null,
+      tipo_ganho: null,
       data_inicio: dataInicio,
       forma_pagamento: podeParcelar ? formaPagamento : null,
       numero_parcelas: parcelando ? numeroParcelasNumero : null,
       valor_parcela: parcelando && valorParcelaCalculado ? Number(valorParcelaCalculado.toFixed(2)) : null,
       periodicidade_parcelas: parcelando ? periodicidade : null,
+      valor_retornavel: ehEmprestimo ? valorRetornavelNumero : null,
+      data_vencimento_final: dataVencimentoFinalCalculada,
     });
 
     if (error || !data) {
@@ -221,10 +301,9 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       const { error: erroParcelas } = await criarParcelasDoInvestimento(
         data.id,
         user.id,
-        dataInicio,
         numeroParcelasNumero,
         valorParaParcelas,
-        periodicidade
+        datasParcelas
       );
       if (erroParcelas) {
         setSalvando(false);
@@ -288,11 +367,15 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
           </div>
 
           <Input
-            label={tipo === "revenda" ? "O que você comprou" : "Nome do investimento"}
+            label={ehEmprestimo ? "Nome da pessoa" : tipo === "revenda" ? "O que você comprou" : "Nome do investimento"}
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             placeholder={
-              tipo === "revenda" ? 'Ex: "iPhone 11", "Tênis Nike 42"' : 'Ex: "Reserva CDI", "Empréstimo para João"'
+              ehEmprestimo
+                ? 'Ex: "Aline", "João"'
+                : tipo === "revenda"
+                  ? 'Ex: "iPhone 11", "Tênis Nike 42"'
+                  : 'Ex: "Reserva CDI"'
             }
           />
 
@@ -314,7 +397,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
           )}
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label={tipo === "revenda" ? "Valor de custo" : "Valor investido"}
+              label={ehEmprestimo ? "Valor emprestado" : tipo === "revenda" ? "Valor de custo" : "Valor investido"}
               inputMode="decimal"
               value={valorInvestido}
               onChange={(e) => setValorInvestido(e.target.value)}
@@ -327,6 +410,27 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               onChange={(e) => setDataInicio(e.target.value)}
             />
           </div>
+
+          {ehEmprestimo && (
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Valor com juros"
+                inputMode="decimal"
+                value={valorRetornavel}
+                onChange={(e) => setValorRetornavel(e.target.value)}
+                placeholder="0,00"
+                helperText="Quanto ela devolve no total, já com o combinado."
+              />
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Juros combinado</span>
+                <div className="flex h-11 items-center rounded-xl border border-border bg-muted/5 px-4 text-small text-foreground">
+                  {jurosCombinado != null && jurosCombinado >= 0
+                    ? `${formatarMoedaSimples(jurosCombinado)} (+${jurosCombinadoPercentual?.toFixed(1)}%)`
+                    : "—"}
+                </div>
+              </div>
+            </div>
+          )}
 
           {podeParcelar && (
             <div className="flex flex-col gap-1.5">
@@ -357,16 +461,18 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                   Parcelado
                 </button>
               </div>
-              {usaValorTotalReceber && (
-                <Input
-                  label="Valor total a receber"
-                  inputMode="decimal"
-                  value={valorTotalReceber}
-                  onChange={(e) => setValorTotalReceber(e.target.value)}
-                  placeholder="0,00"
-                  helperText="Já com o combinado — ex: emprestou 1000, vai receber 1300 de volta? Digite 1300."
-                />
+
+             { ehEmprestimo && formaPagamento === "vista" && (
+                <div className="pt-1">
+                  <DateMaskInput
+                    label="Data de pagamento"
+                    value={dataVencimentoFinal}
+                    onChange={setDataVencimentoFinal}
+                    helperText="A data combinada pra receber o valor com juros de volta."
+                  />
+                </div>
               )}
+
               {parcelando && (
                 <div className="grid grid-cols-2 gap-4 pt-1">
                   <Input
@@ -379,9 +485,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                   <div className="flex flex-col gap-1.5">
                     <span className="text-small font-medium text-foreground">Valor de cada parcela</span>
                     <div className="flex h-11 items-center rounded-xl border border-border bg-muted/5 px-3 text-small text-foreground">
-                      {valorParcelaCalculado
-                        ? valorParcelaCalculado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-                        : "—"}
+                      {valorParcelaCalculado ? formatarMoedaSimples(valorParcelaCalculado) : "—"}
                     </div>
                   </div>
                 </div>
@@ -406,65 +510,33 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                       </button>
                     ))}
                   </div>
+                  <span className="text-xs text-muted">
+                    O app já preenche as datas abaixo pra você. Se as parcelas combinadas tiverem frequência
+                    diferente entre si (ex: uma quinzenal, outra mensal), edite a data de cada uma à mão.
+                  </span>
                 </div>
               )}
-              {parcelando && (
-                <span className="text-xs text-muted">
-                  {periodicidade === "quinzenal"
-                    ? "Uma parcela a cada 15 dias, a partir de 15 dias após a data acima."
-                    : periodicidade === "semanal"
-                      ? "Uma parcela por semana, a partir de uma semana após a data acima."
-                      : "Uma parcela por mês, a partir de um mês após a data acima."}{" "}
-                  Depois dá pra marcar cada uma como paga na tela de investimentos — e ela te avisa se passar do
-                  vencimento sem ser marcada.
-                </span>
+              {parcelando && datasParcelas.length > 0 && (
+                <div className="flex flex-col gap-2 pt-1">
+                  <span className="text-small font-medium text-foreground">Datas de pagamento</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    {datasParcelas.map((data, i) => (
+                      <DateMaskInput
+                        key={i}
+                        label={`Parcela ${i + 1}`}
+                        value={data}
+                        onChange={(iso) => handleEditarDataParcela(i, iso)}
+                      />
+                    ))}
+                  </div>
+                </div>
               )}
-            </div>
-          )}
-
-          {tipo === "emprestimo" && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-small font-medium text-foreground">Ganho combinado é</span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTipoGanho("fixo")}
-                  className={cn(
-                    "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
-                    tipoGanho === "fixo"
-                      ? "border-primary-500 bg-primary-50 text-primary-700"
-                      : "border-border text-muted"
-                  )}
-                >
-                  Fixo (%)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTipoGanho("mensal")}
-                  className={cn(
-                    "flex-1 rounded-xl border px-3 py-2 text-small font-medium transition-all",
-                    tipoGanho === "mensal"
-                      ? "border-accent-500 bg-accent-50 text-accent-700"
-                      : "border-border text-muted"
-                  )}
-                >
-                  Ao mês (%)
-                </button>
-              </div>
             </div>
           )}
 
           {precisaTaxa && (
             <Input
-              label={
-                tipo === "cdi"
-                  ? "Taxa do CDI (% ao ano)"
-                  : tipo === "tesouro"
-                    ? "Taxa (% ao ano)"
-                    : tipoGanho === "mensal"
-                      ? "Ganho mensal (%)"
-                      : "Ganho fixo (%)"
-              }
+              label={tipo === "cdi" ? "Taxa do CDI (% ao ano)" : "Taxa (% ao ano)"}
               inputMode="decimal"
               value={taxa}
               onChange={(e) => setTaxa(e.target.value)}
