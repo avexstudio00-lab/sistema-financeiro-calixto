@@ -19,8 +19,11 @@ import { agruparGastosPorCategoria, heatmapDoMes } from "@/lib/graficos-utils";
 import { formatarMoeda } from "@/lib/format";
 import { salvarCache, lerCache } from "@/lib/offline/cache";
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
+import { useFilaPendente } from "@/lib/offline/useFilaPendente";
+import { sincronizarFila } from "@/lib/offline/sincronizarFila";
 import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
 import { BannerOffline } from "@/components/dashboard/BannerOffline";
+import { FilaPendenteBanner } from "@/components/dashboard/FilaPendenteBanner";
 import { Sparkline } from "@/components/dashboard/graficos/Sparkline";
 import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
 import { HeatmapMensal } from "@/components/dashboard/graficos/HeatmapMensal";
@@ -60,6 +63,13 @@ interface DadosCacheDashboard {
   evolucaoMensal: PontoEvolucaoMensal[];
   limites: LimiteCategoria[];
 }
+
+/** Uma `Transacao` de verdade (já veio do servidor) ou o retrato de uma
+ * anotação ainda esperando na fila offline pra ser enviada (ver
+ * src/lib/offline/fila.ts) -- `__pendente` marca a segunda, pra tela saber
+ * que ainda não dá pra editar/apagar e pra mostrar o selo "Aguardando
+ * envio". */
+type TransacaoExibida = Transacao & { __pendente?: boolean };
 
 export default function DashboardPage() {
   const { user, perfil } = useAuth();
@@ -152,15 +162,31 @@ export default function DashboardPage() {
     carregar();
   }, [carregar]);
 
-  // Quando a internet volta depois de ter caído, busca os dados de verdade
-  // de novo automaticamente — a pessoa não precisa fazer nada.
+  // Quando a internet volta depois de ter caído, primeiro tenta enviar as
+  // anotações que ficaram guardadas na fila offline (ver
+  // src/lib/offline/fila.ts) e só depois busca os dados de verdade de novo
+  // — assim o painel já mostra o saldo certo, calculado pelo servidor, no
+  // lugar do saldo "estimado" que a fila mostrava enquanto pendente. A
+  // pessoa não precisa fazer nada disso na mão.
   const estavaOnline = React.useRef(online);
   React.useEffect(() => {
     if (!estavaOnline.current && online) {
-      carregar();
+      sincronizarFila().finally(() => carregar());
     }
     estavaOnline.current = online;
   }, [online, carregar]);
+
+  // Cobre o caso comum no iPhone (sem sincronização automática em segundo
+  // plano — ver seção 19 do contexto do projeto): a pessoa ficou offline,
+  // anotou algo, fechou o app, e só reabriu depois já com internet de
+  // volta. Roda uma vez ao montar a tela; se a fila estiver vazia ou sem
+  // internet, `sincronizarFila` não faz nada.
+  React.useEffect(() => {
+    sincronizarFila().then((resultado) => {
+      if (resultado.status === "ok" || resultado.status === "parcial") carregar();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   React.useEffect(() => {
     if (!user || nivel < 1) return;
@@ -179,7 +205,11 @@ export default function DashboardPage() {
   async function handleAbrirModal() {
     if (!user || !perfil) return;
     setTransacaoEditando(null);
-    if (perfil.plano === "gratis") {
+    // Sem internet não dá pra conferir a contagem real do mês no servidor
+    // -- deixa abrir sem bloquear (a anotação entra na fila offline e o
+    // limite continua valendo normalmente na próxima vez que houver
+    // conexão pra abrir o modal).
+    if (perfil.plano === "gratis" && navigator.onLine) {
       const { inicio, fim } = limitesDoMesAtual();
       const total = await contarTransacoesDoMes(user.id, inicio, fim);
       setBloqueado(total >= LIMITE_TRANSACOES_GRATIS);
@@ -189,7 +219,11 @@ export default function DashboardPage() {
     setModalAberto(true);
   }
 
-  function handleEditarTransacao(transacao: Transacao) {
+  function handleEditarTransacao(transacao: TransacaoExibida) {
+    // Anotação ainda pendente de sincronizar não existe de verdade no
+    // servidor ainda -- não dá pra editar/apagar ela até enviar (ver
+    // FilaPendenteBanner pra reenviar ou apagar da fila).
+    if (transacao.__pendente) return;
     setTransacaoEditando(transacao);
     setBloqueado(false);
     setModalAberto(true);
@@ -205,9 +239,40 @@ export default function DashboardPage() {
     setFiltroCategoria((atual) => (atual === id ? "" : id));
   }
 
+  // Anotações feitas sem internet e ainda não enviadas (ver
+  // src/lib/offline/fila.ts) -- convertidas pro mesmo formato de uma
+  // Transacao de verdade, só pra aparecerem na lista e no saldo com o selo
+  // "Aguardando envio" enquanto isso. Some da fila (e passa a vir do
+  // servidor como as outras) assim que `sincronizarFila` conseguir enviar.
+  const filaPendente = useFilaPendente();
+  const transacoesPendentesExibicao: TransacaoExibida[] = filaPendente
+    .filter((item) => item.dados.usuario_id === user?.id && item.dados.tipo_negocio !== "negocio")
+    .map((item) => ({
+      id: `pendente:${item.idLocal}`,
+      usuario_id: item.dados.usuario_id,
+      conta_id: item.dados.conta_id,
+      categoria_id: item.dados.categoria_id,
+      tipo: item.dados.tipo,
+      valor: item.dados.valor,
+      descricao: item.dados.descricao,
+      data: item.dados.data,
+      forma_pagamento: item.dados.forma_pagamento,
+      tipo_negocio: item.dados.tipo_negocio,
+      is_recorrente: false,
+      recorrencia: null,
+      conta_fixa_id: null,
+      categorias: categorias.find((c) => c.id === item.dados.categoria_id) ?? null,
+      __pendente: true,
+    }));
+
   // O Painel pessoal só mostra dados pessoais — o "sem tipo" cobre lançamentos
   // antigos sem tipo_negocio definido; tudo do negócio vive em "Minha empresa".
-  const transacoesPessoais = transacoes.filter((t) => t.tipo_negocio !== "negocio");
+  // Pendentes entram primeiro (são sempre "agora") e somam no saldo/totais
+  // abaixo igual a uma anotação já confirmada.
+  const transacoesPessoais: TransacaoExibida[] = [
+    ...transacoesPendentesExibicao,
+    ...transacoes.filter((t) => t.tipo_negocio !== "negocio"),
+  ];
 
   const entradas = transacoesPessoais.filter((t) => t.tipo === "receita").reduce((acc, t) => acc + Number(t.valor), 0);
   const saidas = transacoesPessoais.filter((t) => t.tipo === "despesa").reduce((acc, t) => acc + Number(t.valor), 0);
@@ -289,6 +354,7 @@ export default function DashboardPage() {
       </div>
 
       {offlineDesde && <BannerOffline salvoEm={offlineDesde} />}
+      <FilaPendenteBanner aoSincronizar={carregar} />
 
       {alertasOrcamento.length > 0 && (
         <Link href="/dashboard/orcamento">
@@ -516,7 +582,9 @@ export default function DashboardPage() {
                 key={t.id}
                 padding="sm"
                 onClick={() => handleEditarTransacao(t)}
-                className="flex cursor-pointer items-center justify-between gap-4 transition-colors hover:bg-muted/5"
+                className={`flex items-center justify-between gap-4 transition-colors ${
+                  t.__pendente ? "opacity-70" : "cursor-pointer hover:bg-muted/5"
+                }`}
               >
                 <div className="flex items-center gap-3">
                   <span
@@ -532,6 +600,11 @@ export default function DashboardPage() {
                       <p className="text-small text-muted">
                         {new Date(t.data + "T00:00:00").toLocaleDateString("pt-BR")}
                       </p>
+                      {t.__pendente && (
+                        <Badge variant="neutral" size="sm">
+                          Aguardando envio
+                        </Badge>
+                      )}
                       {t.categorias?.nome && (
                         <Badge variant="neutral" size="sm">
                           {t.categorias.nome}
