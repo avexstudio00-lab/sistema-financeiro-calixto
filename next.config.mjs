@@ -26,6 +26,11 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           // Desliga o acesso a APIs sensíveis do navegador que o app não usa.
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // Instrui o navegador a nunca mais tentar acessar este domínio por
+          // HTTP (sem criptografia) de novo, mesmo em wifi público inseguro —
+          // a Vercel já redireciona HTTP->HTTPS, mas este header fecha essa
+          // brecha do primeiro acesso (checklist de segurança, item 12).
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
         ],
       },
       {
