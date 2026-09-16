@@ -15,6 +15,9 @@ import {
   listarDescricoesUsadas,
   type DescricaoUsada,
 } from "@/lib/data/transacoes";
+import { adicionarNaFila } from "@/lib/offline/fila";
+import { salvarDadosFormOffline, lerDadosFormOffline } from "@/lib/offline/dadosFormOffline";
+import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
 import type { Categoria, Conta, Transacao } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO = [
@@ -54,6 +57,7 @@ export function NovaTransacaoModal({
   categoriaIdInicial,
 }: NovaTransacaoModalProps) {
   const { user, negocio } = useAuth();
+  const online = useOnlineStatus();
   // Quem abre esse modal já passou pela guarda de acesso da tela que o
   // renderiza (empresa/layout.tsx só deixa entrar em mundo="negocio" quem
   // está no plano Avançado/Grupo, seja qual for o tipo de perfil) — então o
@@ -88,14 +92,33 @@ export function NovaTransacaoModal({
   const [erro, setErro] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (aberto && usuarioEfetivoId) {
-      listarCategorias(usuarioEfetivoId).then(setCategorias);
-      listarContas(usuarioEfetivoId).then((lista) => {
-        setContas(lista);
-        if (!transacaoEditando && lista[0]) setContaId(lista[0].id);
-      });
-      listarDescricoesUsadas(usuarioEfetivoId).then(setDescricoesUsadas);
+    if (!aberto || !usuarioEfetivoId) return;
+
+    // Sem internet: não adianta tentar buscar (ficaria pendurado ou
+    // voltaria vazio) -- usa o último retrato de categorias/contas salvo
+    // (ver src/lib/offline/dadosFormOffline.ts), pra ainda dar pra escolher
+    // categoria e conta e anotar mesmo assim.
+    if (!navigator.onLine) {
+      const cache = lerDadosFormOffline(usuarioEfetivoId);
+      if (cache) {
+        setCategorias(cache.categorias);
+        setContas(cache.contas);
+        if (!transacaoEditando && cache.contas[0]) setContaId(cache.contas[0].id);
+      }
+      return;
     }
+
+    Promise.all([listarCategorias(usuarioEfetivoId), listarContas(usuarioEfetivoId)]).then(
+      ([listaCategorias, listaContas]) => {
+        setCategorias(listaCategorias);
+        setContas(listaContas);
+        if (!transacaoEditando && listaContas[0]) setContaId(listaContas[0].id);
+        // Guarda o retrato mais recente pra próxima vez que o modal precisar
+        // abrir sem internet.
+        salvarDadosFormOffline(usuarioEfetivoId, listaCategorias, listaContas);
+      }
+    );
+    listarDescricoesUsadas(usuarioEfetivoId).then(setDescricoesUsadas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, usuarioEfetivoId]);
 
@@ -150,6 +173,18 @@ export function NovaTransacaoModal({
       return;
     }
 
+    const semInternet = typeof navigator !== "undefined" && !navigator.onLine;
+
+    // Editar uma anotação existente depende do valor antigo dela pra
+    // desfazer o efeito no saldo da conta antes de aplicar o novo (ver
+    // atualizarTransacao em src/lib/data/transacoes.ts) -- arriscado demais
+    // pra fazer "às cegas" sem internet, então só a criação de anotação
+    // nova pode ser guardada na fila offline (ver fila.ts).
+    if (editando && semInternet) {
+      setErro("Sem internet agora — editar uma anotação só funciona com conexão. Tente de novo quando reconectar.");
+      return;
+    }
+
     setErro(null);
     setSalvando(true);
     const dados = {
@@ -163,6 +198,19 @@ export function NovaTransacaoModal({
       forma_pagamento: formaPagamento,
       tipo_negocio: podeMarcarNegocio ? tipoNegocio : "pessoal",
     };
+
+    if (semInternet) {
+      // Não tem edição aqui (bloqueada acima) -- só sobra criar anotação
+      // nova, que é seguro guardar numa fila local e enviar de verdade
+      // depois, em ordem, quando a internet voltar (ver fila.ts e
+      // sincronizarFila.ts).
+      adicionarNaFila(dados);
+      setSalvando(false);
+      onSalvo();
+      onFechar();
+      return;
+    }
+
     const { error } = transacaoEditando
       ? await atualizarTransacao(transacaoEditando, dados)
       : await criarTransacao(dados);
@@ -178,6 +226,10 @@ export function NovaTransacaoModal({
 
   async function handleExcluir() {
     if (!transacaoEditando) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setErro("Sem internet agora — apagar uma anotação só funciona com conexão. Tente de novo quando reconectar.");
+      return;
+    }
     setExcluindo(true);
     const { error } = await deletarTransacao(transacaoEditando);
     setExcluindo(false);
@@ -370,6 +422,13 @@ export function NovaTransacaoModal({
                 {tipoNegocio === "negocio" ? <Building2 size={16} /> : <Home size={16} />}
                 {tipoNegocio === "negocio" ? "Anotando como gasto/receita do negócio" : "Anotando como gasto/receita pessoal"}
               </div>
+            )}
+
+            {!editando && !online && (
+              <p className="text-small text-muted">
+                Sem internet agora — sua anotação fica guardada no aparelho e é enviada sozinha assim que a
+                conexão voltar.
+              </p>
             )}
 
             {erro && <p className="text-small text-rose-600">{erro}</p>}
