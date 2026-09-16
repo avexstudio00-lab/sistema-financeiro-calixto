@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import { usuarioAutenticadoDaRequisicao } from "@/lib/supabase/admin";
 import { criarCheckout, AsaasError } from "@/lib/asaas/client";
 import type { Plano } from "@/lib/planos";
@@ -8,7 +9,16 @@ import { registrarEventoSeguranca } from "@/lib/auditoria";
 
 export const runtime = "nodejs";
 
-const PLANOS_PAGOS: Exclude<Plano, "gratis">[] = ["mensal", "clt", "avancado", "grupo"];
+const PLANOS_PAGOS = ["mensal", "clt", "avancado", "grupo"] as const satisfies readonly Exclude<
+  Plano,
+  "gratis"
+>[];
+
+// Corpo esperado da requisição: só o campo `plano`, sendo um dos 4 valores
+// pagos válidos. `.strict()` faz o schema recusar qualquer campo a mais que
+// a rota não espera (checklist de segurança, item 6 — toda rota com corpo
+// usa um schema de validação em vez de checar campo a campo na mão).
+const corpoSchema = z.object({ plano: z.enum(PLANOS_PAGOS) }).strict();
 
 /**
  * Inicia a assinatura de um plano pago: cria um checkout hospedado no
@@ -38,24 +48,19 @@ export async function POST(request: Request) {
     return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
   }
 
-  let plano: Plano | undefined;
-  try {
-    const corpo = await request.json();
-    plano = corpo?.plano;
-  } catch {
-    return NextResponse.json({ erro: "Corpo da requisição inválido." }, { status: 400 });
-  }
-
-  if (!plano || !PLANOS_PAGOS.includes(plano as Exclude<Plano, "gratis">)) {
+  const corpoBruto = await request.json().catch(() => null);
+  const resultado = corpoSchema.safeParse(corpoBruto);
+  if (!resultado.success) {
     return NextResponse.json({ erro: "Plano inválido." }, { status: 400 });
   }
+  const { plano } = resultado.data;
 
   const origem = new URL(request.url).origin;
   const id = randomUUID();
 
   try {
     const checkout = await criarCheckout({
-      plano: plano as Exclude<Plano, "gratis">,
+      plano,
       externalReference: id,
       successUrl: `${origem}/dashboard/plano?asaas=sucesso`,
       cancelUrl: `${origem}/dashboard/plano?asaas=cancelado`,
