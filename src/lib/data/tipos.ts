@@ -124,6 +124,21 @@ export interface Investimento {
   numero_parcelas: number | null;
   valor_parcela: number | null;
   periodicidade_parcelas: "mensal" | "quinzenal" | "semanal" | null;
+  /** Só para tipo "emprestimo": quanto a pessoa vai devolver no total, já
+   * com o combinado embutido (ex: emprestou 1000, combinaram 1300 de volta
+   * → valor_retornavel = 1300). O ganho é sempre `valor_retornavel -
+   * valor_investido`, sem precisar de taxa/tipo_ganho. Nulo em empréstimos
+   * antigos criados antes dessa mudança (esses continuam calculando pelo
+   * taxa/tipo_ganho legado, ver `calcularValorAtualEstimado`). */
+  valor_retornavel: number | null;
+  /** Só para tipo "emprestimo": data em que o valor_retornavel completo é
+   * atingido — o ganho cresce linearmente de 0 (na data_inicio) até o total
+   * combinado (nessa data). Pra empréstimo à vista é a própria data de
+   * pagamento combinada; pra parcelado é sempre igual ao vencimento da
+   * última parcela (mantido em sincronia automaticamente, inclusive quando
+   * o usuário edita manualmente a data de uma parcela). Nulo em empréstimos
+   * antigos. */
+  data_vencimento_final: string | null;
 }
 
 /** Uma parcela de um investimento com forma_pagamento "parcelado" (ex:
