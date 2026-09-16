@@ -41,7 +41,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen bg-background">
       <DashboardNav />
-      <main className="pb-24">{children}</main>
+      {/* pb maior no celular pra sobrar espaço acima da barra fixa do
+          rodapé (MobileTabBar) + área segura do iPhone com notch/indicador
+          home; no computador não tem essa barra, então volta ao normal. */}
+      <main className="pb-32 md:pb-24">{children}</main>
     </div>
   );
 }
