@@ -17,7 +17,10 @@ import { listarEvolucaoMensal, type PontoEvolucaoMensal } from "@/lib/data/grafi
 import { LIMITE_TRANSACOES_GRATIS, nivelPlano } from "@/lib/planos";
 import { agruparGastosPorCategoria, heatmapDoMes } from "@/lib/graficos-utils";
 import { formatarMoeda } from "@/lib/format";
+import { salvarCache, lerCache } from "@/lib/offline/cache";
+import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
 import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
+import { BannerOffline } from "@/components/dashboard/BannerOffline";
 import { Sparkline } from "@/components/dashboard/graficos/Sparkline";
 import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
 import { HeatmapMensal } from "@/components/dashboard/graficos/HeatmapMensal";
@@ -50,6 +53,14 @@ function limitesDoPeriodo(periodo: "3meses" | "6meses") {
   return { inicio, fim };
 }
 
+/** O que fica salvo no cache offline desta tela (ver src/lib/offline/cache.ts). */
+interface DadosCacheDashboard {
+  transacoes: Transacao[];
+  categorias: Categoria[];
+  evolucaoMensal: PontoEvolucaoMensal[];
+  limites: LimiteCategoria[];
+}
+
 export default function DashboardPage() {
   const { user, perfil } = useAuth();
   const [transacoes, setTransacoes] = React.useState<Transacao[]>([]);
@@ -62,6 +73,12 @@ export default function DashboardPage() {
   const [bloqueado, setBloqueado] = React.useState(false);
   const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
 
+  // Modo offline: quando não dá pra buscar do servidor, mostra o último
+  // "retrato" bom que a gente tinha salvo. `offlineDesde` guarda a hora
+  // desse retrato — fica null quando a tela está com dado ao vivo.
+  const online = useOnlineStatus();
+  const [offlineDesde, setOfflineDesde] = React.useState<string | null>(null);
+
   const [filtroTipo, setFiltroTipo] = React.useState<"todos" | "receita" | "despesa">("todos");
   const [filtroCategoria, setFiltroCategoria] = React.useState("");
   const [filtroFormaPagamento, setFiltroFormaPagamento] = React.useState("");
@@ -70,8 +87,30 @@ export default function DashboardPage() {
 
   const nivel = perfil ? nivelPlano(perfil.plano) : 0;
 
+  // Aplica na tela o último retrato salvo em cache (ver src/lib/offline/cache.ts).
+  const aplicarCache = React.useCallback((chave: string) => {
+    const cache = lerCache<DadosCacheDashboard>(chave);
+    if (!cache) return false;
+    setTransacoes(cache.dados.transacoes);
+    setCategorias(cache.dados.categorias);
+    setEvolucaoMensal(cache.dados.evolucaoMensal);
+    setLimites(cache.dados.limites);
+    setOfflineDesde(cache.salvoEm);
+    return true;
+  }, []);
+
   const carregar = React.useCallback(async () => {
     if (!user) return;
+    const chaveCache = `dashboard:${user.id}`;
+
+    // Sem internet: nem tenta buscar (ficaria pendurado ou voltaria vazio) —
+    // já mostra direto o último retrato bom que a gente salvou.
+    if (!navigator.onLine) {
+      aplicarCache(chaveCache);
+      setCarregando(false);
+      return;
+    }
+
     setCarregando(true);
     // Lança automaticamente (se ainda não lançou este mês) as contas fixas
     // recorrentes cujo dia de vencimento já chegou -- ver
@@ -86,16 +125,42 @@ export default function DashboardPage() {
       listarEvolucaoMensal(user.id, 6, "pessoal"),
       listarLimites(user.id),
     ]);
+
+    if (!navigator.onLine) {
+      // A conexão caiu durante a busca — não troca o que já tava na tela por
+      // um resultado incompleto; usa o retrato salvo em vez disso.
+      aplicarCache(chaveCache);
+      setCarregando(false);
+      return;
+    }
+
     setTransacoes(lista);
     setCategorias(cats);
     setEvolucaoMensal(evolucao);
     setLimites(lims);
+    setOfflineDesde(null);
+    salvarCache<DadosCacheDashboard>(chaveCache, {
+      transacoes: lista,
+      categorias: cats,
+      evolucaoMensal: evolucao,
+      limites: lims,
+    });
     setCarregando(false);
-  }, [user]);
+  }, [user, aplicarCache]);
 
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Quando a internet volta depois de ter caído, busca os dados de verdade
+  // de novo automaticamente — a pessoa não precisa fazer nada.
+  const estavaOnline = React.useRef(online);
+  React.useEffect(() => {
+    if (!estavaOnline.current && online) {
+      carregar();
+    }
+    estavaOnline.current = online;
+  }, [online, carregar]);
 
   React.useEffect(() => {
     if (!user || nivel < 1) return;
@@ -222,6 +287,8 @@ export default function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      {offlineDesde && <BannerOffline salvoEm={offlineDesde} />}
 
       {alertasOrcamento.length > 0 && (
         <Link href="/dashboard/orcamento">
