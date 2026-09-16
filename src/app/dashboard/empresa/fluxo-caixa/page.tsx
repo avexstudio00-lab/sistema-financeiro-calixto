@@ -10,8 +10,21 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { gerarFluxoCaixa, type ResumoFluxoCaixa } from "@/lib/data/empresa";
 import { buscarCategoriaPadraoPorNome } from "@/lib/data/categorias";
 import { formatarMoeda } from "@/lib/format";
+import { salvarCache, lerCache } from "@/lib/offline/cache";
+import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
+import { sincronizarFila } from "@/lib/offline/sincronizarFila";
 import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
+import { BannerOffline } from "@/components/dashboard/BannerOffline";
+import { FilaPendenteBanner } from "@/components/dashboard/FilaPendenteBanner";
 import type { Categoria } from "@/lib/data/tipos";
+
+/** O que fica salvo no cache offline desta tela, por mês (mesmo motivo do
+ * painel da empresa: não mistura dado de um mês com o retrato salvo de
+ * outro -- ver src/lib/offline/cache.ts). */
+interface DadosCacheFluxoCaixa {
+  fluxo: ResumoFluxoCaixa;
+  categoriaProLabore: Categoria | null;
+}
 
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -29,27 +42,73 @@ export default function FluxoCaixaPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
 
+  // Mesmo padrão de cache das outras telas do modo offline (ver seção 19 do
+  // contexto do projeto) -- guarda o último retrato bom por mês.
+  const online = useOnlineStatus();
+  const [offlineDesde, setOfflineDesde] = React.useState<string | null>(null);
+
   // Fluxo de caixa é financeiro do negócio — escondido de funcionário,
   // igual DAS/impostos e contas a pagar/receber (RLS já bloqueia no banco).
   React.useEffect(() => {
     if (papel === "funcionario") router.replace("/dashboard/empresa");
   }, [papel, router]);
 
+  const aplicarCache = React.useCallback((chave: string) => {
+    const cache = lerCache<DadosCacheFluxoCaixa>(chave);
+    if (!cache) return false;
+    setFluxo(cache.dados.fluxo);
+    setCategoriaProLabore(cache.dados.categoriaProLabore);
+    setOfflineDesde(cache.salvoEm);
+    return true;
+  }, []);
+
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
+    const chaveCache = `fluxo-caixa:${negocio.usuarioId}:${ano}-${String(mes).padStart(2, "0")}`;
+
+    if (!navigator.onLine) {
+      aplicarCache(chaveCache);
+      setCarregando(false);
+      return;
+    }
+
     setCarregando(true);
     const [res, cat] = await Promise.all([
       gerarFluxoCaixa(negocio.usuarioId, ano, mes),
       buscarCategoriaPadraoPorNome("Pró-labore", "despesa"),
     ]);
+
+    if (!navigator.onLine) {
+      aplicarCache(chaveCache);
+      setCarregando(false);
+      return;
+    }
+
     setFluxo(res);
     setCategoriaProLabore(cat);
+    setOfflineDesde(null);
+    salvarCache<DadosCacheFluxoCaixa>(chaveCache, { fluxo: res, categoriaProLabore: cat });
     setCarregando(false);
-  }, [negocio, ano, mes]);
+  }, [negocio, ano, mes, aplicarCache]);
 
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  const estavaOnline = React.useRef(online);
+  React.useEffect(() => {
+    if (!estavaOnline.current && online) {
+      sincronizarFila().finally(() => carregar());
+    }
+    estavaOnline.current = online;
+  }, [online, carregar]);
+
+  React.useEffect(() => {
+    sincronizarFila().then((resultado) => {
+      if (resultado.status === "ok" || resultado.status === "parcial") carregar();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function mudarMes(delta: number) {
     let novoMes = mes + delta;
@@ -84,6 +143,9 @@ export default function FluxoCaixaPage() {
           </button>
         </div>
       </div>
+
+      {offlineDesde && <BannerOffline salvoEm={offlineDesde} />}
+      <FilaPendenteBanner aoSincronizar={carregar} />
 
       {carregando || !fluxo ? (
         <p className="py-8 text-center text-body text-muted">Carregando...</p>
