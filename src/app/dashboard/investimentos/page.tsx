@@ -1,51 +1,39 @@
 "use client";
 
 import * as React from "react";
-import {
-  Plus,
-  Trash2,
-  Pencil,
-  RefreshCw,
-  TrendingUp,
-  Landmark,
-  LineChart as LineChartIcon,
-  HandCoins,
-  ShoppingBag,
-  Wallet,
-  type LucideIcon,
-} from "lucide-react";
+import { Plus, Wallet, LayoutGrid, Combine } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   listarInvestimentos,
   deletarInvestimento,
   atualizarTaxaInvestimento,
   atualizarValorAtualInvestimento,
+  atualizarEmprestimoInvestimento,
+  atualizarDataVencimentoParcela,
   calcularValorAtualEstimado,
-  calcularGanhoEstimado,
-  calcularPercentualGanho,
+  calcularGanhoNoPeriodo,
   calcularEvolucaoInvestimentos,
-  temCalculoAutomatico,
-  ehTipoRevenda,
   listarParcelas,
   marcarParcelaPaga,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
 import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
-import { ParcelasInvestimento } from "@/components/dashboard/ParcelasInvestimento";
+import { InvestimentoCard, TIPO_META } from "@/components/dashboard/InvestimentoCard";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
 import type { Investimento, ParcelaInvestimento } from "@/lib/data/tipos";
 
-const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon }> = {
-  cdi: { label: "CDI", icone: TrendingUp },
-  tesouro: { label: "Tesouro Direto", icone: Landmark },
-  bolsa: { label: "Bolsa de Valores", icone: LineChartIcon },
-  emprestimo: { label: "Empréstimo", icone: HandCoins },
-  revenda: { label: "Compra e revenda", icone: ShoppingBag },
-};
+const ORDEM_TIPOS: Investimento["tipo"][] = ["cdi", "tesouro", "bolsa", "emprestimo", "revenda"];
+
+const OPCOES_PERIODO: { id: number | null; label: string }[] = [
+  { id: 3, label: "3 meses" },
+  { id: 6, label: "6 meses" },
+  { id: 12, label: "12 meses" },
+  { id: null, label: "Desde o início" },
+];
 
 export default function InvestimentosPage() {
   const { user } = useAuth();
@@ -53,13 +41,15 @@ export default function InvestimentosPage() {
   const [parcelas, setParcelas] = React.useState<ParcelaInvestimento[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
-
-  const [editandoTaxaId, setEditandoTaxaId] = React.useState<string | null>(null);
-  const [taxaEmEdicao, setTaxaEmEdicao] = React.useState("");
-  const [editandoValorId, setEditandoValorId] = React.useState<string | null>(null);
-  const [valorEmEdicao, setValorEmEdicao] = React.useState("");
-  const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
   const [salvandoAcao, setSalvandoAcao] = React.useState(false);
+
+  // Cada tipo de investimento (CDI, empréstimo etc.) tem seu próprio
+  // mini-dashboard, separado dos outros — só se combinam quando a pessoa
+  // pede explicitamente pra ver tudo junto. Ver seção sobre isso pedida
+  // pelo usuário: "eles só se misturam caso a pessoa peça pra ver o ganho
+  // em todos".
+  const [modoVisualizacao, setModoVisualizacao] = React.useState<"porTipo" | "combinado">("porTipo");
+  const [periodoMeses, setPeriodoMeses] = React.useState<number | null>(6);
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
@@ -87,37 +77,60 @@ export default function InvestimentosPage() {
     return mapa;
   }, [parcelas]);
 
-  const resumo = React.useMemo(() => {
+  const grupos = React.useMemo(() => {
+    const mapa = new Map<Investimento["tipo"], Investimento[]>();
+    for (const inv of investimentos) {
+      const lista = mapa.get(inv.tipo) ?? [];
+      lista.push(inv);
+      mapa.set(inv.tipo, lista);
+    }
+    return ORDEM_TIPOS.map((tipo) => ({ tipo, itens: mapa.get(tipo) ?? [] })).filter((g) => g.itens.length > 0);
+  }, [investimentos]);
+
+  function calcularResumo(lista: Investimento[]) {
     let totalInvestido = 0;
     let totalAtual = 0;
-    for (const inv of investimentos) {
+    for (const inv of lista) {
       totalInvestido += Number(inv.valor_investido);
       totalAtual += calcularValorAtualEstimado(inv);
     }
-    return { totalInvestido, totalAtual, ganho: totalAtual - totalInvestido };
-  }, [investimentos]);
+    const ganhoTotal = totalAtual - totalInvestido;
+    const ganhoPeriodo = periodoMeses == null ? ganhoTotal : calcularGanhoNoPeriodo(lista, periodoMeses);
+    return { totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo };
+  }
+
+  const resumoGeral = React.useMemo(() => calcularResumo(investimentos), [investimentos, periodoMeses]);
 
   const linhaEvolucao = React.useMemo(() => {
-    return calcularEvolucaoInvestimentos(investimentos, 6).map((p) => ({ mes: p.mes, valor: p.total }));
-  }, [investimentos]);
+    return calcularEvolucaoInvestimentos(investimentos, periodoMeses ?? 12).map((p) => ({ mes: p.mes, valor: p.total }));
+  }, [investimentos, periodoMeses]);
 
-  async function handleSalvarTaxa(inv: Investimento) {
-    const valor = Number(taxaEmEdicao.replace(",", "."));
-    if (Number.isNaN(valor)) return;
+  const labelGanho = periodoMeses == null ? "Ganho estimado" : `Ganho nos últimos ${periodoMeses} meses`;
+
+  async function handleSalvarTaxa(inv: Investimento, novaTaxa: number) {
     setSalvandoAcao(true);
-    await atualizarTaxaInvestimento(inv.id, valor);
+    await atualizarTaxaInvestimento(inv.id, novaTaxa);
     setSalvandoAcao(false);
-    setEditandoTaxaId(null);
     carregar();
   }
 
-  async function handleAtualizarValor(inv: Investimento) {
-    const valor = Number(valorEmEdicao.replace(",", "."));
-    if (!valor || valor < 0) return;
+  async function handleAtualizarValor(inv: Investimento, novoValor: number) {
     setSalvandoAcao(true);
-    await atualizarValorAtualInvestimento(inv.id, valor);
+    await atualizarValorAtualInvestimento(inv.id, novoValor);
     setSalvandoAcao(false);
-    setEditandoValorId(null);
+    carregar();
+  }
+
+  async function handleEditarEmprestimo(
+    inv: Investimento,
+    dados: { valorRetornavel: number; dataVencimentoFinal: string }
+  ) {
+    setSalvandoAcao(true);
+    await atualizarEmprestimoInvestimento(inv.id, {
+      valor_retornavel: dados.valorRetornavel,
+      data_vencimento_final: dados.dataVencimentoFinal,
+    });
+    setSalvandoAcao(false);
     carregar();
   }
 
@@ -128,12 +141,68 @@ export default function InvestimentosPage() {
     carregar();
   }
 
+  async function handleEditarDataParcela(parcela: ParcelaInvestimento, novaDataIso: string) {
+    setSalvandoAcao(true);
+    const { error } = await atualizarDataVencimentoParcela(parcela.id, parcela.investimento_id, novaDataIso);
+    if (error) {
+      // Não bloqueia o usuário (a UI já otimisticamente fecha o campo de
+      // edição), mas garante que uma falha nessa escrita em duas etapas
+      // (parcela + recálculo do vencimento final do investimento) fique
+      // registrada em vez de silenciosamente inconsistente.
+      console.error("Erro ao editar data da parcela:", error);
+    }
+    setSalvandoAcao(false);
+    carregar();
+  }
+
   async function handleExcluir(inv: Investimento) {
     setSalvandoAcao(true);
     await deletarInvestimento(inv.id);
     setSalvandoAcao(false);
-    setConfirmandoExclusaoId(null);
     carregar();
+  }
+
+  function renderCartoesStats(resumo: ReturnType<typeof calcularResumo>) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="flex flex-col gap-2">
+          <p className="text-small text-muted">Total investido</p>
+          <p className="text-h2 text-foreground">{formatarMoeda(resumo.totalInvestido)}</p>
+        </Card>
+        <Card className="flex flex-col gap-2">
+          <p className="text-small text-muted">{labelGanho}</p>
+          <p className={`text-h2 ${resumo.ganhoPeriodo >= 0 ? "text-primary-500" : "text-red-500"}`}>
+            {resumo.ganhoPeriodo >= 0 ? "+" : ""}
+            {formatarMoeda(resumo.ganhoPeriodo)}
+          </p>
+        </Card>
+        <Card className="flex flex-col gap-2">
+          <p className="text-small text-muted">Total projetado</p>
+          <p className="text-h2 text-secondary">{formatarMoeda(resumo.totalAtual)}</p>
+        </Card>
+      </div>
+    );
+  }
+
+  function renderGradeCartoes(itens: Investimento[]) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        {itens.map((inv) => (
+          <InvestimentoCard
+            key={inv.id}
+            inv={inv}
+            parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
+            salvando={salvandoAcao}
+            onSalvarTaxa={handleSalvarTaxa}
+            onAtualizarValor={handleAtualizarValor}
+            onEditarEmprestimo={handleEditarEmprestimo}
+            onExcluir={handleExcluir}
+            onAlternarParcela={handleAlternarParcela}
+            onEditarDataParcela={handleEditarDataParcela}
+          />
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -167,184 +236,84 @@ export default function InvestimentosPage() {
         </Card>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Card className="flex flex-col gap-2">
-              <p className="text-small text-muted">Total investido</p>
-              <p className="text-h2 text-foreground">{formatarMoeda(resumo.totalInvestido)}</p>
-            </Card>
-            <Card className="flex flex-col gap-2">
-              <p className="text-small text-muted">Ganho estimado</p>
-              <p className={`text-h2 ${resumo.ganho >= 0 ? "text-primary-500" : "text-red-500"}`}>
-                {resumo.ganho >= 0 ? "+" : ""}
-                {formatarMoeda(resumo.ganho)}
-              </p>
-            </Card>
-            <Card className="flex flex-col gap-2">
-              <p className="text-small text-muted">Total projetado</p>
-              <p className="text-h2 text-secondary">{formatarMoeda(resumo.totalAtual)}</p>
-            </Card>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3">
+            <div className="flex gap-1.5 rounded-xl bg-muted/10 p-1">
+              <button
+                type="button"
+                onClick={() => setModoVisualizacao("porTipo")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-small font-medium transition-all",
+                  modoVisualizacao === "porTipo" ? "bg-card text-primary-700 shadow-sm" : "text-muted"
+                )}
+              >
+                <LayoutGrid size={14} />
+                Por tipo
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoVisualizacao("combinado")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-small font-medium transition-all",
+                  modoVisualizacao === "combinado" ? "bg-card text-primary-700 shadow-sm" : "text-muted"
+                )}
+              >
+                <Combine size={14} />
+                Todos juntos
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 rounded-xl bg-muted/10 p-1">
+              {OPCOES_PERIODO.map((opcao) => (
+                <button
+                  key={opcao.label}
+                  type="button"
+                  onClick={() => setPeriodoMeses(opcao.id)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-small font-medium transition-all",
+                    periodoMeses === opcao.id ? "bg-card text-primary-700 shadow-sm" : "text-muted"
+                  )}
+                >
+                  {opcao.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {linhaEvolucao.length > 1 && (
-            <Card padding="lg">
-              <h2 className="mb-4 text-h3 text-foreground">Evolução dos investimentos</h2>
-              <GraficoLinhaEvolucao dados={linhaEvolucao} cor="#065f46" rotulo="Total investido" />
-            </Card>
-          )}
+          {modoVisualizacao === "combinado" ? (
+            <>
+              {renderCartoesStats(resumoGeral)}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {investimentos.map((inv) => {
-              const ganho = calcularGanhoEstimado(inv);
-              const percentual = calcularPercentualGanho(inv);
-              const valorAtual = calcularValorAtualEstimado(inv);
-              const Icone = TIPO_META[inv.tipo].icone;
-              const automatico = temCalculoAutomatico(inv.tipo);
-              const revenda = ehTipoRevenda(inv.tipo);
-
-              return (
-                <Card key={inv.id} className="flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
-                        <Icone size={18} />
-                      </span>
-                      <div>
-                        <p className="text-body font-semibold text-foreground">{inv.nome}</p>
-                        <p className="text-xs text-muted">
-                          {TIPO_META[inv.tipo].label}
-                          {inv.descricao ? ` · ${inv.descricao}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-small">
-                    <div>
-                      <p className="text-xs text-muted">{revenda ? "Custo" : "Investido"}</p>
-                      <p className="font-semibold text-foreground">{formatarMoeda(Number(inv.valor_investido))}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted">Ganho estimado</p>
-                      <p className={`font-semibold ${ganho >= 0 ? "text-primary-600" : "text-red-500"}`}>
-                        {ganho >= 0 ? "+" : ""}
-                        {formatarMoeda(ganho)}
-                        <span className="ml-1 text-xs font-normal">
-                          ({percentual >= 0 ? "+" : ""}
-                          {percentual.toFixed(1)}%)
-                        </span>
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted">{revenda ? "Valor de venda" : "Valor atual"}</p>
-                      <p className="font-semibold text-secondary">{formatarMoeda(valorAtual)}</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-muted">
-                    Desde {new Date(inv.data_inicio + "T00:00:00").toLocaleDateString("pt-BR")}
-                  </p>
-
-                  <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-                    {automatico ? (
-                      editandoTaxaId === inv.id ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-24">
-                            <Input
-                              value={taxaEmEdicao}
-                              onChange={(e) => setTaxaEmEdicao(e.target.value)}
-                              inputMode="decimal"
-                              placeholder="Taxa %"
-                            />
-                          </div>
-                          <Button size="sm" variant="secondary" disabled={salvandoAcao} onClick={() => handleSalvarTaxa(inv)}>
-                            Salvar
-                          </Button>
-                          <Button size="sm" variant="tertiary" onClick={() => setEditandoTaxaId(null)}>
-                            Cancelar
-                          </Button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditandoTaxaId(inv.id);
-                            setTaxaEmEdicao(String(inv.taxa ?? "").replace(".", ","));
-                          }}
-                          className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/20"
-                        >
-                          <Pencil size={12} />
-                          Taxa: {inv.taxa ?? 0}%{" "}
-                          {inv.tipo === "emprestimo" ? (inv.tipo_ganho === "mensal" ? "ao mês" : "fixo") : "ao ano"}
-                        </button>
-                      )
-                    ) : editandoValorId === inv.id ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-28">
-                          <Input
-                            value={valorEmEdicao}
-                            onChange={(e) => setValorEmEdicao(e.target.value)}
-                            inputMode="decimal"
-                            placeholder={revenda ? "Valor de venda" : "Novo valor"}
-                          />
-                        </div>
-                        <Button size="sm" variant="secondary" disabled={salvandoAcao} onClick={() => handleAtualizarValor(inv)}>
-                          Salvar
-                        </Button>
-                        <Button size="sm" variant="tertiary" onClick={() => setEditandoValorId(null)}>
-                          Cancelar
-                        </Button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditandoValorId(inv.id);
-                          setValorEmEdicao(String(inv.valor_atual).replace(".", ","));
-                        }}
-                        className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/20"
-                      >
-                        <RefreshCw size={12} />
-                        {revenda ? "Registrar venda" : "Atualizar valor"}
-                      </button>
-                    )}
-
-                    {confirmandoExclusaoId === inv.id ? (
-                      <div className="ml-auto flex items-center gap-2">
-                        <span className="text-xs text-muted">Apagar?</span>
-                        <Button size="sm" variant="tertiary" onClick={() => setConfirmandoExclusaoId(null)}>
-                          Não
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={salvandoAcao}
-                          onClick={() => handleExcluir(inv)}
-                          className="bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700"
-                        >
-                          Sim, apagar
-                        </Button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        aria-label="Apagar investimento"
-                        onClick={() => setConfirmandoExclusaoId(inv.id)}
-                        className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-red-500"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-
-                  <ParcelasInvestimento
-                    parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
-                    periodicidade={inv.periodicidade_parcelas}
-                    salvando={salvandoAcao}
-                    onAlternarPaga={handleAlternarParcela}
-                  />
+              {linhaEvolucao.length > 1 && (
+                <Card padding="lg">
+                  <h2 className="mb-4 text-h3 text-foreground">Evolução dos investimentos</h2>
+                  <GraficoLinhaEvolucao dados={linhaEvolucao} cor="#065f46" rotulo="Total investido" />
                 </Card>
-              );
-            })}
-          </div>
+              )}
+
+              {renderGradeCartoes(investimentos)}
+            </>
+          ) : (
+            <div className="flex flex-col gap-8">
+              {grupos.map(({ tipo, itens }) => {
+                const Icone = TIPO_META[tipo].icone;
+                const resumo = calcularResumo(itens);
+                return (
+                  <div key={tipo} className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-600">
+                        <Icone size={16} />
+                      </span>
+                      <h2 className="text-h3 text-foreground">{TIPO_META[tipo].label}</h2>
+                      <span className="text-small text-muted">
+                        {itens.length === 1 ? "1 investimento" : `${itens.length} investimentos`}
+                      </span>
+                    </div>
+                    {renderCartoesStats(resumo)}
+                    {renderGradeCartoes(itens)}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 
@@ -352,4 +321,3 @@ export default function InvestimentosPage() {
     </Container>
   );
 }
-
