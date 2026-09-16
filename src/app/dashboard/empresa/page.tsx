@@ -25,13 +25,36 @@ import { listarTransacoes } from "@/lib/data/transacoes";
 import { listarProdutos, estoqueBaixo } from "@/lib/data/produtos";
 import { listarContasPagar, listarContasReceber } from "@/lib/data/contasEmpresa";
 import { formatarMoeda } from "@/lib/format";
+import { salvarCache, lerCache } from "@/lib/offline/cache";
+import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
+import { useFilaPendente } from "@/lib/offline/useFilaPendente";
+import { sincronizarFila } from "@/lib/offline/sincronizarFila";
 import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
+import { BannerOffline } from "@/components/dashboard/BannerOffline";
+import { FilaPendenteBanner } from "@/components/dashboard/FilaPendenteBanner";
 import type { Transacao, Produto, ContaPagar, ContaReceber } from "@/lib/data/tipos";
 
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
+
+/** O que fica salvo no cache offline desta tela, por mês (ver
+ * src/lib/offline/cache.ts) -- se a pessoa navegar pra outro mês enquanto
+ * offline, não tem cache daquele mês específico e a tela fica igual a hoje
+ * (sem dado nenhum), em vez de mostrar o mês errado como se fosse o atual. */
+interface DadosCacheEmpresa {
+  resumo: ResumoEmpresa;
+  lancamentos: Transacao[];
+  produtos: Produto[];
+  contasPagar: ContaPagar[];
+  contasReceber: ContaReceber[];
+}
+
+/** Um lançamento de verdade (já veio do servidor) ou o retrato de uma
+ * anotação ainda esperando na fila offline pra ser enviada (ver
+ * src/lib/offline/fila.ts). */
+type TransacaoExibida = Transacao & { __pendente?: boolean };
 
 function emBreveOuAtrasada(item: { vencimento: string; status: string }, dias = 7): boolean {
   if (item.status !== "pendente") return false;
@@ -56,17 +79,36 @@ export default function PainelEmpresaPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
 
+  // Modo offline: quando não dá pra buscar do servidor, mostra o último
+  // retrato bom que a gente tinha salvo pra aquele mês específico (ver
+  // DadosCacheEmpresa acima). `offlineDesde` guarda a hora desse retrato.
+  const online = useOnlineStatus();
+  const [offlineDesde, setOfflineDesde] = React.useState<string | null>(null);
+
   const ehFuncionario = papel === "funcionario";
+
+  const aplicarCache = React.useCallback((chave: string) => {
+    const cache = lerCache<DadosCacheEmpresa>(chave);
+    if (!cache) return false;
+    setResumo(cache.dados.resumo);
+    setLancamentos(cache.dados.lancamentos);
+    setProdutos(cache.dados.produtos);
+    setContasPagar(cache.dados.contasPagar);
+    setContasReceber(cache.dados.contasReceber);
+    setOfflineDesde(cache.salvoEm);
+    return true;
+  }, []);
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
-    setCarregando(true);
 
     // Funcionário não tem acesso ao financeiro do negócio (contas a pagar/
     // receber e o extrato de transações ficam bloqueados pelo RLS) — só
     // busca o que ele pode ver de fato, que é o estoque (pro alerta de
     // estoque baixo). O resumo financeiro fica reservado pra dono/sócio.
+    // Sem cache offline por ora (fora do escopo desta parte).
     if (ehFuncionario) {
+      setCarregando(true);
       setProdutos(await listarProdutos(negocio.usuarioId));
       setResumo(null);
       setLancamentos([]);
@@ -76,6 +118,15 @@ export default function PainelEmpresaPage() {
       return;
     }
 
+    const chaveCache = `empresa-painel:${negocio.usuarioId}:${ano}-${String(mes).padStart(2, "0")}`;
+
+    if (!navigator.onLine) {
+      aplicarCache(chaveCache);
+      setCarregando(false);
+      return;
+    }
+
+    setCarregando(true);
     const inicio = new Date(ano, mes - 1, 1).toISOString().slice(0, 10);
     const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
     const [res, lista, listaProdutos, listaPagar, listaReceber] = await Promise.all([
@@ -85,17 +136,53 @@ export default function PainelEmpresaPage() {
       listarContasPagar(negocio.usuarioId),
       listarContasReceber(negocio.usuarioId),
     ]);
+
+    if (!navigator.onLine) {
+      aplicarCache(chaveCache);
+      setCarregando(false);
+      return;
+    }
+
+    const lancamentosNegocio = lista.filter((t) => t.tipo_negocio === "negocio").slice(0, 8);
     setResumo(res);
-    setLancamentos(lista.filter((t) => t.tipo_negocio === "negocio").slice(0, 8));
+    setLancamentos(lancamentosNegocio);
     setProdutos(listaProdutos);
     setContasPagar(listaPagar);
     setContasReceber(listaReceber);
+    setOfflineDesde(null);
+    salvarCache<DadosCacheEmpresa>(chaveCache, {
+      resumo: res,
+      lancamentos: lancamentosNegocio,
+      produtos: listaProdutos,
+      contasPagar: listaPagar,
+      contasReceber: listaReceber,
+    });
     setCarregando(false);
-  }, [negocio, ehFuncionario, ano, mes]);
+  }, [negocio, ehFuncionario, ano, mes, aplicarCache]);
 
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Mesmo padrão do painel pessoal (ver seção 19 do contexto do projeto):
+  // ao reconectar, tenta enviar a fila offline primeiro e só depois busca
+  // os dados reais de novo; ao abrir a tela já online com a fila cheia
+  // (ex: reabriu o app no iPhone depois de ter ficado offline), tenta
+  // sincronizar uma vez ao montar.
+  const estavaOnline = React.useRef(online);
+  React.useEffect(() => {
+    if (!estavaOnline.current && online) {
+      sincronizarFila().finally(() => carregar());
+    }
+    estavaOnline.current = online;
+  }, [online, carregar]);
+
+  React.useEffect(() => {
+    sincronizarFila().then((resultado) => {
+      if (resultado.status === "ok" || resultado.status === "parcial") carregar();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function mudarMes(delta: number) {
     let novoMes = mes + delta;
@@ -116,6 +203,34 @@ export default function PainelEmpresaPage() {
     ...contasPagar.filter((c) => emBreveOuAtrasada(c)).map((c) => ({ ...c, tipo: "pagar" as const })),
     ...contasReceber.filter((c) => emBreveOuAtrasada(c)).map((c) => ({ ...c, tipo: "receber" as const })),
   ];
+
+  // Anotações do negócio feitas sem internet, ainda não enviadas (ver
+  // src/lib/offline/fila.ts) -- aparecem na lista com o selo "Aguardando
+  // envio", mas não entram nos cards de resumo (faturamento/custos/lucro),
+  // que são calculados pelo servidor e só batem certo depois de sincronizar.
+  const filaPendente = useFilaPendente();
+  const lancamentosPendentesExibicao: TransacaoExibida[] = negocio
+    ? filaPendente
+        .filter((item) => item.dados.tipo_negocio === "negocio" && item.dados.usuario_id === negocio.usuarioId)
+        .map((item) => ({
+          id: `pendente:${item.idLocal}`,
+          usuario_id: item.dados.usuario_id,
+          conta_id: item.dados.conta_id,
+          categoria_id: item.dados.categoria_id,
+          tipo: item.dados.tipo,
+          valor: item.dados.valor,
+          descricao: item.dados.descricao,
+          data: item.dados.data,
+          forma_pagamento: item.dados.forma_pagamento,
+          tipo_negocio: item.dados.tipo_negocio,
+          is_recorrente: false,
+          recorrencia: null,
+          conta_fixa_id: null,
+          categorias: null,
+          __pendente: true,
+        }))
+    : [];
+  const lancamentosExibidos: TransacaoExibida[] = [...lancamentosPendentesExibicao, ...lancamentos];
 
   // Funcionário não vê o financeiro do negócio (faturamento, custos, contas
   // a pagar/receber) — só estoque e vendas, então essa página mostra uma
@@ -203,6 +318,9 @@ export default function PainelEmpresaPage() {
           </Button>
         </div>
       </div>
+
+      {offlineDesde && <BannerOffline salvoEm={offlineDesde} />}
+      <FilaPendenteBanner aoSincronizar={carregar} />
 
       <Card className="flex items-start gap-3 border-primary-200 bg-primary-50/60">
         <Receipt size={20} className="mt-0.5 shrink-0 text-primary-600" />
@@ -307,7 +425,7 @@ export default function PainelEmpresaPage() {
 
           <div className="flex flex-col gap-4">
             <h2 className="text-h3 text-foreground">Lançamentos do negócio</h2>
-            {lancamentos.length === 0 ? (
+            {lancamentosExibidos.length === 0 ? (
               <Card className="flex flex-col items-center gap-3 py-12 text-center">
                 <p className="text-body text-muted">
                   Nenhum lançamento do negócio esse mês ainda. Registre uma venda ou anote um gasto pra começar.
@@ -319,8 +437,12 @@ export default function PainelEmpresaPage() {
               </Card>
             ) : (
               <div className="flex flex-col gap-2">
-                {lancamentos.map((t) => (
-                  <Card key={t.id} padding="sm" className="flex items-center justify-between gap-4">
+                {lancamentosExibidos.map((t) => (
+                  <Card
+                    key={t.id}
+                    padding="sm"
+                    className={`flex items-center justify-between gap-4 ${t.__pendente ? "opacity-70" : ""}`}
+                  >
                     <div className="flex items-center gap-3">
                       <span
                         className={`flex h-10 w-10 items-center justify-center rounded-xl ${
@@ -335,6 +457,11 @@ export default function PainelEmpresaPage() {
                           <p className="text-small text-muted">
                             {new Date(t.data + "T00:00:00").toLocaleDateString("pt-BR")}
                           </p>
+                          {t.__pendente && (
+                            <Badge variant="neutral" size="sm">
+                              Aguardando envio
+                            </Badge>
+                          )}
                           {t.categorias?.nome && (
                             <Badge variant="neutral" size="sm">
                               {t.categorias.nome}
