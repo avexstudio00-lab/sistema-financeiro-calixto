@@ -136,7 +136,7 @@ export default function ClientesFornecedoresPage() {
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h2 text-foreground">Clientes e fornecedores</h1>
           <p className="text-body text-muted">Cadastro simples, com histórico e valores pendentes.</p>
