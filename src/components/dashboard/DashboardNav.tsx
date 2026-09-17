@@ -79,7 +79,16 @@ const LINK_EQUIPE: LinkNav = { href: "/dashboard/equipe", label: "Minha equipe",
 const LINKS_EMPRESA_FINANCEIRO = new Set(["/dashboard/empresa/contas", "/dashboard/empresa/das", "/dashboard/empresa/fluxo-caixa"]);
 
 const LINKS_EMPRESA: LinkNav[] = [
-  { href: "/dashboard/empresa", label: "Painel da empresa", icon: LayoutDashboard },
+  // Rótulo curto de propósito ("Empresa", não "Painel da empresa"): esse
+  // mesmo texto alimenta tanto o menu de cima (onde cabia sem problema)
+  // quanto a barra fixa do rodapé no celular (MobileTabBar) -- lá, sendo
+  // o primeiro item (encostado na borda esquerda da tela), um rótulo
+  // comprido centralizado sem largura própria vazava pra fora da tela e
+  // ficava cortado pelo `overflow-x: hidden` global (ver também o fix do
+  // `<span>` em MobileTabBar.tsx). O título da própria página continua
+  // "Painel da empresa" (h1 em dashboard/empresa/page.tsx) -- só o rótulo
+  // do menu/barra mudou.
+  { href: "/dashboard/empresa", label: "Empresa", icon: LayoutDashboard },
   { href: "/dashboard/empresa/vendas", label: "Vendas", icon: ShoppingCart },
   { href: "/dashboard/empresa/produtos", label: "Estoque", icon: Package },
   { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
