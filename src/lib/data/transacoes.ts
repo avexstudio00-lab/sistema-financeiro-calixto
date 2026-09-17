@@ -17,6 +17,11 @@ export interface NovaTransacao {
   is_recorrente?: boolean;
   recorrencia?: Transacao["recorrencia"];
   conta_fixa_id?: string | null;
+  /** Opcional: só preenchido quando o usuário anotou um pagamento na
+   * categoria "Dívida" e escolheu a qual dívida ele se refere (ver
+   * src/lib/data/dividas.ts). Omitido em todo lançamento que não é
+   * pagamento de dívida. */
+  divida_id?: string | null;
 }
 
 export async function listarTransacoes(
