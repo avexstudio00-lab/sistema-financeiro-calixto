@@ -226,6 +226,9 @@ export default function PainelEmpresaPage() {
           is_recorrente: false,
           recorrencia: null,
           conta_fixa_id: null,
+          // Dívida é conceito só de "Minha vida" (ver NovaTransacaoModal) --
+          // nunca preenchido em anotação de negócio, então sempre null aqui.
+          divida_id: null,
           categorias: null,
           __pendente: true,
         }))
