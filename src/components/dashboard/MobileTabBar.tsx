@@ -99,12 +99,23 @@ export function MobileTabBar({ principais, mais, mundo }: MobileTabBarProps) {
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium leading-none transition-colors",
+                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[12px] font-medium leading-none transition-colors",
                   ativo ? corAtiva : "text-muted"
                 )}
               >
-                <link.icon size={20} strokeWidth={ativo ? 2.25 : 2} />
-                <span className="truncate px-0.5">{link.label}</span>
+                <link.icon size={22} strokeWidth={ativo ? 2.25 : 2} />
+                {/* `w-full` é o que faz o `truncate` funcionar de verdade:
+                    sem largura própria, um <span> filho de flex-col com
+                    items-center cresce pro tamanho do próprio texto (sem
+                    quebrar linha) e ignora a largura da coluna -- pro
+                    primeiro item da barra (encostado em x=0), isso fazia o
+                    texto vazar pra fora da tela à esquerda e ser cortado
+                    pelo `overflow-x: hidden` global (mesma causa raiz da
+                    seção 23 do doc de contexto, só que aqui em vez do
+                    cabeçalho). Com `w-full`, o texto fica preso à largura
+                    real da coluna e agora sim trunca com reticências
+                    quando não cabe, sem nunca sair da tela. */}
+                <span className="w-full truncate px-0.5 text-center">{link.label}</span>
               </Link>
             );
           })}
@@ -114,11 +125,11 @@ export function MobileTabBar({ principais, mais, mundo }: MobileTabBarProps) {
               onClick={() => setMaisAberto((v) => !v)}
               aria-expanded={maisAberto}
               className={cn(
-                "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium leading-none transition-colors",
+                "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[12px] font-medium leading-none transition-colors",
                 maisAberto || maisTemAtivo ? corAtiva : "text-muted"
               )}
             >
-              <MoreHorizontal size={20} strokeWidth={maisAberto || maisTemAtivo ? 2.25 : 2} />
+              <MoreHorizontal size={22} strokeWidth={maisAberto || maisTemAtivo ? 2.25 : 2} />
               <span>Mais</span>
             </button>
           )}
