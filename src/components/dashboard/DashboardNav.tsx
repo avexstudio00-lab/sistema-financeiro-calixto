@@ -161,7 +161,16 @@ export function DashboardNav() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur print:hidden">
-      <Container full className="flex h-16 items-center justify-between gap-4">
+      {/* Sem "justify-between": no celular, com o menu de cima escondido (vira
+          a barra fixa do rodapé), sobrava um vão vazio grande no meio do
+          cabeçalho porque cada bloco (logo, seletor de mundo, ícones) ficava
+          espalhado em pontos fixos da largura toda. Agrupando logo + seletor
+          à esquerda (sem justify-between) e empurrando os ícones pra direita
+          só com "ml-auto" no bloco deles, o cabeçalho fica com dois grupos
+          compactos em vez de três pontos soltos -- no computador o menu
+          `flex-1` do meio continua absorvendo o espaço extra normalmente,
+          então nada muda lá. */}
+      <Container full className="flex h-16 items-center gap-4">
         <Link href="/dashboard" className="flex shrink-0 items-center gap-2 text-foreground">
           <span
             className={cn(
@@ -238,7 +247,7 @@ export function DashboardNav() {
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <ThemeToggle />
           <Link
             href="/dashboard/perfil"
