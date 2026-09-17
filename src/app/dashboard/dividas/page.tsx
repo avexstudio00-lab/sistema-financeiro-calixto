@@ -1,0 +1,244 @@
+"use client";
+
+import * as React from "react";
+import { Plus, HandCoins, Trophy, Trash2, RotateCcw } from "lucide-react";
+import { Container } from "@/components/ui/Container";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Badge } from "@/components/ui/Badge";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import {
+  criarDivida,
+  listarDividasComProgresso,
+  alternarQuitadaDivida,
+  removerDivida,
+} from "@/lib/data/dividas";
+import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
+import type { DividaComProgresso } from "@/lib/data/tipos";
+
+function formatarMoeda(valor: number) {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+export default function DividasPage() {
+  const { user } = useAuth();
+
+  const [dividas, setDividas] = React.useState<DividaComProgresso[]>([]);
+  const [carregando, setCarregando] = React.useState(true);
+  const [formAberto, setFormAberto] = React.useState(false);
+  const [nome, setNome] = React.useState("");
+  const [valorTotal, setValorTotal] = React.useState("");
+  const [salvando, setSalvando] = React.useState(false);
+  const [erro, setErro] = React.useState<string | null>(null);
+  const [removendoId, setRemovendoId] = React.useState<string | null>(null);
+
+  const carregar = React.useCallback(async () => {
+    if (!user) return;
+    setCarregando(true);
+    setDividas(await listarDividasComProgresso(user.id));
+    setCarregando(false);
+  }, [user]);
+
+  React.useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  async function handleCriarDivida(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    const valor = Number(valorTotal.replace(",", "."));
+    if (nome.trim().length < 2 || !valor || valor <= 0) {
+      setErro("Preencha o nome e um valor total válido.");
+      return;
+    }
+    setErro(null);
+    setSalvando(true);
+    await criarDivida(user.id, nome.trim(), valor);
+    setSalvando(false);
+    setNome("");
+    setValorTotal("");
+    setFormAberto(false);
+    carregar();
+  }
+
+  async function handleAlternarQuitada(divida: DividaComProgresso) {
+    await alternarQuitadaDivida(divida.id, !divida.quitada);
+    carregar();
+  }
+
+  async function handleRemover(dividaId: string) {
+    await removerDivida(dividaId);
+    setRemovendoId(null);
+    carregar();
+  }
+
+  const dividasEmAberto = dividas.filter((d) => !d.quitada);
+  const dividasQuitadas = dividas.filter((d) => d.quitada);
+
+  return (
+    <Container full className="flex flex-col gap-8 py-8">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-h2 text-foreground">Dívidas</h1>
+          <p className="text-body text-muted">
+            Cadastre o que você quer quitar e acompanhe o tanto que já abateu.
+          </p>
+        </div>
+        <Button onClick={() => setFormAberto((v) => !v)}>
+          <Plus size={18} />
+          Nova dívida
+        </Button>
+      </div>
+
+      <Card className="flex items-start gap-3 border-primary-200 bg-primary-50/60">
+        <HandCoins size={20} className="mt-0.5 shrink-0 text-primary-600" />
+        <p className="text-small text-muted">
+          Depois de cadastrar, sempre que anotar um pagamento na categoria{" "}
+          <strong className="text-foreground">Dívida</strong>, escolha pra qual dívida ele é — o valor
+          quitado aqui atualiza sozinho, direto pelo que você já anotou. Não precisa somar nada na mão.
+        </p>
+      </Card>
+
+      {formAberto && (
+        <Card padding="lg" className="flex flex-col gap-4">
+          <h2 className="text-h3 text-foreground">Cadastrar nova dívida</h2>
+          <form onSubmit={handleCriarDivida} className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Input
+                label="Nome da dívida"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Ex: Dívida com meu pai"
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                label="Valor total"
+                inputMode="decimal"
+                value={valorTotal}
+                onChange={(e) => setValorTotal(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+            <Button type="submit" disabled={salvando} className="sm:w-auto">
+              {salvando ? "Salvando..." : "Criar"}
+            </Button>
+          </form>
+          {erro && <p className="text-small text-rose-600">{erro}</p>}
+        </Card>
+      )}
+
+      {carregando ? (
+        <p className="py-8 text-center text-body text-muted">Carregando...</p>
+      ) : dividas.length === 0 ? (
+        <Card className="flex flex-col items-center gap-3 py-12 text-center">
+          <HandCoins size={32} className="text-primary-400" />
+          <p className="text-body text-muted">
+            Você ainda não cadastrou nenhuma dívida. Que tal começar pela primeira?
+          </p>
+        </Card>
+      ) : (
+        <>
+          {dividasEmAberto.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {dividasEmAberto.map((divida) => {
+                const progresso =
+                  divida.valor_total > 0 ? (divida.valor_pago / divida.valor_total) * 100 : 0;
+                const quitandoSozinha = progresso >= 100;
+                return (
+                  <Card key={divida.id} className="flex flex-col gap-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-h3 text-foreground">{divida.nome}</h3>
+                      {quitandoSozinha && (
+                        <Badge variant="primary" size="sm">
+                          <Trophy size={12} />
+                          Quitada
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <AnelProgresso
+                        percentual={progresso}
+                        tamanho={88}
+                        espessura={9}
+                        corProgresso="#dc2626"
+                      />
+                      <div className="flex flex-col gap-1">
+                        <span className="text-small text-muted">
+                          {formatarMoeda(divida.valor_pago)} de {formatarMoeda(divida.valor_total)}
+                        </span>
+                        <span className="text-small font-medium text-rose-600">
+                          Falta {formatarMoeda(divida.valor_restante)}
+                        </span>
+                      </div>
+                    </div>
+                    {removendoId === divida.id ? (
+                      <div className="flex flex-col gap-2 rounded-xl bg-rose-50 p-3">
+                        <p className="text-small text-foreground">
+                          Apagar &ldquo;{divida.nome}&rdquo;? Os pagamentos já anotados continuam no seu
+                          extrato normalmente, só o cadastro da dívida some.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button variant="tertiary" className="flex-1" onClick={() => setRemovendoId(null)}>
+                            Cancelar
+                          </Button>
+                          <Button
+                            className="flex-1 bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700"
+                            onClick={() => handleRemover(divida.id)}
+                          >
+                            Sim, apagar
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={() => handleAlternarQuitada(divida)}>
+                          <Trophy size={16} />
+                          Marcar como quitada
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          className="text-rose-600 hover:bg-rose-50"
+                          onClick={() => setRemovendoId(divida.id)}
+                        >
+                          <Trash2 size={16} />
+                          Apagar
+                        </Button>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
+          {dividasQuitadas.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-h3 text-foreground">Quitadas</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {dividasQuitadas.map((divida) => (
+                  <Card key={divida.id} className="flex items-center justify-between gap-3 opacity-70">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+                        <Trophy size={20} />
+                      </span>
+                      <div>
+                        <p className="text-body font-medium text-foreground">{divida.nome}</p>
+                        <p className="text-small text-muted">{formatarMoeda(divida.valor_total)} quitados</p>
+                      </div>
+                    </div>
+                    <Button variant="tertiary" onClick={() => handleAlternarQuitada(divida)}>
+                      <RotateCcw size={16} />
+                      Reabrir
+                    </Button>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Container>
+  );
+}
