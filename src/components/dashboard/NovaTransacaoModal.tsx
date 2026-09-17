@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarContas } from "@/lib/data/contas";
+import { listarDividasComProgresso } from "@/lib/data/dividas";
 import {
   criarTransacao,
   atualizarTransacao,
@@ -18,7 +19,13 @@ import {
 import { adicionarNaFila } from "@/lib/offline/fila";
 import { salvarDadosFormOffline, lerDadosFormOffline } from "@/lib/offline/dadosFormOffline";
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
-import type { Categoria, Conta, Transacao } from "@/lib/data/tipos";
+import { formatarMoeda } from "@/lib/format";
+import type { Categoria, Conta, DividaComProgresso, Transacao } from "@/lib/data/tipos";
+
+/** Nome exato da categoria padrão "Dívida" (ver seção do contexto do
+ * projeto sobre dívidas, 17/set/2026) — comparado por nome porque
+ * categorias padrão não têm nenhum campo de "tipo especial", só nome. */
+const NOME_CATEGORIA_DIVIDA = "Dívida";
 
 const FORMAS_PAGAMENTO = [
   { id: "pix", label: "Pix" },
@@ -76,11 +83,13 @@ export function NovaTransacaoModal({
 
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
   const [contas, setContas] = React.useState<Conta[]>([]);
+  const [dividas, setDividas] = React.useState<DividaComProgresso[]>([]);
   const [descricoesUsadas, setDescricoesUsadas] = React.useState<DescricaoUsada[]>([]);
   const [tipo, setTipo] = React.useState<"receita" | "despesa">("despesa");
   const [valor, setValor] = React.useState("");
   const [descricao, setDescricao] = React.useState("");
   const [categoriaId, setCategoriaId] = React.useState("");
+  const [dividaId, setDividaId] = React.useState("");
   const [contaId, setContaId] = React.useState("");
   const [data, setData] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [formaPagamento, setFormaPagamento] =
@@ -119,6 +128,15 @@ export function NovaTransacaoModal({
       }
     );
     listarDescricoesUsadas(usuarioEfetivoId).then(setDescricoesUsadas);
+    // Dívidas são um conceito só de "Minha vida" (mesma regra "pessoal é
+    // pessoal" de metas/contas fixas) -- não busca em mundo "negocio", onde
+    // a categoria "Dívida" nem aparece como opção (ver filtro mais abaixo).
+    // Busca todas (não só as em aberto) -- ao editar uma anotação antiga
+    // que já aponta pra uma dívida já quitada, ela precisa continuar
+    // aparecendo na lista pra não sumir do seletor (ver filtro no render).
+    if (mundo === "pessoal") {
+      listarDividasComProgresso(usuarioEfetivoId).then(setDividas);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, usuarioEfetivoId]);
 
@@ -127,12 +145,38 @@ export function NovaTransacaoModal({
     [descricoesUsadas, tipo]
   );
 
+  // Só mostra o seletor "Qual dívida?" quando a categoria escolhida é
+  // mesmo a "Dívida" -- em mundo "negocio" essa categoria nem aparece como
+  // opção (ver filtro dos chips mais abaixo), então isso nunca fica true lá.
+  const categoriaEhDivida = React.useMemo(() => {
+    const cat = categorias.find((c) => c.id === categoriaId);
+    return cat?.nome === NOME_CATEGORIA_DIVIDA;
+  }, [categorias, categoriaId]);
+
+  // Em mundo "negocio" a categoria "Dívida" não aparece nem como opção --
+  // dívida é conceito só de "Minha vida" (ver nota acima em `dividas`).
+  const categoriasDoTipo = React.useMemo(
+    () =>
+      categorias.filter((c) => c.tipo === tipo && (mundo === "pessoal" || c.nome !== NOME_CATEGORIA_DIVIDA)),
+    [categorias, tipo, mundo]
+  );
+
+  // Ao editar, a dívida ligada à anotação pode já estar quitada (some da
+  // lista "em aberto" das outras telas) -- ainda assim precisa aparecer
+  // aqui, senão o seletor mostraria um valor selecionado que não existe
+  // nas opções.
+  const dividasSelecionaveis = React.useMemo(
+    () => dividas.filter((d) => !d.quitada || d.id === dividaId),
+    [dividas, dividaId]
+  );
+
   React.useEffect(() => {
     if (aberto && transacaoEditando) {
       setTipo(transacaoEditando.tipo);
       setValor(String(transacaoEditando.valor).replace(".", ","));
       setDescricao(transacaoEditando.descricao ?? "");
       setCategoriaId(transacaoEditando.categoria_id ?? "");
+      setDividaId(transacaoEditando.divida_id ?? "");
       setContaId(transacaoEditando.conta_id ?? "");
       setData(transacaoEditando.data);
       setFormaPagamento(
@@ -147,6 +191,7 @@ export function NovaTransacaoModal({
       setValor("");
       setDescricao("");
       setCategoriaId(categoriaIdInicial ?? "");
+      setDividaId("");
       setContaId("");
       setErro(null);
       setTipo("despesa");
@@ -197,6 +242,7 @@ export function NovaTransacaoModal({
       data,
       forma_pagamento: formaPagamento,
       tipo_negocio: podeMarcarNegocio ? tipoNegocio : "pessoal",
+      divida_id: categoriaEhDivida ? dividaId || null : null,
     };
 
     if (semInternet) {
@@ -347,28 +393,52 @@ export function NovaTransacaoModal({
               ))}
             </datalist>
 
-            {categorias.filter((c) => c.tipo === tipo).length > 0 && (
+            {categoriasDoTipo.length > 0 && (
               <div className="flex flex-col gap-1.5">
                 <span className="text-small font-medium text-foreground">Categoria</span>
                 <div className="flex flex-wrap gap-2">
-                  {categorias
-                    .filter((c) => c.tipo === tipo)
-                    .map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => setCategoriaId(c.id)}
-                        className={cn(
-                          "rounded-full border px-3 py-1.5 text-small font-medium transition-all",
-                          categoriaId === c.id
-                            ? "border-primary-500 bg-primary-50 text-primary-700"
-                            : "border-border text-muted"
-                        )}
-                      >
-                        {c.nome}
-                      </button>
-                    ))}
+                  {categoriasDoTipo.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCategoriaId(c.id)}
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-small font-medium transition-all",
+                        categoriaId === c.id
+                          ? "border-primary-500 bg-primary-50 text-primary-700"
+                          : "border-border text-muted"
+                      )}
+                    >
+                      {c.nome}
+                    </button>
+                  ))}
                 </div>
+              </div>
+            )}
+
+            {categoriaEhDivida && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Qual dívida?</span>
+                {dividasSelecionaveis.length === 0 ? (
+                  <p className="text-small text-muted">
+                    Você ainda não cadastrou nenhuma dívida. Cadastre uma na tela{" "}
+                    <strong className="text-foreground">Dívidas</strong> pra esse pagamento contar
+                    automaticamente pra lá.
+                  </p>
+                ) : (
+                  <select
+                    value={dividaId}
+                    onChange={(e) => setDividaId(e.target.value)}
+                    className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                  >
+                    <option value="">Não ligar a nenhuma dívida específica</option>
+                    {dividasSelecionaveis.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.nome} — falta {formatarMoeda(d.valor_restante)}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
 
