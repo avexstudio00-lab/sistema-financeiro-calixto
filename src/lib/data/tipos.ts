@@ -36,6 +36,10 @@ export interface Transacao {
    * conta fixa recorrente (ver ContaFixa abaixo) — nulo em todo lançamento
    * manual, como sempre foi. */
   conta_fixa_id: string | null;
+  /** Preenchido só quando essa saída foi anotada na categoria "Dívida"
+   * escolhendo pra qual dívida é o pagamento (ver Divida acima) — nulo em
+   * qualquer outro lançamento. */
+  divida_id: string | null;
   categorias?: Categoria | null;
 }
 
@@ -83,6 +87,34 @@ export interface Meta {
   data_inicio: string;
   data_fim: string | null;
   status: "em_andamento" | "concluida";
+}
+
+/** Dívida pessoal que o usuário quer quitar (ex: "Dívida com meu pai") —
+ * pedido do usuário em 17/set/2026: diferente de uma categoria solta, cada
+ * dívida tem um valor total e vai sendo abatida sozinha conforme o usuário
+ * anota pagamentos na categoria "Dívida" escolhendo a ela (ver
+ * src/lib/data/dividas.ts, que soma os pagamentos ligados por
+ * `transacoes.divida_id` — nunca um valor digitado à mão, pra nunca
+ * dessincronizar do extrato real). Conceito de vida pessoal (mesma regra
+ * "pessoal é pessoal" de metas/orçamento/contas fixas). */
+export interface Divida {
+  id: string;
+  usuario_id: string;
+  nome: string;
+  valor_total: number;
+  /** Marcada manualmente (quitação sem pagar tudo, ex: dívida perdoada) ou
+   * automaticamente quando o valor pago alcança o total — ver
+   * src/lib/data/dividas.ts. */
+  quitada: boolean;
+  criado_em: string;
+}
+
+/** `Divida` com o progresso já calculado a partir da soma de
+ * `transacoes.divida_id` (nunca armazenado, sempre derivado na hora —
+ * ver `listarDividasComProgresso`). */
+export interface DividaComProgresso extends Divida {
+  valor_pago: number;
+  valor_restante: number;
 }
 
 export interface AnaliseIA {
