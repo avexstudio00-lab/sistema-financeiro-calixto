@@ -9,6 +9,7 @@ import {
   PiggyBank,
   Target,
   Repeat,
+  HandCoins,
   CreditCard,
   LogOut,
   Wallet,
@@ -62,6 +63,7 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/metas", label: "Metas", icon: PiggyBank },
   { href: "/dashboard/orcamento", label: "Orçamento", icon: Target },
   { href: "/dashboard/contas-fixas", label: "Contas fixas", icon: Repeat },
+  { href: "/dashboard/dividas", label: "Dívidas", icon: HandCoins },
   { href: "/dashboard/carteiras", label: "Carteiras", icon: Wallet },
   { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
 ];
