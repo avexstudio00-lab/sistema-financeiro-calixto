@@ -340,7 +340,7 @@ export default function DashboardPage() {
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h2 text-foreground">Olá, {perfil?.nome.split(" ")[0]} 👋</h1>
           <p className="text-body text-muted">Aqui está o resumo do seu mês.</p>
@@ -628,11 +628,17 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {/* "bottom-24" em vez de "bottom-6": esse botão flutuante é anterior à
+          barra fixa de navegação do rodapé (MobileTabBar, ver seção 22 do
+          contexto do projeto) -- com "bottom-6" ele ficava embaixo demais e
+          acabava sobrepondo o botão "Mais" da barra nova. 24 (96px) sobra
+          espaço mesmo em aparelhos com área segura maior (notch/indicador
+          home do iPhone). */}
       <button
         type="button"
         onClick={handleAbrirModal}
         aria-label="Anotar gasto ou receita"
-        className="fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-primary-500 text-white shadow-card-hover transition-transform hover:scale-105 sm:hidden"
+        className="fixed bottom-24 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-primary-500 text-white shadow-card-hover transition-transform hover:scale-105 sm:hidden"
       >
         <Plus size={26} />
       </button>
