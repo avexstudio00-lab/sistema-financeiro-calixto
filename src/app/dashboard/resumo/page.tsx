@@ -231,7 +231,7 @@ export default function ResumoMensalPage() {
           )}
 
           {!temAvancado && (
-            <Card className="flex flex-wrap items-center justify-between gap-4 border-2 border-dashed border-accent-200 bg-accent-50/40 print:hidden">
+            <Card className="flex flex-col items-start gap-4 border-2 border-dashed border-accent-200 bg-accent-50/40 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between print:hidden">
               <div>
                 <p className="text-body font-semibold text-foreground">
                   Quer ver seu dashboard ao vivo, dia a dia?
