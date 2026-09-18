@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 export interface DateMaskInputProps {
   /** Data em ISO "YYYY-MM-DD", ou "" quando ainda não tem uma data válida. */
   value: string;
-  /** Chamado só quando o valor digitado forma uma data válida completa (ou
-   * quando o campo é apagado por completo — nesse caso recebe ""). Nunca é
-   * chamado com uma data incompleta/inválida, pra não propagar lixo pro
-   * resto do formulário. */
+  /** Chamado só quando os três campos (dia/mês/ano) formam uma data válida
+   * completa, ou quando os três são apagados por completo (nesse caso
+   * recebe ""). Nunca é chamado com uma data incompleta/inválida, pra não
+   * propagar lixo pro resto do formulário. */
   onChange: (isoOuVazio: string) => void;
   id?: string;
   label?: string;
@@ -20,41 +20,52 @@ export interface DateMaskInputProps {
   "aria-label"?: string;
 }
 
-function isoParaDigitos(iso: string): string {
-  if (!iso) return "";
+interface PartesData {
+  dia: string;
+  mes: string;
+  ano: string;
+}
+
+function isoParaPartes(iso: string): PartesData {
+  if (!iso) return { dia: "", mes: "", ano: "" };
   const [ano, mes, dia] = iso.split("-");
-  if (!ano || !mes || !dia) return "";
-  return `${dia}${mes}${ano}`;
+  if (!ano || !mes || !dia) return { dia: "", mes: "", ano: "" };
+  return { dia, mes, ano };
 }
 
-function digitosParaExibicao(digitos: string): string {
-  const dia = digitos.slice(0, 2);
-  const mes = digitos.slice(2, 4);
-  const ano = digitos.slice(4, 8);
-  return [dia, mes, ano].filter(Boolean).join("/");
-}
-
-/** Converte 8 dígitos DDMMYYYY pra ISO "YYYY-MM-DD", validando que a data
- * existe de verdade (ex: rejeita 31/02/2026) — devolve null se inválida. */
-function digitosParaIsoValido(digitos: string): string | null {
-  if (digitos.length !== 8) return null;
-  const dia = Number(digitos.slice(0, 2));
-  const mes = Number(digitos.slice(2, 4));
-  const ano = Number(digitos.slice(4, 8));
-  if (mes < 1 || mes > 12) return null;
-  const ultimoDiaDoMes = new Date(ano, mes, 0).getDate();
-  if (dia < 1 || dia > ultimoDiaDoMes) return null;
+/** Converte dia/mês/ano (strings de dígitos) pra ISO "YYYY-MM-DD", validando
+ * que a data existe de verdade (ex: rejeita 31/02/2026) — devolve null se
+ * incompleta ou inválida. */
+function partesParaIsoValido({ dia, mes, ano }: PartesData): string | null {
+  if (dia.length !== 2 || mes.length !== 2 || ano.length !== 4) return null;
+  const diaNum = Number(dia);
+  const mesNum = Number(mes);
+  const anoNum = Number(ano);
+  if (mesNum < 1 || mesNum > 12) return null;
+  const ultimoDiaDoMes = new Date(anoNum, mesNum, 0).getDate();
+  if (diaNum < 1 || diaNum > ultimoDiaDoMes) return null;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${ano}-${pad(mes)}-${pad(dia)}`;
+  return `${anoNum}-${pad(mesNum)}-${pad(diaNum)}`;
 }
+
+function apenasDigitos(texto: string, max: number): string {
+  return texto.replace(/\D/g, "").slice(0, max);
+}
+
+const classeCaixa =
+  "h-11 rounded-xl border bg-card text-center text-small text-foreground placeholder:text-muted/70 transition-all duration-200 ease-smooth border-border focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100 disabled:cursor-not-allowed disabled:bg-muted/10 disabled:text-muted";
 
 /**
- * Campo de data onde a pessoa só digita números — o app insere as barras
- * sozinho (ex: digitar "16092026" vira "16/09/2026" na tela). Guarda o
- * valor internamente como texto (dígitos), e só avisa o formulário pai via
- * `onChange` quando os 8 dígitos formarem uma data real. Pensado pro caso de
- * preencher várias datas de parcela seguidas rapidamente, sem depender do
- * seletor nativo de calendário do navegador.
+ * Campo de data em 3 caixinhas independentes — Dia / Mês / Ano — em vez de
+ * um único campo de texto. Cada caixinha só aceita dígitos, avança sozinha
+ * pra próxima ao completar (dia → mês → ano), e Backspace numa caixinha
+ * vazia volta o foco pra anterior. Clicar em qualquer uma delas edita só
+ * aquela parte — nunca mexe nas outras (era o problema do campo de texto
+ * único anterior: clicar no meio pra corrigir só o dia podia embaralhar o
+ * mês/ano inteiros, obrigando a pessoa a apagar tudo e digitar de novo).
+ * Guarda o valor internamente como 3 strings de dígitos, e só avisa o
+ * formulário pai via `onChange` quando os 8 dígitos (dia+mês+ano) formarem
+ * uma data real.
  */
 export function DateMaskInput({
   value,
@@ -67,33 +78,77 @@ export function DateMaskInput({
   className,
   ...aria
 }: DateMaskInputProps) {
-  const [digitos, setDigitos] = React.useState(() => isoParaDigitos(value));
+  const [partes, setPartes] = React.useState<PartesData>(() => isoParaPartes(value));
   const generatedId = React.useId();
   const inputId = id ?? generatedId;
+
+  const diaRef = React.useRef<HTMLInputElement>(null);
+  const mesRef = React.useRef<HTMLInputElement>(null);
+  const anoRef = React.useRef<HTMLInputElement>(null);
 
   // Sincroniza quando o valor vem de fora (ex: geração automática das datas
   // sugeridas ao mudar periodicidade) — mas nunca enquanto a pessoa ainda
   // está no meio de digitar algo que já diverge (evita "brigar" com o
   // teclado dela).
   React.useEffect(() => {
-    setDigitos(isoParaDigitos(value));
+    setPartes(isoParaPartes(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const somenteDigitos = e.target.value.replace(/\D/g, "").slice(0, 8);
-    setDigitos(somenteDigitos);
-    if (somenteDigitos.length === 0) {
+  /** Avisa o formulário pai só quando as 3 partes formam uma data válida
+   * completa, ou quando as 3 estão vazias (campo limpo por completo). Uma
+   * combinação parcial (ex: só o dia preenchido) nunca dispara `onChange` —
+   * o valor anterior do pai continua valendo até a pessoa terminar. */
+  function commitar(novasPartes: PartesData) {
+    const { dia, mes, ano } = novasPartes;
+    if (dia === "" && mes === "" && ano === "") {
       onChange("");
       return;
     }
-    if (somenteDigitos.length === 8) {
-      const iso = digitosParaIsoValido(somenteDigitos);
-      if (iso) onChange(iso);
-    }
+    const iso = partesParaIsoValido(novasPartes);
+    if (iso) onChange(iso);
   }
 
-  const dataInvalida = digitos.length === 8 && !digitosParaIsoValido(digitos);
+  function handleChangeDia(e: React.ChangeEvent<HTMLInputElement>) {
+    const dia = apenasDigitos(e.target.value, 2);
+    const novasPartes = { ...partes, dia };
+    setPartes(novasPartes);
+    commitar(novasPartes);
+    if (dia.length === 2) mesRef.current?.focus();
+  }
+
+  function handleChangeMes(e: React.ChangeEvent<HTMLInputElement>) {
+    const mes = apenasDigitos(e.target.value, 2);
+    const novasPartes = { ...partes, mes };
+    setPartes(novasPartes);
+    commitar(novasPartes);
+    if (mes.length === 2) anoRef.current?.focus();
+  }
+
+  function handleChangeAno(e: React.ChangeEvent<HTMLInputElement>) {
+    const ano = apenasDigitos(e.target.value, 4);
+    const novasPartes = { ...partes, ano };
+    setPartes(novasPartes);
+    commitar(novasPartes);
+  }
+
+  /** Backspace numa caixinha já vazia pula pra caixinha anterior, em vez de
+   * ficar "preso" — assim dá pra apagar a data inteira só segurando
+   * Backspace, sem precisar clicar em cada caixinha na mão. */
+  function handleKeyDownMes(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && partes.mes === "") diaRef.current?.focus();
+  }
+  function handleKeyDownAno(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && partes.ano === "") mesRef.current?.focus();
+  }
+
+  const dataInvalida =
+    partes.dia.length === 2 &&
+    partes.mes.length === 2 &&
+    partes.ano.length === 4 &&
+    !partesParaIsoValido(partes);
+
+  const grupoAriaLabel = aria["aria-label"] ?? label;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -102,26 +157,66 @@ export function DateMaskInput({
           {label}
         </label>
       )}
-      <input
-        id={inputId}
-        type="text"
-        inputMode="numeric"
-        autoComplete="off"
-        value={digitosParaExibicao(digitos)}
-        onChange={handleChange}
-        placeholder="DD/MM/AAAA"
-        disabled={disabled}
-        maxLength={10}
-        aria-invalid={!!error || dataInvalida}
+      <div
+        role="group"
+        aria-label={grupoAriaLabel}
         className={cn(
-          "h-11 w-full rounded-xl border bg-card px-4 text-body text-foreground placeholder:text-muted transition-all duration-200 ease-smooth",
-          "border-border focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100",
-          "disabled:cursor-not-allowed disabled:bg-muted/10 disabled:text-muted",
-          (error || dataInvalida) && "border-rose-400 focus:border-rose-500 focus:ring-rose-100",
-          className
+          "flex w-fit shrink-0 items-center gap-0.5",
+          (error || dataInvalida) && "[&_input]:border-rose-400 [&_input]:focus:border-rose-500 [&_input]:focus:ring-rose-100"
         )}
-        {...aria}
-      />
+      >
+        <input
+          id={inputId}
+          ref={diaRef}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          value={partes.dia}
+          onChange={handleChangeDia}
+          placeholder="DD"
+          disabled={disabled}
+          maxLength={2}
+          aria-label="Dia"
+          aria-invalid={!!error || dataInvalida}
+          className={cn(classeCaixa, "w-8 px-0", className)}
+        />
+        <span aria-hidden className="text-small text-muted">
+          /
+        </span>
+        <input
+          ref={mesRef}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          value={partes.mes}
+          onChange={handleChangeMes}
+          onKeyDown={handleKeyDownMes}
+          placeholder="MM"
+          disabled={disabled}
+          maxLength={2}
+          aria-label="Mês"
+          aria-invalid={!!error || dataInvalida}
+          className={cn(classeCaixa, "w-8 px-0", className)}
+        />
+        <span aria-hidden className="text-small text-muted">
+          /
+        </span>
+        <input
+          ref={anoRef}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          value={partes.ano}
+          onChange={handleChangeAno}
+          onKeyDown={handleKeyDownAno}
+          placeholder="AAAA"
+          disabled={disabled}
+          maxLength={4}
+          aria-label="Ano"
+          aria-invalid={!!error || dataInvalida}
+          className={cn(classeCaixa, "w-11 px-0", className)}
+        />
+      </div>
       {(helperText || error || dataInvalida) && (
         <p className={cn("text-small", error || dataInvalida ? "text-rose-600" : "text-muted")}>
           {dataInvalida ? "Data inválida." : error || helperText}
