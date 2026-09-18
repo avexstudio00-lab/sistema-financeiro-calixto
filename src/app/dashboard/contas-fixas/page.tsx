@@ -282,15 +282,15 @@ export default function ContasFixasPage() {
             return (
               <Card key={cf.id} className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <span
-                      className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                         cf.tipo === "receita" ? "bg-primary-50 text-primary-600" : "bg-rose-50 text-red-500"
                       }`}
                     >
                       <CalendarClock size={18} />
                     </span>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-body font-medium text-foreground">{cf.descricao}</p>
                         {!cf.ativa && (
