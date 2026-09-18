@@ -188,9 +188,9 @@ export default function FluxoCaixaPage() {
             </Card>
           </div>
 
-          <Card className="flex flex-wrap items-center justify-between gap-4">
+          <Card className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
                 <HandCoins size={20} />
               </span>
               <div>
