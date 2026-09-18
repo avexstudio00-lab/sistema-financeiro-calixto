@@ -148,8 +148,8 @@ export default function DividasPage() {
                 const quitandoSozinha = progresso >= 100;
                 return (
                   <Card key={divida.id} className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-h3 text-foreground">{divida.nome}</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="min-w-0 text-h3 text-foreground">{divida.nome}</h3>
                       {quitandoSozinha && (
                         <Badge variant="primary" size="sm">
                           <Trophy size={12} />
@@ -218,12 +218,12 @@ export default function DividasPage() {
               <h2 className="text-h3 text-foreground">Quitadas</h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 {dividasQuitadas.map((divida) => (
-                  <Card key={divida.id} className="flex items-center justify-between gap-3 opacity-70">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+                  <Card key={divida.id} className="flex flex-wrap items-center justify-between gap-3 opacity-70">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
                         <Trophy size={20} />
                       </span>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-body font-medium text-foreground">{divida.nome}</p>
                         <p className="text-small text-muted">{formatarMoeda(divida.valor_total)} quitados</p>
                       </div>
