@@ -383,12 +383,16 @@ export default function VendasPage() {
             ) : (
               <div className="flex flex-col gap-2">
                 {vendas.slice(0, 15).map((v) => (
-                  <Card key={v.id} padding="sm" className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
+                  <Card key={v.id} padding="sm" className="flex flex-wrap items-center justify-between gap-4">
+                    {/* `min-w-0` aqui (mesma causa raiz da seção 23 do
+                        contexto do projeto) deixa o nome do produto/cliente
+                        quebrar linha dentro do próprio espaço, em vez de
+                        forçar a linha mais larga que a tela. */}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
                         <ShoppingCart size={18} />
                       </span>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-body font-medium text-foreground">
                           {v.produto_nome} · {v.quantidade}x
                         </p>
@@ -398,7 +402,7 @@ export default function VendasPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-3">
                       <p className="text-body font-semibold text-accent-600">{formatarMoeda(Number(v.valor_total))}</p>
                       {confirmandoExclusaoId === v.id ? (
                         <div className="flex items-center gap-1">
