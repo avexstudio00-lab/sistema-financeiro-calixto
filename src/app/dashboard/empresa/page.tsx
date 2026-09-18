@@ -444,17 +444,22 @@ export default function PainelEmpresaPage() {
                   <Card
                     key={t.id}
                     padding="sm"
-                    className={`flex items-center justify-between gap-4 ${t.__pendente ? "opacity-70" : ""}`}
+                    className={`flex flex-wrap items-center justify-between gap-4 ${t.__pendente ? "opacity-70" : ""}`}
                   >
-                    <div className="flex items-center gap-3">
+                    {/* `min-w-0` no bloco ícone+texto (mesma causa raiz da
+                        seção 23 do contexto do projeto) deixa a descrição
+                        quebrar linha dentro do próprio espaço, em vez de
+                        forçar a linha inteira a ficar mais larga que a tela
+                        e ser cortada pelo `overflow-x: hidden` global. */}
+                    <div className="flex min-w-0 items-center gap-3">
                       <span
-                        className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                           t.tipo === "receita" ? "bg-accent-50 text-accent-600" : "bg-rose-50 text-red-500"
                       }`}
                       >
                         {t.tipo === "receita" ? <ArrowUpCircle size={18} /> : <ArrowDownCircle size={18} />}
                       </span>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-body font-medium text-foreground">{t.descricao}</p>
                         <div className="flex items-center gap-2">
                           <p className="text-small text-muted">
@@ -473,7 +478,9 @@ export default function PainelEmpresaPage() {
                         </div>
                       </div>
                     </div>
-                    <p className={`text-body font-semibold ${t.tipo === "receita" ? "text-accent-600" : "text-red-500"}`}>
+                    <p
+                      className={`shrink-0 text-body font-semibold ${t.tipo === "receita" ? "text-accent-600" : "text-red-500"}`}
+                    >
                       {t.tipo === "receita" ? "+" : "-"}
                       {formatarMoeda(Number(t.valor))}
                     </p>
