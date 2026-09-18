@@ -19,6 +19,7 @@ import {
   criarInvestimento,
   criarParcelasDoInvestimento,
   gerarDatasSugeridasParcelas,
+  gerarValoresSugeridosParcelas,
   TAXA_CDI_SUGERIDA,
 } from "@/lib/data/investimentos";
 
@@ -85,6 +86,13 @@ function formatarMoedaSimples(valor: number): string {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+/** Converte um número (ex: 550.5) pro formato brasileiro digitável no campo
+ * de valor da parcela (ex: "550,50"), pra pré-preencher o campo de um jeito
+ * que a pessoa já reconhece e pode editar direto. */
+function formatarValorParaInput(valor: number): string {
+  return valor.toFixed(2).replace(".", ",");
+}
+
 export interface NovoInvestimentoModalProps {
   aberto: boolean;
   onFechar: () => void;
@@ -107,6 +115,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const [periodicidade, setPeriodicidade] = React.useState<Periodicidade>("mensal");
   const [datasParcelas, setDatasParcelas] = React.useState<string[]>([]);
   const [datasEditadasManualmente, setDatasEditadasManualmente] = React.useState<boolean[]>([]);
+  const [valoresParcelas, setValoresParcelas] = React.useState<string[]>([]);
+  const [valoresEditadosManualmente, setValoresEditadosManualmente] = React.useState<boolean[]>([]);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
@@ -125,6 +135,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setPeriodicidade("mensal");
       setDatasParcelas([]);
       setDatasEditadasManualmente([]);
+      setValoresParcelas([]);
+      setValoresEditadosManualmente([]);
       setErro(null);
     }
   }, [aberto]);
@@ -148,6 +160,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setPeriodicidade("mensal");
       setDatasParcelas([]);
       setDatasEditadasManualmente([]);
+      setValoresParcelas([]);
+      setValoresEditadosManualmente([]);
     }
   }, [tipo, aberto]);
 
@@ -208,6 +222,46 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     });
   }
 
+  // Gera (ou re-sincroniza) os N valores de parcela sempre que o número de
+  // parcelas ou o valor total a parcelar mudam — mas sem nunca sobrescrever
+  // um valor que a própria pessoa já editou à mão (pra permitir parcelas de
+  // valores diferentes entre si, ex: uma de R$600 e outra de R$500).
+  React.useEffect(() => {
+    if (!aberto || !parcelando || !numeroParcelasNumero || numeroParcelasNumero < 2 || !(valorParaParcelas > 0)) {
+      setValoresParcelas([]);
+      setValoresEditadosManualmente([]);
+      return;
+    }
+    const sugeridos = gerarValoresSugeridosParcelas(valorParaParcelas, numeroParcelasNumero);
+    setValoresParcelas((atual) =>
+      sugeridos.map((s, i) => (valoresEditadosManualmente[i] && atual[i] ? atual[i] : formatarValorParaInput(s)))
+    );
+    setValoresEditadosManualmente((atual) => {
+      const novo = Array(numeroParcelasNumero).fill(false);
+      for (let i = 0; i < Math.min(atual.length, numeroParcelasNumero); i++) novo[i] = atual[i];
+      return novo;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, parcelando, numeroParcelasNumero, valorParaParcelas]);
+
+  function handleEditarValorParcela(indice: number, novoTexto: string) {
+    setValoresParcelas((atual) => {
+      const novo = [...atual];
+      novo[indice] = novoTexto;
+      return novo;
+    });
+    setValoresEditadosManualmente((atual) => {
+      const novo = [...atual];
+      novo[indice] = true;
+      return novo;
+    });
+  }
+
+  const valoresParcelasNumeros = valoresParcelas.map((v) => parsearValorDigitado(v || "0"));
+  const somaParcelas = valoresParcelasNumeros.reduce((acc, v) => acc + (Number.isFinite(v) ? v : 0), 0);
+  const diferencaParcelas = valorParaParcelas - somaParcelas;
+  const parcelasConferem = Math.abs(diferencaParcelas) < 0.01;
+
   if (!aberto) return null;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -250,6 +304,13 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     }
     if (parcelando && datasParcelas.some((d) => d <= dataInicio)) {
       setErro("Todas as datas de parcela precisam ser depois da data de início.");
+      return;
+    }
+    if (
+      parcelando &&
+      (valoresParcelas.length !== numeroParcelasNumero || valoresParcelasNumeros.some((v) => !v || v <= 0))
+    ) {
+      setErro(`Preencha o valor de todas as ${numeroParcelasNumero} parcelas.`);
       return;
     }
     if (ehEmprestimo && !parcelando && !dataVencimentoFinal) {
@@ -302,8 +363,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
         data.id,
         user.id,
         numeroParcelasNumero,
-        valorParaParcelas,
-        datasParcelas
+        datasParcelas,
+        valoresParcelasNumeros
       );
       if (erroParcelas) {
         setSalvando(false);
@@ -474,20 +535,19 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               )}
 
               {parcelando && (
-                <div className="grid grid-cols-2 gap-4 pt-1">
+                <div className="pt-1">
                   <Input
                     label="Número de parcelas"
                     inputMode="numeric"
                     value={numeroParcelas}
                     onChange={(e) => setNumeroParcelas(e.target.value.replace(/\D/g, ""))}
                     placeholder="Ex: 10"
+                    helperText={
+                      valorParcelaCalculado
+                        ? `Sugestão: ${formatarMoedaSimples(valorParcelaCalculado)} em cada uma — ajuste os valores abaixo se as parcelas forem diferentes entre si.`
+                        : undefined
+                    }
                   />
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-small font-medium text-foreground">Valor de cada parcela</span>
-                    <div className="flex h-11 items-center rounded-xl border border-border bg-muted/5 px-3 text-small text-foreground">
-                      {valorParcelaCalculado ? formatarMoedaSimples(valorParcelaCalculado) : "—"}
-                    </div>
-                  </div>
                 </div>
               )}
               {parcelando && (
@@ -511,24 +571,45 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                     ))}
                   </div>
                   <span className="text-xs text-muted">
-                    O app já preenche as datas abaixo pra você. Se as parcelas combinadas tiverem frequência
-                    diferente entre si (ex: uma quinzenal, outra mensal), edite a data de cada uma à mão.
+                    O app já preenche as datas e valores abaixo pra você, iguais em cada parcela. Se o combinado de
+                    verdade tiver datas ou valores diferentes entre as parcelas (ex: uma de R$600 dia 5, outra de
+                    R$500 dia 20), edite cada uma à mão.
                   </span>
                 </div>
               )}
               {parcelando && datasParcelas.length > 0 && (
                 <div className="flex flex-col gap-2 pt-1">
-                  <span className="text-small font-medium text-foreground">Datas de pagamento</span>
-                  <div className="grid grid-cols-2 gap-3">
+                  <span className="text-small font-medium text-foreground">Datas e valores das parcelas</span>
+                  <div className="flex flex-col gap-2">
                     {datasParcelas.map((data, i) => (
-                      <DateMaskInput
+                      <div
                         key={i}
-                        label={`Parcela ${i + 1}`}
-                        value={data}
-                        onChange={(iso) => handleEditarDataParcela(i, iso)}
-                      />
+                        className="flex flex-wrap items-center gap-2 rounded-xl border border-border p-2.5"
+                      >
+                        <span className="w-full shrink-0 text-xs font-medium text-muted sm:w-16">
+                          Parcela {i + 1}
+                        </span>
+                        <DateMaskInput value={data} onChange={(iso) => handleEditarDataParcela(i, iso)} />
+                        <div className="min-w-[96px] flex-1">
+                          <Input
+                            inputMode="decimal"
+                            value={valoresParcelas[i] ?? ""}
+                            onChange={(e) => handleEditarValorParcela(i, e.target.value)}
+                            placeholder="0,00"
+                            aria-label={`Valor da parcela ${i + 1}`}
+                          />
+                        </div>
+                      </div>
                     ))}
                   </div>
+                  <p className={cn("text-small", parcelasConferem ? "text-muted" : "text-amber-600")}>
+                    Total das parcelas: {formatarMoedaSimples(somaParcelas)}
+                    {parcelasConferem
+                      ? " — confere certinho com o valor combinado."
+                      : diferencaParcelas > 0
+                        ? ` — ainda falta ${formatarMoedaSimples(diferencaParcelas)} pra bater com ${formatarMoedaSimples(valorParaParcelas)}.`
+                        : ` — está ${formatarMoedaSimples(Math.abs(diferencaParcelas))} a mais que ${formatarMoedaSimples(valorParaParcelas)}.`}
+                  </p>
                 </div>
               )}
             </div>
