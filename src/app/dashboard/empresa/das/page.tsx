@@ -199,15 +199,15 @@ export default function DasPage() {
               const pago = g.status === "pago";
               return (
                 <Card key={g.id} padding="sm" className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <span
-                      className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                         pago ? "bg-primary-50 text-primary-600" : atrasada ? "bg-rose-50 text-red-500" : "bg-muted/10 text-muted"
                       }`}
                     >
                       {pago ? <Check size={18} /> : <FileText size={18} />}
                     </span>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-body font-medium text-foreground">{g.descricao}</p>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-small text-muted">
