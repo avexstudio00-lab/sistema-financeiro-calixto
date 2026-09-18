@@ -98,40 +98,58 @@ export function gerarDatasSugeridasParcelas(
 }
 
 /**
+ * As N valores "sugeridos" pro app pré-preencher o formulário de
+ * parcelamento — divide `valorTotal` em partes iguais (a última absorve a
+ * diferença de arredondamento pra a soma bater certinho). O usuário pode
+ * editar qualquer uma manualmente antes de salvar (ex: combinaram parcelas
+ * de valores diferentes, tipo R$600 numa data e R$500 noutra) — por isso
+ * isso é separado de `criarParcelasDoInvestimento`, que só grava o que vier
+ * no array final (editado ou não). Mesmo padrão já usado em
+ * `gerarDatasSugeridasParcelas` pras datas.
+ */
+export function gerarValoresSugeridosParcelas(valorTotal: number, numeroParcelas: number): number[] {
+  if (numeroParcelas < 1 || !Number.isFinite(valorTotal)) return [];
+  const valorBase = Math.round((valorTotal / numeroParcelas) * 100) / 100;
+  return Array.from({ length: numeroParcelas }, (_, i) => {
+    const ultima = i === numeroParcelas - 1;
+    return ultima ? Number((valorTotal - valorBase * (numeroParcelas - 1)).toFixed(2)) : valorBase;
+  });
+}
+
+/**
  * Gera as parcelas de um investimento parcelado (empréstimo recebido de
- * volta, celular financiado etc.): mesmo valor em cada uma (a última absorve
- * a diferença de arredondamento pra a soma bater certinho com `valorTotal`),
- * nas datas informadas em `datasVencimento` (uma por parcela, na ordem —
- * normalmente as sugeridas por `gerarDatasSugeridasParcelas`, possivelmente
- * editadas manualmente pelo usuário pra combinar frequência mista). Nenhuma
- * é marcada como paga — isso é sempre manual.
+ * volta, celular financiado etc.) — cada uma com o valor e a data
+ * informados em `valoresVencimento`/`datasVencimento` (um par por parcela,
+ * na ordem — normalmente os sugeridos por `gerarValoresSugeridosParcelas`/
+ * `gerarDatasSugeridasParcelas`, possivelmente editados manualmente pelo
+ * usuário pra combinar valores ou frequência diferentes entre parcelas, ex:
+ * uma parcela de R$600 numa data e outra de R$500 noutra). Nenhuma é
+ * marcada como paga — isso é sempre manual.
  */
 export async function criarParcelasDoInvestimento(
   investimentoId: string,
   usuarioId: string,
   numeroParcelas: number,
-  valorTotal: number,
-  datasVencimento: string[]
+  datasVencimento: string[],
+  valoresVencimento: number[]
 ) {
-  if (numeroParcelas < 2 || !Number.isFinite(valorTotal) || valorTotal <= 0) {
+  if (numeroParcelas < 2) {
     return { data: null, error: null };
   }
-  if (datasVencimento.length !== numeroParcelas) {
-    return { data: null, error: new Error("Número de datas não bate com o número de parcelas.") };
+  if (datasVencimento.length !== numeroParcelas || valoresVencimento.length !== numeroParcelas) {
+    return { data: null, error: new Error("Número de datas/valores não bate com o número de parcelas.") };
   }
-  const valorBase = Math.round((valorTotal / numeroParcelas) * 100) / 100;
-  const parcelas = Array.from({ length: numeroParcelas }, (_, i) => {
-    const ultima = i === numeroParcelas - 1;
-    const valor = ultima ? Number((valorTotal - valorBase * (numeroParcelas - 1)).toFixed(2)) : valorBase;
-    return {
-      investimento_id: investimentoId,
-      usuario_id: usuarioId,
-      numero: i + 1,
-      data_vencimento: datasVencimento[i],
-      valor,
-      pago: false,
-    };
-  });
+  if (valoresVencimento.some((v) => !Number.isFinite(v) || v <= 0)) {
+    return { data: null, error: new Error("Todas as parcelas precisam de um valor válido.") };
+  }
+  const parcelas = Array.from({ length: numeroParcelas }, (_, i) => ({
+    investimento_id: investimentoId,
+    usuario_id: usuarioId,
+    numero: i + 1,
+    data_vencimento: datasVencimento[i],
+    valor: Number(valoresVencimento[i].toFixed(2)),
+    pago: false,
+  }));
   return supabase.from("investimento_parcelas").insert(parcelas);
 }
 
