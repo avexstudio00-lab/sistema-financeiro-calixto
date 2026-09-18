@@ -148,9 +148,9 @@ export default function PlanoPage() {
       )}
 
       {emTrial && (
-        <Card className="flex flex-wrap items-center justify-between gap-4 border-accent-200 bg-accent-50">
+        <Card className="flex flex-col items-start gap-4 border-accent-200 bg-accent-50 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <ShieldCheck size={20} className="text-accent-700" />
+            <ShieldCheck size={20} className="shrink-0 text-accent-700" />
             <div>
               <p className="text-body font-medium text-accent-800">
                 Você está no trial grátis do plano {PLANOS[PLANO_TRIAL].nome}
@@ -171,9 +171,9 @@ export default function PlanoPage() {
       )}
 
       {assinatura && perfil.plano !== "gratis" && !emTrial && (
-        <Card className="flex flex-wrap items-center justify-between gap-4">
+        <Card className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <CreditCard size={20} className="text-muted" />
+            <CreditCard size={20} className="shrink-0 text-muted" />
             <div>
               <p className="text-body font-medium text-foreground">
                 Assinatura {assinatura.status === "ativa" ? "ativa" : assinatura.status}
