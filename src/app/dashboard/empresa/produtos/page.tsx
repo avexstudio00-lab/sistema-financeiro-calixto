@@ -208,12 +208,12 @@ export default function ProdutosPage() {
             const baixo = estoqueBaixo(p);
             return (
               <Card key={p.id} className="flex flex-col gap-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
                       <Package size={18} />
                     </span>
-                    <p className="text-body font-semibold text-foreground">{p.nome}</p>
+                    <p className="min-w-0 text-body font-semibold text-foreground">{p.nome}</p>
                   </div>
                   {baixo && (
                     <Badge variant="warning" size="sm">
