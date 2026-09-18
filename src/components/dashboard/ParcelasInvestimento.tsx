@@ -124,17 +124,15 @@ export function ParcelasInvestimento({
                   </div>
                 </div>
                 {editando && onEditarData && (
-                  <div className="flex items-end gap-2">
-                    <div className="w-36">
-                      <DateMaskInput
-                        value={parcela.data_vencimento}
-                        onChange={(iso) => {
-                          if (!iso) return;
-                          onEditarData(parcela, iso);
-                          setEditandoId(null);
-                        }}
-                      />
-                    </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <DateMaskInput
+                      value={parcela.data_vencimento}
+                      onChange={(iso) => {
+                        if (!iso) return;
+                        onEditarData(parcela, iso);
+                        setEditandoId(null);
+                      }}
+                    />
                     <button
                       type="button"
                       onClick={() => setEditandoId(null)}
