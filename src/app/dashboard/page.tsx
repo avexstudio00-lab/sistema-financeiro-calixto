@@ -479,7 +479,10 @@ export default function DashboardPage() {
         )}
 
         {nivel >= 1 && metaDestaque && (
-          <Card padding="lg" className="flex flex-wrap items-center justify-between gap-4">
+          <Card
+            padding="lg"
+            className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+          >
             <div className="flex items-center gap-4">
               <AnelProgresso
                 percentual={(Number(metaDestaque.valor_atual) / Number(metaDestaque.valor_meta)) * 100}
@@ -509,9 +512,12 @@ export default function DashboardPage() {
         )}
 
         {nivel < 2 && (
-          <Card padding="md" className="flex flex-wrap items-center justify-between gap-3 border-dashed">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+          <Card
+            padding="md"
+            className="flex flex-col items-start gap-3 border-dashed sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
                 <Lock size={18} />
               </span>
               <p className="text-small text-muted">
@@ -583,19 +589,26 @@ export default function DashboardPage() {
                 key={t.id}
                 padding="sm"
                 onClick={() => handleEditarTransacao(t)}
-                className={`flex items-center justify-between gap-4 transition-colors ${
+                className={`flex flex-wrap items-center justify-between gap-4 transition-colors ${
                   t.__pendente ? "opacity-70" : "cursor-pointer hover:bg-muted/5"
                 }`}
               >
-                <div className="flex items-center gap-3">
+                {/* `min-w-0` no bloco ícone+texto é o que deixa a descrição
+                    (texto livre, digitado pelo usuário) quebrar linha dentro
+                    do próprio espaço em vez de forçar a linha inteira a ficar
+                    mais larga que a tela -- mesma causa raiz já documentada
+                    no projeto (seção 23: item flex sem `min-width` não
+                    encolhe, e o excesso é cortado pelo `overflow-x: hidden`
+                    global). */}
+                <div className="flex min-w-0 items-center gap-3">
                   <span
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                       t.tipo === "receita" ? "bg-primary-50 text-primary-600" : "bg-rose-50 text-red-500"
                     }`}
                 >
                     {t.tipo === "receita" ? <ArrowUpCircle size={18} /> : <ArrowDownCircle size={18} />}
                   </span>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-body font-medium text-foreground">{t.descricao}</p>
                     <div className="flex items-center gap-2">
                       <p className="text-small text-muted">
@@ -619,7 +632,9 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
-                <p className={`text-body font-semibold ${t.tipo === "receita" ? "text-primary-600" : "text-red-500"}`}>
+                <p
+                  className={`shrink-0 text-body font-semibold ${t.tipo === "receita" ? "text-primary-600" : "text-red-500"}`}
+                >
                   {t.tipo === "receita" ? "+" : "-"}
                   {formatarMoeda(Number(t.valor))}
                 </p>
