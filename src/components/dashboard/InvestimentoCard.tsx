@@ -223,9 +223,7 @@ export function InvestimentoCard({
                   placeholder="Valor com juros"
                 />
               </div>
-              <div className="w-32">
-                <DateMaskInput value={dataVencimentoEmEdicao} onChange={setDataVencimentoEmEdicao} />
-              </div>
+              <DateMaskInput value={dataVencimentoEmEdicao} onChange={setDataVencimentoEmEdicao} />
               <Button size="sm" variant="secondary" disabled={salvando} onClick={handleSalvarEmprestimo}>
                 Salvar
               </Button>
