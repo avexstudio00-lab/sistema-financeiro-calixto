@@ -258,15 +258,15 @@ export default function ContasEmpresaPage() {
               aba === "pagar" ? (c as ContaPagar).fornecedores?.nome : (c as ContaReceber).clientes?.nome;
             return (
               <Card key={c.id} padding="sm" className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <span
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                       pago ? "bg-primary-50 text-primary-600" : atrasada ? "bg-rose-50 text-red-500" : "bg-muted/10 text-muted"
                     }`}
                   >
                     {pago ? <Check size={18} /> : atrasada ? <AlertTriangle size={18} /> : <Receipt size={18} />}
                   </span>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-body font-medium text-foreground">{c.descricao}</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-small text-muted">
