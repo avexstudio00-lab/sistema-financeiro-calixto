@@ -152,8 +152,8 @@ export default function MetasPage() {
             const progresso = Math.min(100, (Number(meta.valor_atual) / Number(meta.valor_meta)) * 100);
             return (
               <Card key={meta.id} className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-h3 text-foreground">{meta.nome}</h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="min-w-0 text-h3 text-foreground">{meta.nome}</h3>
                   {meta.status === "concluida" && (
                     <Badge variant="primary" size="sm">
                       <Trophy size={12} />
