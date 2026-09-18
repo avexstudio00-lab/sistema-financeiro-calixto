@@ -222,12 +222,17 @@ export default function EquipePage() {
               {ativosOuPendentes.map((m) => (
                 <Card key={m.id} padding="sm" className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
                         <Users size={18} />
                       </span>
-                      <div>
-                        <p className="text-body font-medium text-foreground">{m.email}</p>
+                      {/* `break-all` além do `min-w-0`: e-mail é uma string
+                          sem espaço pra quebrar naturalmente -- um endereço
+                          comprido, sem essa classe, não teria onde quebrar
+                          linha e vazaria pra fora da tela mesmo com o item
+                          flex podendo encolher. */}
+                      <div className="min-w-0">
+                        <p className="break-all text-body font-medium text-foreground">{m.email}</p>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant={LABEL_STATUS[m.status].variant} size="sm">
                             {LABEL_STATUS[m.status].texto}
