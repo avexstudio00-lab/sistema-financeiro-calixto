@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { NOMES_MES } from "@/lib/format";
-import type { Investimento, ParcelaInvestimento } from "./tipos";
+import type { Investimento, ParcelaInvestimento, PagamentoInvestimento } from "./tipos";
 
 /** Taxa CDI de referência (% ao ano) sugerida ao cadastrar um investimento
  * do tipo CDI — apenas um valor inicial editável, nunca aplicado sem o
@@ -23,6 +23,7 @@ export interface NovoInvestimento {
   periodicidade_parcelas: "mensal" | "quinzenal" | "semanal" | null;
   valor_retornavel: number | null;
   data_vencimento_final: string | null;
+  valor_diaria: number | null;
 }
 
 export async function listarInvestimentos(usuarioId: string): Promise<Investimento[]> {
@@ -229,6 +230,210 @@ export async function atualizarTaxaInvestimento(id: string, taxa: number) {
   return supabase.from("investimentos").update({ taxa }).eq("id", id);
 }
 
+/** Edita a diária de atraso combinada pra esse empréstimo (ex: R$15/dia).
+ * `null` remove a diária (nenhum valor extra soma mais por atraso). */
+export async function atualizarDiariaInvestimento(id: string, valorDiaria: number | null) {
+  return supabase.from("investimentos").update({ valor_diaria: valorDiaria }).eq("id", id);
+}
+
+/** Dias de atraso entre um vencimento e a data em que o pagamento foi de
+ * fato registrado (nunca negativo — pagar antes ou no dia não gera
+ * diária). Base pra `calcularValorDiaria`. */
+export function calcularDiasAtraso(dataVencimento: string, dataPagamento: string): number {
+  const vencimento = new Date(dataVencimento + "T00:00:00");
+  const pagamento = new Date(dataPagamento + "T00:00:00");
+  const dias = Math.round((pagamento.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.max(0, dias);
+}
+
+/** Valor total de diária pra um número de dias de atraso, dado o R$/dia
+ * combinado nesse empréstimo (`investimentos.valor_diaria` — nulo/0 =
+ * sem diária configurada, então sempre 0 mesmo com atraso). */
+export function calcularValorDiaria(diasAtraso: number, valorDiariaPorDia: number | null): number {
+  if (!valorDiariaPorDia || diasAtraso <= 0) return 0;
+  return Number((diasAtraso * valorDiariaPorDia).toFixed(2));
+}
+
+export async function listarPagamentosInvestimento(usuarioId: string): Promise<PagamentoInvestimento[]> {
+  const { data } = await supabase
+    .from("investimento_pagamentos")
+    .select("*")
+    .eq("usuario_id", usuarioId)
+    .order("data_pagamento", { ascending: false });
+  return (data as PagamentoInvestimento[]) ?? [];
+}
+
+export interface DadosPagamentoJuros {
+  investimentoId: string;
+  usuarioId: string;
+  /** Nulo = empréstimo à vista. Preenchido = uma parcela específica de um
+   * empréstimo parcelado. */
+  parcelaId: string | null;
+  /** O vencimento que gerou esse pagamento (data_vencimento_final do
+   * empréstimo, ou data_vencimento da parcela) — usado só como base pra
+   * calcular o próximo vencimento (+1 mês) e os dias de atraso. */
+  vencimentoAtual: string;
+  valorJuros: number;
+  valorDiaria: number;
+  dataPagamento: string;
+  /** Só relevante quando `parcelaId` não é nulo e existem parcelas depois
+   * dela: também empurra 1 mês as parcelas seguintes, não só essa. */
+  empurrarSeguintes?: boolean;
+}
+
+/** Registra "só paguei o juros" — a dívida principal continua em aberto e
+ * o vencimento rola 1 mês pra frente. Pro empréstimo à vista, atualiza
+ * `investimentos.data_vencimento_final`. Pra uma parcela de um parcelado,
+ * empurra a data dessa parcela (e, se pedido, das seguintes também) e
+ * resincroniza `data_vencimento_final` do empréstimo a partir delas. Em
+ * ambos os casos, grava um evento em `investimento_pagamentos` pro
+ * histórico ficar visível pro usuário. */
+export async function registrarPagamentoJuros(dados: DadosPagamentoJuros) {
+  const diasAtraso = calcularDiasAtraso(dados.vencimentoAtual, dados.dataPagamento);
+  const proximoVencimento = adicionarMeses(dados.vencimentoAtual, 1);
+  const valorPago = Number((dados.valorJuros + dados.valorDiaria).toFixed(2));
+
+  const { error: erroEvento } = await supabase.from("investimento_pagamentos").insert({
+    investimento_id: dados.investimentoId,
+    usuario_id: dados.usuarioId,
+    parcela_id: dados.parcelaId,
+    tipo: "juros",
+    data_pagamento: dados.dataPagamento,
+    dias_atraso: diasAtraso,
+    valor_juros: dados.valorJuros,
+    valor_diaria: dados.valorDiaria,
+    valor_pago: valorPago,
+    vencimento_referencia: dados.vencimentoAtual,
+    proximo_vencimento: proximoVencimento,
+  });
+  if (erroEvento) return { data: null, error: erroEvento };
+
+  if (!dados.parcelaId) {
+    // Empréstimo à vista: só empurra a própria data de vencimento final.
+    return supabase
+      .from("investimentos")
+      .update({ data_vencimento_final: proximoVencimento })
+      .eq("id", dados.investimentoId);
+  }
+
+  // Parcela de um empréstimo parcelado.
+  if (dados.empurrarSeguintes) {
+    const { data: parcelaAtual } = await supabase
+      .from("investimento_parcelas")
+      .select("numero")
+      .eq("id", dados.parcelaId)
+      .single();
+    const numeroAtual = (parcelaAtual as { numero: number } | null)?.numero;
+    if (numeroAtual != null) {
+      const { data: parcelasSeguintes } = await supabase
+        .from("investimento_parcelas")
+        .select("id, data_vencimento")
+        .eq("investimento_id", dados.investimentoId)
+        .gte("numero", numeroAtual);
+      const lista = (parcelasSeguintes as { id: string; data_vencimento: string }[]) ?? [];
+      for (const p of lista) {
+        await supabase
+          .from("investimento_parcelas")
+          .update({ data_vencimento: adicionarMeses(p.data_vencimento, 1) })
+          .eq("id", p.id);
+      }
+    }
+  } else {
+    const { error: erroParcela } = await supabase
+      .from("investimento_parcelas")
+      .update({ data_vencimento: proximoVencimento })
+      .eq("id", dados.parcelaId);
+    if (erroParcela) return { data: null, error: erroParcela };
+  }
+
+  return recalcularVencimentoFinalDoInvestimento(dados.investimentoId);
+}
+
+export interface DadosQuitacao {
+  investimentoId: string;
+  usuarioId: string;
+  vencimentoAtual: string;
+  valorPago: number;
+  valorDiaria: number;
+  dataPagamento: string;
+}
+
+/** Quita de vez um empréstimo à vista — fecha o empréstimo (nunca mais
+ * aparece "só juros"/atrasado pra ele) e registra o valor efetivamente
+ * recebido (pode ser diferente do `valor_retornavel` combinado, por
+ * exemplo com diária de atraso somada ou por renegociação). */
+export async function registrarQuitacaoEmprestimo(dados: DadosQuitacao) {
+  const diasAtraso = calcularDiasAtraso(dados.vencimentoAtual, dados.dataPagamento);
+
+  const { error: erroEvento } = await supabase.from("investimento_pagamentos").insert({
+    investimento_id: dados.investimentoId,
+    usuario_id: dados.usuarioId,
+    parcela_id: null,
+    tipo: "quitacao",
+    data_pagamento: dados.dataPagamento,
+    dias_atraso: diasAtraso,
+    valor_juros: null,
+    valor_diaria: dados.valorDiaria,
+    valor_pago: dados.valorPago,
+    vencimento_referencia: dados.vencimentoAtual,
+    proximo_vencimento: null,
+  });
+  if (erroEvento) return { data: null, error: erroEvento };
+
+  return supabase
+    .from("investimentos")
+    .update({ quitado: true, valor_quitado: dados.valorPago, data_quitacao: dados.dataPagamento })
+    .eq("id", dados.investimentoId);
+}
+
+/** Quita antecipadamente TODAS as parcelas em aberto de um empréstimo
+ * parcelado de uma vez só (ex: a pessoa apareceu com o dinheiro todo antes
+ * do fim combinado) — marca cada parcela ainda não paga como paga, e
+ * registra o valor total realmente recebido (pode ser igual à soma das
+ * parcelas restantes, ou outro valor negociado/com diária). */
+export async function registrarQuitacaoAntecipadaParcelado(
+  investimentoId: string,
+  usuarioId: string,
+  parcelasEmAberto: ParcelaInvestimento[],
+  valorPago: number,
+  valorDiaria: number,
+  dataPagamento: string
+) {
+  if (parcelasEmAberto.length === 0) return { data: null, error: null };
+  const vencimentoMaisAntigo = parcelasEmAberto.reduce(
+    (acc, p) => (p.data_vencimento < acc ? p.data_vencimento : acc),
+    parcelasEmAberto[0].data_vencimento
+  );
+  const diasAtraso = calcularDiasAtraso(vencimentoMaisAntigo, dataPagamento);
+
+  const { error: erroEvento } = await supabase.from("investimento_pagamentos").insert({
+    investimento_id: investimentoId,
+    usuario_id: usuarioId,
+    parcela_id: null,
+    tipo: "quitacao",
+    data_pagamento: dataPagamento,
+    dias_atraso: diasAtraso,
+    valor_juros: null,
+    valor_diaria: valorDiaria,
+    valor_pago: valorPago,
+    vencimento_referencia: vencimentoMaisAntigo,
+    proximo_vencimento: null,
+  });
+  if (erroEvento) return { data: null, error: erroEvento };
+
+  for (const parcela of parcelasEmAberto) {
+    await supabase
+      .from("investimento_parcelas")
+      .update({ pago: true, data_pagamento: dataPagamento })
+      .eq("id", parcela.id);
+  }
+
+  return supabase
+    .from("investimentos")
+    .update({ quitado: true, valor_quitado: valorPago, data_quitacao: dataPagamento })
+    .eq("id", investimentoId);
+}
+
 export async function atualizarValorAtualInvestimento(id: string, valorAtual: number) {
   return supabase.from("investimentos").update({ valor_atual: valorAtual }).eq("id", id);
 }
@@ -280,20 +485,26 @@ type DadosCalculo = Pick<
   | "data_inicio"
   | "valor_retornavel"
   | "data_vencimento_final"
->;
+> &
+  Partial<Pick<Investimento, "quitado" | "valor_quitado">>;
 
 /**
  * Estima o valor atual de um investimento na data de hoje, a partir dos
  * dados informados pelo usuário (nunca inventa taxas ou cotações):
  * - CDI / Tesouro Direto: juros compostos anuais pela taxa informada.
- * - Empréstimo: o ganho combinado (`valor_retornavel - valor_investido`)
- *   cresce linearmente da data_inicio até a data_vencimento_final — no dia
- *   do vencimento o valor bate exatamente `valor_retornavel`, e continua
- *   nesse teto depois (a dívida não cresce mais, mesmo sem ter sido
- *   marcada como paga). Empréstimos antigos, criados antes de existir
- *   `valor_retornavel`/`data_vencimento_final` (ambos nulos), continuam
- *   calculando do jeito legado: taxa fixa (uma vez) ou taxa ao mês
- *   (linear, sem data de término).
+ * - Empréstimo: se já foi quitado (`quitado: true`), o valor fica travado
+ *   no que foi de fato recebido (`valor_quitado`) — não cresce mais, não
+ *   importa a data. Enquanto em aberto, o ganho combinado
+ *   (`valor_retornavel - valor_investido`) cresce linearmente da
+ *   data_inicio até a data_vencimento_final — no dia do vencimento o valor
+ *   bate exatamente `valor_retornavel`, e continua nesse teto depois (a
+ *   dívida não cresce mais, mesmo sem ter sido marcada como paga; cada
+ *   vez que a pessoa paga só o juros, `data_vencimento_final` rola pro mês
+ *   seguinte — ver `registrarPagamentoJuros` — e essa mesma conta linear
+ *   passa a valer pro novo prazo). Empréstimos antigos, criados antes de
+ *   existir `valor_retornavel`/`data_vencimento_final` (ambos nulos),
+ *   continuam calculando do jeito legado: taxa fixa (uma vez) ou taxa ao
+ *   mês (linear, sem data de término).
  * - Bolsa de Valores / Compra e revenda: sem cálculo automático — o valor é
  *   o que o usuário atualizou manualmente por último (no caso de "revenda",
  *   o valor de venda registrado).
@@ -302,6 +513,10 @@ export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date =
   const principal = Number(inv.valor_investido);
   const taxa = inv.taxa != null ? Number(inv.taxa) : 0;
   const dias = diasEntre(inv.data_inicio, referencia);
+
+  if (inv.tipo === "emprestimo" && inv.quitado && inv.valor_quitado != null) {
+    return Number(inv.valor_quitado);
+  }
 
   switch (inv.tipo) {
     case "cdi":
