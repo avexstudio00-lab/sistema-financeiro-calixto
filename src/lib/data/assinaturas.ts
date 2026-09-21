@@ -67,6 +67,42 @@ export async function cancelarAssinaturaReal(): Promise<void> {
 }
 
 /**
+ * Pede pro backend consultar o Asaas DIRETO (não só esperar o webhook) e
+ * ativar o plano na hora se o pagamento já estiver confirmado por lá — ver
+ * /api/asaas/verificar-pagamento. Devolve:
+ * - "ativado": o plano acabou de ser (ou já tinha sido) ativado — recarregue
+ *   o perfil/assinatura pra refletir.
+ * - "pendente": o Asaas ainda não confirmou o pagamento (ou não deu pra
+ *   checar agora) — sem novidade, tenta de novo depois.
+ * - "sem_pendencia": não há nenhum checkout "pendente" pra este usuário.
+ *
+ * Nunca lança erro por falha de rede/servidor — pior caso, devolve
+ * "pendente" (quem chamou só tenta de novo depois), pra não travar a tela
+ * de "aguardando confirmação" com uma exceção não tratada.
+ */
+export async function verificarPagamentoPendente(): Promise<"ativado" | "pendente" | "sem_pendencia"> {
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return "pendente";
+
+    const resposta = await fetch("/api/asaas/verificar-pagamento", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!resposta.ok) return "pendente";
+
+    const corpo = await resposta.json();
+    if (corpo?.status === "ativado" || corpo?.status === "sem_pendencia") return corpo.status;
+    return "pendente";
+  } catch (erro) {
+    console.error("Erro ao verificar pagamento pendente:", erro);
+    return "pendente";
+  }
+}
+
+/**
  * Assinatura "atual" pra mostrar na tela de plano: prioriza a que está
  * "ativa" (é a que está cobrando de verdade), não simplesmente a mais
  * recente por data — senão uma tentativa de checkout abandonada pra outro
