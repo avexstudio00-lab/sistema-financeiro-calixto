@@ -22,6 +22,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export type TipoEventoSeguranca =
   | "checkout_criado"
   | "checkout_rate_limitado"
+  | "checkout_bypass_ativado"
   | "assinatura_cancelada"
   | "cancelamento_rate_limitado"
   | "assinatura_ativada_webhook"
