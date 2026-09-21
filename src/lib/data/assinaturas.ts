@@ -7,16 +7,30 @@ export const DIAS_TRIAL = 7;
 /** Plano liberado durante o trial grátis do cadastro. */
 export const PLANO_TRIAL: Plano = "clt";
 
+/** Resultado de `iniciarCheckoutAssinatura`: ou tem uma URL de checkout do
+ * Asaas pra redirecionar, ou (com o bypass temporário ativo — ver
+ * /api/asaas/checkout/route.ts) o plano já foi ativado direto, sem
+ * redirect nenhum. */
+export type ResultadoIniciarAssinatura = { tipo: "checkout"; url: string } | { tipo: "ativado" };
+
 /**
- * Inicia a assinatura de um plano pago de verdade via Asaas: chama a Route
- * Handler /api/asaas/checkout (que cria o checkout hospedado no Asaas e a
- * linha "pendente" em `assinaturas`) e devolve a URL do checkout para
- * redirecionar o usuário. A ativação de fato (status "ativa", plano
+ * Inicia a assinatura de um plano pago: chama a Route Handler
+ * /api/asaas/checkout. Normalmente ela cria o checkout hospedado no Asaas e
+ * a linha "pendente" em `assinaturas`, devolvendo a URL do checkout para
+ * redirecionar o usuário — a ativação de fato (status "ativa", plano
  * liberado) só acontece depois, quando o pagamento é confirmado e o
- * webhook do Asaas chama /api/asaas/webhook — não é síncrono com esta
+ * webhook do Asaas chama /api/asaas/webhook, não é síncrono com esta
  * chamada.
+ *
+ * Exceção: com o bypass temporário do Asaas ativo (env var
+ * ASAAS_CHECKOUT_BYPASS na Vercel — ver comentário na própria rota), a rota
+ * ativa o plano na hora, sem Asaas nenhum, e devolve `{ tipo: "ativado" }`
+ * em vez de uma URL — quem chamar não redireciona, só reflete a ativação
+ * (recarregar perfil/assinatura).
  */
-export async function iniciarCheckoutAssinatura(plano: Exclude<Plano, "gratis">): Promise<string> {
+export async function iniciarCheckoutAssinatura(
+  plano: Exclude<Plano, "gratis">
+): Promise<ResultadoIniciarAssinatura> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -36,7 +50,8 @@ export async function iniciarCheckoutAssinatura(plano: Exclude<Plano, "gratis">)
     throw new Error(corpo?.erro ?? "Não foi possível iniciar o checkout.");
   }
 
-  return corpo.checkoutUrl as string;
+  if (corpo?.ativadoDireto) return { tipo: "ativado" };
+  return { tipo: "checkout", url: corpo.checkoutUrl as string };
 }
 
 /**
