@@ -14,17 +14,23 @@ import {
   atualizarValorAtualInvestimento,
   atualizarEmprestimoInvestimento,
   atualizarDataVencimentoParcela,
+  atualizarDiariaInvestimento,
   calcularValorAtualEstimado,
   calcularGanhoNoPeriodo,
   calcularEvolucaoInvestimentos,
   listarParcelas,
   marcarParcelaPaga,
+  listarPagamentosInvestimento,
+  registrarPagamentoJuros,
+  registrarQuitacaoEmprestimo,
+  registrarQuitacaoAntecipadaParcelado,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
 import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
 import { InvestimentoCard, TIPO_META } from "@/components/dashboard/InvestimentoCard";
+import type { DadosJurosParcela } from "@/components/dashboard/ParcelasInvestimento";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
-import type { Investimento, ParcelaInvestimento } from "@/lib/data/tipos";
+import type { Investimento, ParcelaInvestimento, PagamentoInvestimento } from "@/lib/data/tipos";
 
 const ORDEM_TIPOS: Investimento["tipo"][] = ["cdi", "tesouro", "bolsa", "emprestimo", "revenda"];
 
@@ -39,6 +45,7 @@ export default function InvestimentosPage() {
   const { user } = useAuth();
   const [investimentos, setInvestimentos] = React.useState<Investimento[]>([]);
   const [parcelas, setParcelas] = React.useState<ParcelaInvestimento[]>([]);
+  const [pagamentos, setPagamentos] = React.useState<PagamentoInvestimento[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [salvandoAcao, setSalvandoAcao] = React.useState(false);
@@ -54,12 +61,14 @@ export default function InvestimentosPage() {
   const carregar = React.useCallback(async () => {
     if (!user) return;
     setCarregando(true);
-    const [listaInvestimentos, listaParcelas] = await Promise.all([
+    const [listaInvestimentos, listaParcelas, listaPagamentos] = await Promise.all([
       listarInvestimentos(user.id),
       listarParcelas(user.id),
+      listarPagamentosInvestimento(user.id),
     ]);
     setInvestimentos(listaInvestimentos);
     setParcelas(listaParcelas);
+    setPagamentos(listaPagamentos);
     setCarregando(false);
   }, [user]);
 
@@ -76,6 +85,16 @@ export default function InvestimentosPage() {
     }
     return mapa;
   }, [parcelas]);
+
+  const pagamentosPorInvestimento = React.useMemo(() => {
+    const mapa = new Map<string, PagamentoInvestimento[]>();
+    for (const pagamento of pagamentos) {
+      const lista = mapa.get(pagamento.investimento_id) ?? [];
+      lista.push(pagamento);
+      mapa.set(pagamento.investimento_id, lista);
+    }
+    return mapa;
+  }, [pagamentos]);
 
   const grupos = React.useMemo(() => {
     const mapa = new Map<Investimento["tipo"], Investimento[]>();
@@ -155,6 +174,86 @@ export default function InvestimentosPage() {
     carregar();
   }
 
+  async function handleAtualizarDiaria(inv: Investimento, valorDiaria: number | null) {
+    setSalvandoAcao(true);
+    await atualizarDiariaInvestimento(inv.id, valorDiaria);
+    setSalvandoAcao(false);
+    carregar();
+  }
+
+  async function handleRegistrarJurosAvista(
+    inv: Investimento,
+    dados: { valorJuros: number; valorDiaria: number; dataPagamento: string }
+  ) {
+    if (!user || !inv.data_vencimento_final) return;
+    setSalvandoAcao(true);
+    await registrarPagamentoJuros({
+      investimentoId: inv.id,
+      usuarioId: user.id,
+      parcelaId: null,
+      vencimentoAtual: inv.data_vencimento_final,
+      valorJuros: dados.valorJuros,
+      valorDiaria: dados.valorDiaria,
+      dataPagamento: dados.dataPagamento,
+    });
+    setSalvandoAcao(false);
+    carregar();
+  }
+
+  async function handleRegistrarQuitacao(
+    inv: Investimento,
+    dados: { valorPago: number; valorDiaria: number; dataPagamento: string }
+  ) {
+    if (!user || !inv.data_vencimento_final) return;
+    setSalvandoAcao(true);
+    await registrarQuitacaoEmprestimo({
+      investimentoId: inv.id,
+      usuarioId: user.id,
+      vencimentoAtual: inv.data_vencimento_final,
+      valorPago: dados.valorPago,
+      valorDiaria: dados.valorDiaria,
+      dataPagamento: dados.dataPagamento,
+    });
+    setSalvandoAcao(false);
+    carregar();
+  }
+
+  async function handleRegistrarQuitacaoAntecipada(
+    inv: Investimento,
+    parcelasEmAberto: ParcelaInvestimento[],
+    dados: { valorPago: number; valorDiaria: number; dataPagamento: string }
+  ) {
+    if (!user) return;
+    setSalvandoAcao(true);
+    await registrarQuitacaoAntecipadaParcelado(
+      inv.id,
+      user.id,
+      parcelasEmAberto,
+      dados.valorPago,
+      dados.valorDiaria,
+      dados.dataPagamento
+    );
+    setSalvandoAcao(false);
+    carregar();
+  }
+
+  async function handleRegistrarJurosParcela(parcela: ParcelaInvestimento, dados: DadosJurosParcela) {
+    if (!user) return;
+    setSalvandoAcao(true);
+    await registrarPagamentoJuros({
+      investimentoId: parcela.investimento_id,
+      usuarioId: user.id,
+      parcelaId: parcela.id,
+      vencimentoAtual: parcela.data_vencimento,
+      valorJuros: dados.valorJuros,
+      valorDiaria: dados.valorDiaria,
+      dataPagamento: dados.dataPagamento,
+      empurrarSeguintes: dados.empurrarSeguintes,
+    });
+    setSalvandoAcao(false);
+    carregar();
+  }
+
   async function handleExcluir(inv: Investimento) {
     setSalvandoAcao(true);
     await deletarInvestimento(inv.id);
@@ -192,6 +291,7 @@ export default function InvestimentosPage() {
             key={inv.id}
             inv={inv}
             parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
+            pagamentos={pagamentosPorInvestimento.get(inv.id) ?? []}
             salvando={salvandoAcao}
             onSalvarTaxa={handleSalvarTaxa}
             onAtualizarValor={handleAtualizarValor}
@@ -199,6 +299,11 @@ export default function InvestimentosPage() {
             onExcluir={handleExcluir}
             onAlternarParcela={handleAlternarParcela}
             onEditarDataParcela={handleEditarDataParcela}
+            onAtualizarDiaria={handleAtualizarDiaria}
+            onRegistrarJurosAvista={handleRegistrarJurosAvista}
+            onRegistrarQuitacao={handleRegistrarQuitacao}
+            onRegistrarQuitacaoAntecipada={handleRegistrarQuitacaoAntecipada}
+            onRegistrarJurosParcela={handleRegistrarJurosParcela}
           />
         ))}
       </div>
