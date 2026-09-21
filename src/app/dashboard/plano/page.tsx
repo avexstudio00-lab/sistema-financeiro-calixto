@@ -12,6 +12,7 @@ import { PLANOS, type Plano } from "@/lib/planos";
 import {
   iniciarCheckoutAssinatura,
   cancelarAssinaturaReal,
+  verificarPagamentoPendente,
   ultimaAssinatura,
   diasRestantesTrial,
   PLANO_TRIAL,
@@ -42,6 +43,11 @@ export default function PlanoPage() {
   const [assinatura, setAssinatura] = React.useState<Awaited<ReturnType<typeof ultimaAssinatura>>>(null);
   const [mensagem, setMensagem] = React.useState<string | null>(null);
   const [erro, setErro] = React.useState<string | null>(null);
+  // true quando a confirmação automática (18→30s de tentativas) esgotou sem
+  // resposta definitiva do Asaas — mostra o botão "Verificar agora" em vez
+  // de deixar a pessoa achando que ficou travada pra sempre olhando "aguarde".
+  const [confirmacaoTravada, setConfirmacaoTravada] = React.useState(false);
+  const [verificandoAgora, setVerificandoAgora] = React.useState(false);
 
   const carregarAssinatura = React.useCallback(async () => {
     if (!user) return;
@@ -63,9 +69,13 @@ export default function PlanoPage() {
   }, [carregarAssinatura]);
 
   // Volta do checkout hospedado do Asaas (?asaas=sucesso|cancelado|expirado).
-  // A ativação em si depende do webhook confirmar o pagamento — pode levar
-  // alguns segundos — então, no caso de sucesso, tenta recarregar a
-  // assinatura algumas vezes antes de desistir.
+  // A ativação de verdade normalmente vem do webhook do Asaas confirmando o
+  // pagamento — mas, em vez de só esperar passivamente ele chegar (o que
+  // podia deixar a pessoa numa tela de "aguarde" pra sempre se o webhook
+  // demorasse ou não chegasse — ver contexto do projeto, sessão de
+  // 21/set/2026), cada tentativa aqui PERGUNTA ativamente pro backend
+  // (verificarPagamentoPendente → /api/asaas/verificar-pagamento) que
+  // consulta o Asaas direto e ativa na hora se já estiver confirmado por lá.
   React.useEffect(() => {
     const parametros = new URLSearchParams(window.location.search);
     const status = parametros.get("asaas");
@@ -74,21 +84,83 @@ export default function PlanoPage() {
     window.history.replaceState(null, "", window.location.pathname);
 
     if (status === "sucesso") {
+      let cancelado = false;
+      setConfirmacaoTravada(false);
       setMensagem("Pagamento recebido! Confirmando a ativação do seu plano — isso pode levar alguns instantes...");
-      let tentativas = 0;
-      const intervalo = setInterval(async () => {
-        tentativas += 1;
-        await recarregarPerfil();
-        await carregarAssinatura();
-        if (tentativas >= 6) clearInterval(intervalo);
-      }, 3000);
-      return () => clearInterval(intervalo);
+
+      (async () => {
+        // 10 tentativas de 3s = até 30s tentando ativo confirmar sozinho
+        // antes de admitir que está demorando mais que o normal.
+        const MAX_TENTATIVAS = 10;
+        for (let tentativa = 0; tentativa < MAX_TENTATIVAS && !cancelado; tentativa++) {
+          const resultado = await verificarPagamentoPendente();
+          if (cancelado) return;
+
+          if (resultado === "ativado") {
+            await recarregarPerfil();
+            await carregarAssinatura();
+            if (!cancelado) setMensagem("Cartão aprovado! Seu plano já está ativo — bom proveito.");
+            return;
+          }
+
+          if (resultado === "sem_pendencia") {
+            // Não sobrou nenhum checkout pendente (ex: foi cancelado ou
+            // substituído por outra tentativa nesse meio tempo) — recarrega
+            // só por garantia e para de insistir, sem alarme falso.
+            await recarregarPerfil();
+            await carregarAssinatura();
+            return;
+          }
+
+          if (tentativa < MAX_TENTATIVAS - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+          }
+        }
+
+        // Esgotou as tentativas automáticas sem uma resposta definitiva do
+        // Asaas — troca a mensagem por uma que não deixa a pessoa achando
+        // que travou pra sempre, com um jeito de checar de novo na hora.
+        if (!cancelado) {
+          setMensagem(
+            "Ainda não recebemos a confirmação final do banco sobre esse pagamento. Isso normalmente é rápido, mas às vezes leva mais alguns minutos. Você pode fechar esta página — o plano ativa sozinho assim que confirmar — ou verificar de novo agora."
+          );
+          setConfirmacaoTravada(true);
+        }
+      })();
+
+      return () => {
+        cancelado = true;
+      };
     } else if (status === "cancelado") {
       setMensagem("Checkout cancelado — nenhuma cobrança foi feita.");
     } else if (status === "expirado") {
       setMensagem("O checkout expirou antes de o pagamento ser concluído. Tente novamente.");
     }
   }, [recarregarPerfil, carregarAssinatura]);
+
+  async function handleVerificarPagamentoAgora() {
+    setVerificandoAgora(true);
+    try {
+      const resultado = await verificarPagamentoPendente();
+      if (resultado === "ativado") {
+        await recarregarPerfil();
+        await carregarAssinatura();
+        setMensagem("Cartão aprovado! Seu plano já está ativo — bom proveito.");
+        setConfirmacaoTravada(false);
+      } else if (resultado === "sem_pendencia") {
+        await recarregarPerfil();
+        await carregarAssinatura();
+        setMensagem(null);
+        setConfirmacaoTravada(false);
+      } else {
+        setMensagem(
+          "Ainda pendente — o Asaas ainda não confirmou esse pagamento. Tente verificar de novo daqui a pouco."
+        );
+      }
+    } finally {
+      setVerificandoAgora(false);
+    }
+  }
 
   async function handleConfirmarAssinatura(plano: Plano) {
     if (!user || plano === "gratis") return;
@@ -135,9 +207,21 @@ export default function PlanoPage() {
       </div>
 
       {mensagem && (
-        <Card className="flex items-center gap-3 border-primary-200 bg-primary-50">
-          <ShieldCheck size={20} className="text-primary-600" />
-          <p className="text-body text-primary-800">{mensagem}</p>
+        <Card className="flex flex-col items-start gap-3 border-primary-200 bg-primary-50 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <ShieldCheck size={20} className="mt-0.5 shrink-0 text-primary-600" />
+            <p className="text-body text-primary-800">{mensagem}</p>
+          </div>
+          {confirmacaoTravada && (
+            <Button
+              variant="tertiary"
+              onClick={handleVerificarPagamentoAgora}
+              disabled={verificandoAgora}
+              className="shrink-0"
+            >
+              {verificandoAgora ? "Verificando..." : "Verificar agora"}
+            </Button>
+          )}
         </Card>
       )}
 
