@@ -112,6 +112,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const [numeroParcelas, setNumeroParcelas] = React.useState("");
   const [valorRetornavel, setValorRetornavel] = React.useState("");
   const [dataVencimentoFinal, setDataVencimentoFinal] = React.useState("");
+  const [valorDiaria, setValorDiaria] = React.useState("");
   const [periodicidade, setPeriodicidade] = React.useState<Periodicidade>("mensal");
   const [datasParcelas, setDatasParcelas] = React.useState<string[]>([]);
   const [datasEditadasManualmente, setDatasEditadasManualmente] = React.useState<boolean[]>([]);
@@ -132,6 +133,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setNumeroParcelas("");
       setValorRetornavel("");
       setDataVencimentoFinal("");
+      setValorDiaria("");
       setPeriodicidade("mensal");
       setDatasParcelas([]);
       setDatasEditadasManualmente([]);
@@ -157,6 +159,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setNumeroParcelas("");
       setValorRetornavel("");
       setDataVencimentoFinal("");
+      setValorDiaria("");
       setPeriodicidade("mensal");
       setDatasParcelas([]);
       setDatasEditadasManualmente([]);
@@ -350,6 +353,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       periodicidade_parcelas: parcelando ? periodicidade : null,
       valor_retornavel: ehEmprestimo ? valorRetornavelNumero : null,
       data_vencimento_final: dataVencimentoFinalCalculada,
+      valor_diaria: ehEmprestimo && valorDiaria.trim() ? parsearValorDigitado(valorDiaria) || null : null,
     });
 
     if (error || !data) {
@@ -491,6 +495,17 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                 </div>
               </div>
             </div>
+          )}
+
+          {ehEmprestimo && (
+            <Input
+              label="Diária de atraso (opcional)"
+              inputMode="decimal"
+              value={valorDiaria}
+              onChange={(e) => setValorDiaria(e.target.value)}
+              placeholder="Ex: 15,00"
+              helperText="Quanto cobra por dia de atraso, ex: 15,00 = R$15/dia. Dá pra ajustar depois."
+            />
           )}
 
           {podeParcelar && (
