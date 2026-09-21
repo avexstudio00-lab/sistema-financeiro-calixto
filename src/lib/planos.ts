@@ -17,8 +17,8 @@ export const PLANOS: Record<
   },
   mensal: {
     nome: "Mensal",
-    preco: 20,
-    precoLabel: "R$ 20/mês",
+    preco: 10,
+    precoLabel: "R$ 10/mês",
     recursos: [
       "Anotações ilimitadas",
       "Análise de IA no fim do mês",
@@ -29,8 +29,8 @@ export const PLANOS: Record<
   },
   clt: {
     nome: "Completo",
-    preco: 30,
-    precoLabel: "R$ 30/mês",
+    preco: 20,
+    precoLabel: "R$ 20/mês",
     recursos: [
       "Tudo do plano Mensal",
       "Dashboard diário ao vivo",
@@ -41,8 +41,8 @@ export const PLANOS: Record<
   },
   avancado: {
     nome: "Avançado",
-    preco: 50,
-    precoLabel: "R$ 50/mês",
+    preco: 40,
+    precoLabel: "R$ 40/mês",
     recursos: [
       "Tudo do plano Completo",
       "Minha empresa: vendas, estoque, contas e fluxo de caixa do negócio",
@@ -51,8 +51,8 @@ export const PLANOS: Record<
   },
   grupo: {
     nome: "Grupo",
-    preco: 65,
-    precoLabel: "R$ 65/mês",
+    preco: 50,
+    precoLabel: "R$ 50/mês",
     recursos: [
       "Tudo do plano Avançado",
       "Até 3 pessoas (você + 2 convidados), cada uma com seu próprio login",
