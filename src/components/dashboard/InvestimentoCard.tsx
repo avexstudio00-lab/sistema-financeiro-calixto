@@ -12,6 +12,9 @@ import {
   ShoppingBag,
   CalendarClock,
   AlertCircle,
+  Banknote,
+  CheckCircle2,
+  Percent,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -26,8 +29,13 @@ import {
   ehTipoRevenda,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
-import { ParcelasInvestimento } from "@/components/dashboard/ParcelasInvestimento";
-import type { Investimento, ParcelaInvestimento } from "@/lib/data/tipos";
+import { ParcelasInvestimento, type DadosJurosParcela } from "@/components/dashboard/ParcelasInvestimento";
+import { HistoricoPagamentosEmprestimo } from "@/components/dashboard/HistoricoPagamentosEmprestimo";
+import {
+  RegistrarPagamentoEmprestimoDialog,
+  type ContextoPagamentoEmprestimo,
+} from "@/components/dashboard/RegistrarPagamentoEmprestimoDialog";
+import type { Investimento, ParcelaInvestimento, PagamentoInvestimento } from "@/lib/data/tipos";
 
 export const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon }> = {
   cdi: { label: "CDI", icone: TrendingUp },
@@ -47,6 +55,9 @@ function diasEntreHoje(dataIso: string): number {
 export interface InvestimentoCardProps {
   inv: Investimento;
   parcelas: ParcelaInvestimento[];
+  /** Eventos de "só juros"/quitação já registrados nesse empréstimo — ver
+   * `listarPagamentosInvestimento` em src/lib/data/investimentos.ts. */
+  pagamentos?: PagamentoInvestimento[];
   salvando: boolean;
   onSalvarTaxa: (inv: Investimento, novaTaxa: number) => void | Promise<void>;
   onAtualizarValor: (inv: Investimento, novoValor: number) => void | Promise<void>;
@@ -57,11 +68,32 @@ export interface InvestimentoCardProps {
   onExcluir: (inv: Investimento) => void | Promise<void>;
   onAlternarParcela: (parcela: ParcelaInvestimento) => void | Promise<void>;
   onEditarDataParcela: (parcela: ParcelaInvestimento, novaDataIso: string) => void | Promise<void>;
+  /** Edita a diária de atraso combinada (R$/dia) — só empréstimo. */
+  onAtualizarDiaria?: (inv: Investimento, valorDiaria: number | null) => void | Promise<void>;
+  /** "Só juros" no empréstimo à vista (rola o vencimento 1 mês). */
+  onRegistrarJurosAvista?: (
+    inv: Investimento,
+    dados: { valorJuros: number; valorDiaria: number; dataPagamento: string }
+  ) => void | Promise<void>;
+  /** Quitação total do empréstimo à vista (fecha de vez). */
+  onRegistrarQuitacao?: (
+    inv: Investimento,
+    dados: { valorPago: number; valorDiaria: number; dataPagamento: string }
+  ) => void | Promise<void>;
+  /** Quitação antecipada de todas as parcelas em aberto de um parcelado. */
+  onRegistrarQuitacaoAntecipada?: (
+    inv: Investimento,
+    parcelasEmAberto: ParcelaInvestimento[],
+    dados: { valorPago: number; valorDiaria: number; dataPagamento: string }
+  ) => void | Promise<void>;
+  /** "Só juros" numa parcela específica de um empréstimo parcelado. */
+  onRegistrarJurosParcela?: (parcela: ParcelaInvestimento, dados: DadosJurosParcela) => void | Promise<void>;
 }
 
 export function InvestimentoCard({
   inv,
   parcelas,
+  pagamentos = [],
   salvando,
   onSalvarTaxa,
   onAtualizarValor,
@@ -69,6 +101,11 @@ export function InvestimentoCard({
   onExcluir,
   onAlternarParcela,
   onEditarDataParcela,
+  onAtualizarDiaria,
+  onRegistrarJurosAvista,
+  onRegistrarQuitacao,
+  onRegistrarQuitacaoAntecipada,
+  onRegistrarJurosParcela,
 }: InvestimentoCardProps) {
   const [editandoTaxa, setEditandoTaxa] = React.useState(false);
   const [taxaEmEdicao, setTaxaEmEdicao] = React.useState("");
@@ -79,6 +116,9 @@ export function InvestimentoCard({
   const [dataVencimentoEmEdicao, setDataVencimentoEmEdicao] = React.useState("");
   const [erroEmprestimo, setErroEmprestimo] = React.useState<string | null>(null);
   const [confirmandoExclusao, setConfirmandoExclusao] = React.useState(false);
+  const [editandoDiaria, setEditandoDiaria] = React.useState(false);
+  const [diariaEmEdicao, setDiariaEmEdicao] = React.useState("");
+  const [dialogoPagamento, setDialogoPagamento] = React.useState<ContextoPagamentoEmprestimo | null>(null);
 
   const ganho = calcularGanhoEstimado(inv);
   const percentual = calcularPercentualGanho(inv);
@@ -88,6 +128,7 @@ export function InvestimentoCard({
   const revenda = ehTipoRevenda(inv.tipo);
   const emprestimoNovoEstilo = inv.tipo === "emprestimo" && inv.valor_retornavel != null && inv.data_vencimento_final != null;
   const emprestimoAVista = inv.tipo === "emprestimo" && inv.forma_pagamento !== "parcelado";
+  const parcelasEmAberto = parcelas.filter((p) => !p.pago);
   // Editar o "valor com juros" depois de criado só faz sentido pro
   // empréstimo à vista: no parcelado, `data_vencimento_final` é sempre
   // derivado do vencimento das parcelas (ver `recalcularVencimentoFinalDoInvestimento`),
@@ -132,6 +173,18 @@ export function InvestimentoCard({
     setErroEmprestimo(null);
     setEditandoEmprestimo(false);
     onEditarEmprestimo(inv, { valorRetornavel: valor, dataVencimentoFinal: dataVencimentoEmEdicao });
+  }
+
+  function handleSalvarDiaria() {
+    const texto = diariaEmEdicao.trim();
+    setEditandoDiaria(false);
+    if (!texto) {
+      onAtualizarDiaria?.(inv, null);
+      return;
+    }
+    const valor = parsearValor(texto);
+    if (!Number.isFinite(valor) || valor < 0) return;
+    onAtualizarDiaria?.(inv, valor || null);
   }
 
   return (
@@ -180,7 +233,15 @@ export function InvestimentoCard({
         )}
       </div>
 
-      {emprestimoNovoEstilo && inv.data_vencimento_final && (
+      {inv.tipo === "emprestimo" && inv.quitado && (
+        <div className="flex items-center gap-1.5 text-xs font-medium text-primary-600">
+          <CheckCircle2 size={13} className="shrink-0" />
+          Quitado{inv.data_quitacao ? ` em ${new Date(inv.data_quitacao + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
+          {inv.valor_quitado != null ? ` · ${formatarMoeda(Number(inv.valor_quitado))} recebido` : ""}
+        </div>
+      )}
+
+      {emprestimoNovoEstilo && !inv.quitado && inv.data_vencimento_final && (
         <div className="flex items-center gap-1.5 text-xs">
           <CalendarClock size={13} className="shrink-0 text-muted" />
           {(() => {
@@ -316,6 +377,61 @@ export function InvestimentoCard({
           </button>
         )}
 
+        {inv.tipo === "emprestimo" && emprestimoNovoEstilo && (
+          editandoDiaria ? (
+            <div className="flex items-center gap-2">
+              <div className="w-24">
+                <Input
+                  value={diariaEmEdicao}
+                  onChange={(e) => setDiariaEmEdicao(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="R$/dia"
+                />
+              </div>
+              <Button size="sm" variant="secondary" disabled={salvando} onClick={handleSalvarDiaria}>
+                Salvar
+              </Button>
+              <Button size="sm" variant="tertiary" onClick={() => setEditandoDiaria(false)}>
+                Cancelar
+              </Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setEditandoDiaria(true);
+                setDiariaEmEdicao(inv.valor_diaria != null ? String(inv.valor_diaria).replace(".", ",") : "");
+              }}
+              className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/20"
+            >
+              <Percent size={12} />
+              Diária: {inv.valor_diaria ? `${formatarMoeda(Number(inv.valor_diaria))}/dia` : "sem cobrança"}
+            </button>
+          )
+        )}
+
+        {inv.tipo === "emprestimo" && emprestimoNovoEstilo && !inv.quitado && emprestimoAVista && (
+          <button
+            type="button"
+            onClick={() => setDialogoPagamento({ modo: "avista", investimento: inv })}
+            className="flex items-center gap-1.5 rounded-full bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-100"
+          >
+            <Banknote size={12} />
+            Registrar pagamento
+          </button>
+        )}
+
+        {inv.tipo === "emprestimo" && emprestimoNovoEstilo && !inv.quitado && !emprestimoAVista && parcelasEmAberto.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setDialogoPagamento({ modo: "quitacaoAntecipada", investimento: inv, parcelasEmAberto })}
+            className="flex items-center gap-1.5 rounded-full bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-100"
+          >
+            <Banknote size={12} />
+            Quitar tudo agora
+          </button>
+        )}
+
         {confirmandoExclusao ? (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-muted">Apagar?</span>
@@ -350,10 +466,34 @@ export function InvestimentoCard({
       <ParcelasInvestimento
         parcelas={parcelas}
         periodicidade={inv.periodicidade_parcelas}
+        valorDiariaPorDia={inv.valor_diaria}
         salvando={salvando}
         onAlternarPaga={onAlternarParcela}
         onEditarData={onEditarDataParcela}
+        onRegistrarJuros={onRegistrarJurosParcela}
       />
+
+      {inv.tipo === "emprestimo" && <HistoricoPagamentosEmprestimo pagamentos={pagamentos} />}
+
+      {dialogoPagamento && (
+        <RegistrarPagamentoEmprestimoDialog
+          contexto={dialogoPagamento}
+          salvando={salvando}
+          onFechar={() => setDialogoPagamento(null)}
+          onRegistrarJuros={async (dados) => {
+            await onRegistrarJurosAvista?.(inv, dados);
+            setDialogoPagamento(null);
+          }}
+          onRegistrarQuitacao={async (dados) => {
+            if (dialogoPagamento.modo === "avista") {
+              await onRegistrarQuitacao?.(inv, dados);
+            } else {
+              await onRegistrarQuitacaoAntecipada?.(inv, dialogoPagamento.parcelasEmAberto, dados);
+            }
+            setDialogoPagamento(null);
+          }}
+        />
+      )}
     </Card>
   );
 }
