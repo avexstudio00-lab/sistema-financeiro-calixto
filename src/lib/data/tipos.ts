@@ -171,6 +171,21 @@ export interface Investimento {
    * o usuário edita manualmente a data de uma parcela). Nulo em empréstimos
    * antigos. */
   data_vencimento_final: string | null;
+  /** Só para tipo "emprestimo": valor cobrado por dia de atraso (ex: 15 =
+   * R$15/dia), somado automaticamente ao valor de um pagamento (juros ou
+   * quitação) registrado depois do vencimento. Nulo = sem diária
+   * configurada pra esse empréstimo. */
+  valor_diaria: number | null;
+  /** Só para tipo "emprestimo" à vista (o parcelado infere isso a partir
+   * de `investimento_parcelas.pago`): true quando a pessoa quitou o
+   * empréstimo inteiro (nunca mais "só juros" depois disso). */
+  quitado: boolean;
+  /** Valor realmente recebido na quitação (pode ser diferente do
+   * `valor_retornavel` combinado, ex: incluiu diária de atraso, ou foi
+   * renegociado). Nulo até `quitado` virar true. */
+  valor_quitado: number | null;
+  /** Data em que a quitação foi registrada. Nula até `quitado` virar true. */
+  data_quitacao: string | null;
 }
 
 /** Uma parcela de um investimento com forma_pagamento "parcelado" (ex:
@@ -186,6 +201,28 @@ export interface ParcelaInvestimento {
   pago: boolean;
   data_pagamento: string | null;
   data_criacao: string;
+}
+
+/** Um evento de pagamento registrado num empréstimo — "só paguei o juros"
+ * (a dívida rola pro próximo vencimento) ou "quitação" (fecha o
+ * empréstimo à vista, ou fecha antecipadamente um parcelado inteiro).
+ * `parcela_id` nulo = evento sobre o empréstimo à vista (ou quitação
+ * antecipada cobrindo várias parcelas de um parcelado de uma vez);
+ * preenchido = evento sobre UMA parcela específica de um parcelado. */
+export interface PagamentoInvestimento {
+  id: string;
+  investimento_id: string;
+  usuario_id: string;
+  parcela_id: string | null;
+  tipo: "juros" | "quitacao";
+  data_pagamento: string;
+  dias_atraso: number;
+  valor_juros: number | null;
+  valor_diaria: number | null;
+  valor_pago: number;
+  vencimento_referencia: string | null;
+  proximo_vencimento: string | null;
+  criado_em: string;
 }
 
 // ---------------------------------------------------------------------------
