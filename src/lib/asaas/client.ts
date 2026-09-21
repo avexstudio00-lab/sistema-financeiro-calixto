@@ -163,4 +163,38 @@ export async function cancelarAssinaturaAsaas(asaasSubscriptionId: string): Prom
   }
 }
 
+export interface PagamentoAsaas {
+  id: string;
+  customer: string;
+  subscription?: string;
+  value: number;
+  status: string;
+  externalReference?: string;
+  dueDate?: string;
+}
+
+interface ListaPagamentosAsaasResposta {
+  data: PagamentoAsaas[];
+}
+
+/**
+ * Consulta direto no Asaas os pagamentos ligados a um `externalReference`
+ * (o id da nossa linha em `assinaturas`) — é a mesma referência que o
+ * checkout leva (ver `criarCheckout` acima) e que os eventos de webhook
+ * devolvem em `payment.externalReference`.
+ *
+ * Existe pra permitir reconciliação ATIVA (consultar o Asaas direto) em vez
+ * de só esperar passivamente o webhook chegar — usada por
+ * /api/asaas/verificar-pagamento pra fechar o buraco de "o Asaas já
+ * confirmou/recusou o pagamento, mas o webhook nunca chegou (ou demorou
+ * demais), e o cliente fica preso numa tela de 'aguarde' pra sempre". Ver
+ * contexto do projeto, sessão de 21/set/2026.
+ */
+export async function consultarPagamentosPorReferencia(externalReference: string): Promise<PagamentoAsaas[]> {
+  const resposta = await asaasFetch<ListaPagamentosAsaasResposta>(
+    `/payments?externalReference=${encodeURIComponent(externalReference)}`,
+  );
+  return resposta?.data ?? [];
+}
+
 export { AsaasError };
