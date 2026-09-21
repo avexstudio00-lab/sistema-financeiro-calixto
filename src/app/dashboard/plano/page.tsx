@@ -167,8 +167,19 @@ export default function PlanoPage() {
     setProcessando(true);
     setErro(null);
     try {
-      const checkoutUrl = await iniciarCheckoutAssinatura(plano);
-      window.location.href = checkoutUrl;
+      const resultado = await iniciarCheckoutAssinatura(plano);
+      if (resultado.tipo === "checkout") {
+        window.location.href = resultado.url;
+        return;
+      }
+      // Ativado direto (bypass temporário do Asaas — ver comentário em
+      // /api/asaas/checkout/route.ts): sem redirect, o plano já é o de
+      // verdade — só recarrega perfil/assinatura e avisa.
+      await recarregarPerfil();
+      await carregarAssinatura();
+      setPlanoSelecionado(null);
+      setMensagem(`Plano ${PLANOS[plano].nome} ativado!`);
+      setProcessando(false);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível iniciar o checkout.");
       setProcessando(false);
@@ -310,10 +321,10 @@ export default function PlanoPage() {
                 confirmando ? (
                   <div className="flex flex-col gap-2">
                     <p className="text-small text-muted">
-                      Você será redirecionado para o checkout seguro do Asaas (cartão de crédito).
+                      Ao confirmar, você assina o plano {dados.nome} por {dados.precoLabel}.
                     </p>
                     <Button onClick={() => handleConfirmarAssinatura(planoId)} disabled={processando} className="w-full">
-                      {processando ? "Abrindo checkout..." : `Assinar por ${dados.precoLabel}`}
+                      {processando ? "Processando..." : `Assinar por ${dados.precoLabel}`}
                     </Button>
                     <Button variant="tertiary" onClick={() => setPlanoSelecionado(null)} className="w-full">
                       Cancelar
@@ -331,10 +342,10 @@ export default function PlanoPage() {
               ) : confirmando ? (
                 <div className="flex flex-col gap-2">
                   <p className="text-small text-muted">
-                    Você será redirecionado para o checkout seguro do Asaas (cartão de crédito).
+                    Ao confirmar, você assina o plano {dados.nome} por {dados.precoLabel}.
                   </p>
                   <Button onClick={() => handleConfirmarAssinatura(planoId)} disabled={processando} className="w-full">
-                    {processando ? "Abrindo checkout..." : `Assinar por ${dados.precoLabel}`}
+                    {processando ? "Processando..." : `Assinar por ${dados.precoLabel}`}
                   </Button>
                   <Button variant="tertiary" onClick={() => setPlanoSelecionado(null)} className="w-full">
                     Cancelar
