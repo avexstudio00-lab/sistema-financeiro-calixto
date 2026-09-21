@@ -48,7 +48,7 @@ async function revogarCompartilhamento(supabase: SupabaseClient, usuarioId: stri
  * — nunca duas cobranças recorrentes ao mesmo tempo, mesma regra do
  * cancelamento manual em /api/asaas/cancelar. Usa o mesmo padrão seguro de
  * atualizar sempre pelo `id` de cada linha (Finding #2). */
-async function cancelarOutrasAssinaturasAtivas(supabase: SupabaseClient, usuarioId: string, manterId: string) {
+export async function cancelarOutrasAssinaturasAtivas(supabase: SupabaseClient, usuarioId: string, manterId: string) {
   const { data: outras } = await supabase
     .from("assinaturas")
     .select("id, gateway, asaas_subscription_id")
