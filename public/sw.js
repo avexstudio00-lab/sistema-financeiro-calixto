@@ -51,3 +51,44 @@ self.addEventListener("fetch", (event) => {
     fetch(event.request).catch(() => caches.match(PAGINA_OFFLINE))
   );
 });
+
+
+// Notificacoes push (Bloco 5) -- alerta de orcamento e falha de cobranca do
+// Asaas. O payload vem sempre de src/lib/push/enviarPush.ts, sempre no
+// formato PayloadPush (titulo, corpo, url) -- nunca dado bruto de
+// terceiro, entao o parse abaixo pode confiar no formato sem validar campo
+// a campo.
+self.addEventListener("push", (event) => {
+  let payload = { titulo: "Meu Controle", corpo: "" };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch {
+    // Payload sem JSON (nao deveria acontecer, mas nao trava a notificacao
+    // por causa disso) -- mostra so o titulo generico.
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.titulo, {
+      body: payload.corpo,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: payload.url || "/dashboard" },
+    })
+  );
+});
+
+// Clique na notificacao: foca uma aba ja aberta do app se existir, senao
+// abre uma nova na URL indicada pelo payload.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/dashboard";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((janelas) => {
+      for (const janela of janelas) {
+        if (janela.url.includes(url) && "focus" in janela) return janela.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
+  );
+});
