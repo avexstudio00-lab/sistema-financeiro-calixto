@@ -1,15 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Wallet, Pencil, Trash2, Landmark, PiggyBank, Banknote, CreditCard, Smartphone } from "lucide-react";
+import Link from "next/link";
+import { Plus, Wallet, Pencil, Trash2, Landmark, PiggyBank, Banknote, CreditCard, Smartphone, Receipt } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarContas, criarConta, atualizarConta, deletarConta } from "@/lib/data/contas";
+import { listarTransacoes } from "@/lib/data/transacoes";
+import { cicloAtual } from "@/lib/data/faturaCartao";
 import { formatarMoeda } from "@/lib/format";
-import type { Conta } from "@/lib/data/tipos";
+import type { Conta, Transacao } from "@/lib/data/tipos";
 
 const TIPOS: { id: Conta["tipo"]; label: string; icon: typeof Landmark }[] = [
   { id: "corrente", label: "Conta corrente", icon: Landmark },
@@ -32,13 +35,26 @@ interface FormularioConta {
   tipo: Conta["tipo"];
   saldoInicial: string;
   limite: string;
+  diaFechamento: string;
+  diaVencimento: string;
 }
 
-const FORM_VAZIO: FormularioConta = { nome: "", tipo: "corrente", saldoInicial: "", limite: "" };
+const FORM_VAZIO: FormularioConta = {
+  nome: "",
+  tipo: "corrente",
+  saldoInicial: "",
+  limite: "",
+  diaFechamento: "",
+  diaVencimento: "",
+};
+
+const INPUT_DIA_CLASSE =
+  "h-11 w-full rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100";
 
 export default function CarteirasPage() {
   const { user } = useAuth();
   const [contas, setContas] = React.useState<Conta[]>([]);
+  const [transacoes, setTransacoes] = React.useState<Transacao[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [formAberto, setFormAberto] = React.useState(false);
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
@@ -50,9 +66,30 @@ export default function CarteirasPage() {
   const carregar = React.useCallback(async () => {
     if (!user) return;
     setCarregando(true);
-    setContas(await listarContas(user.id));
+    // Busca as transações também (sem filtro de período, mesmo padrão do
+    // Extrato completo) só pra calcular o total da fatura em aberto de cada
+    // cartão de crédito -- nunca usada pra recalcular saldo, isso continua
+    // vindo só de `saldo_atual`.
+    const [listaContas, listaTransacoes] = await Promise.all([
+      listarContas(user.id),
+      listarTransacoes(user.id),
+    ]);
+    setContas(listaContas);
+    setTransacoes(listaTransacoes);
     setCarregando(false);
   }, [user]);
+
+  const totalFaturaAberta = React.useCallback(
+    (conta: Conta) => {
+      if (conta.tipo !== "cartao_credito" || !conta.dia_fechamento || !conta.dia_vencimento) return null;
+      const ciclo = cicloAtual(conta.dia_fechamento, conta.dia_vencimento);
+      const total = transacoes
+        .filter((t) => t.conta_id === conta.id && t.data >= ciclo.inicio && t.data <= ciclo.fechamento)
+        .reduce((soma, t) => soma + (t.tipo === "despesa" ? Number(t.valor) : -Number(t.valor)), 0);
+      return { ciclo, total };
+    },
+    [transacoes]
+  );
 
   React.useEffect(() => {
     carregar();
@@ -74,6 +111,8 @@ export default function CarteirasPage() {
       tipo: conta.tipo,
       saldoInicial: String(conta.saldo_inicial).replace(".", ","),
       limite: conta.limite !== null ? String(conta.limite).replace(".", ",") : "",
+      diaFechamento: conta.dia_fechamento !== null ? String(conta.dia_fechamento) : "",
+      diaVencimento: conta.dia_vencimento !== null ? String(conta.dia_vencimento) : "",
     });
     setErro(null);
     setFormAberto(true);
@@ -89,17 +128,37 @@ export default function CarteirasPage() {
     }
 
     const limite = form.tipo === "cartao_credito" && form.limite ? Number(form.limite.replace(",", ".")) : null;
+    const diaFechamento =
+      form.tipo === "cartao_credito" && form.diaFechamento ? Number(form.diaFechamento) : null;
+    const diaVencimento =
+      form.tipo === "cartao_credito" && form.diaVencimento ? Number(form.diaVencimento) : null;
+
+    if (
+      (diaFechamento !== null && (diaFechamento < 1 || diaFechamento > 31)) ||
+      (diaVencimento !== null && (diaVencimento < 1 || diaVencimento > 31))
+    ) {
+      setErro("Dia de fechamento/vencimento precisa ser um número entre 1 e 31.");
+      return;
+    }
 
     setErro(null);
     setSalvando(true);
     const { error } = editandoId
-      ? await atualizarConta(editandoId, { nome: form.nome.trim(), tipo: form.tipo, limite })
+      ? await atualizarConta(editandoId, {
+          nome: form.nome.trim(),
+          tipo: form.tipo,
+          limite,
+          diaFechamento,
+          diaVencimento,
+        })
       : await criarConta(
           user.id,
           form.nome.trim(),
           form.tipo,
           Number(form.saldoInicial.replace(",", ".")) || 0,
-          limite
+          limite,
+          diaFechamento,
+          diaVencimento
         );
     setSalvando(false);
 
@@ -191,13 +250,47 @@ export default function CarteirasPage() {
               />
             )}
             {form.tipo === "cartao_credito" && (
-              <Input
-                label="Limite (opcional)"
-                inputMode="decimal"
-                value={form.limite}
-                onChange={(e) => setForm((f) => ({ ...f, limite: e.target.value }))}
-                placeholder="0,00"
-              />
+              <>
+                <Input
+                  label="Limite (opcional)"
+                  inputMode="decimal"
+                  value={form.limite}
+                  onChange={(e) => setForm((f) => ({ ...f, limite: e.target.value }))}
+                  placeholder="0,00"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-small font-medium text-foreground">Dia de fechamento (opcional)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      inputMode="numeric"
+                      value={form.diaFechamento}
+                      onChange={(e) => setForm((f) => ({ ...f, diaFechamento: e.target.value }))}
+                      placeholder="Ex: 28"
+                      className={INPUT_DIA_CLASSE}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-small font-medium text-foreground">Dia de vencimento (opcional)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      inputMode="numeric"
+                      value={form.diaVencimento}
+                      onChange={(e) => setForm((f) => ({ ...f, diaVencimento: e.target.value }))}
+                      placeholder="Ex: 5"
+                      className={INPUT_DIA_CLASSE}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted">
+                  Preenchendo os dois, esta carteira ganha uma tela de fatura organizada por ciclo de
+                  fechamento (em vez do mês civil) -- ver "Ver fatura" no card depois de salvar.
+                </p>
+              </>
             )}
             {erro && <p className="text-small text-rose-600">{erro}</p>}
             <div className="flex gap-2">
@@ -227,6 +320,7 @@ export default function CarteirasPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {contas.map((c) => {
             const Icone = iconeDoTipo(c.tipo);
+            const fatura = totalFaturaAberta(c);
             return (
               <Card key={c.id} className="flex flex-col gap-3">
                 <div className="flex items-center gap-3">
@@ -251,6 +345,16 @@ export default function CarteirasPage() {
                   )}
                 </div>
 
+                {fatura && (
+                  <div className="rounded-xl bg-muted/5 p-3">
+                    <p className="text-xs text-muted">
+                      {fatura.ciclo.rotulo} (em aberto) · fecha dia {new Date(fatura.ciclo.fechamento + "T00:00:00").getDate()} ·
+                      vence dia {new Date(fatura.ciclo.vencimento + "T00:00:00").getDate()}
+                    </p>
+                    <p className="text-body font-semibold text-foreground">{formatarMoeda(fatura.total)}</p>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2 border-t border-border pt-3">
                   <button
                     type="button"
@@ -260,6 +364,15 @@ export default function CarteirasPage() {
                     <Pencil size={12} />
                     Editar
                   </button>
+                  {c.tipo === "cartao_credito" && c.dia_fechamento && c.dia_vencimento && (
+                    <Link
+                      href={`/dashboard/cartao/${c.id}`}
+                      className="flex items-center gap-1.5 rounded-full bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-100"
+                    >
+                      <Receipt size={12} />
+                      Ver fatura
+                    </Link>
+                  )}
                   {confirmandoExclusaoId === c.id ? (
                     <div className="ml-auto flex items-center gap-2">
                       <span className="text-xs text-muted">Apagar?</span>
