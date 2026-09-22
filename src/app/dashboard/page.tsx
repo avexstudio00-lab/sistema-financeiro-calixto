@@ -262,6 +262,7 @@ export default function DashboardPage() {
       recorrencia: null,
       conta_fixa_id: null,
       divida_id: item.dados.divida_id ?? null,
+      data_vencimento: item.dados.data_vencimento ?? null,
       categorias: categorias.find((c) => c.id === item.dados.categoria_id) ?? null,
       __pendente: true,
     }));
