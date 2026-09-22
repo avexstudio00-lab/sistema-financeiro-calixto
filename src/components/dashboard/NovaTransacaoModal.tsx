@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Sparkles, Trash2, Home, Building2 } from "lucide-react";
+import { X, Plus, Sparkles, Trash2, Home, Building2, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
+import { CriarCategoriaInline } from "@/components/dashboard/CriarCategoriaInline";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
@@ -92,6 +94,8 @@ export function NovaTransacaoModal({
   const [dividaId, setDividaId] = React.useState("");
   const [contaId, setContaId] = React.useState("");
   const [data, setData] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [mostrarVencimento, setMostrarVencimento] = React.useState(false);
+  const [dataVencimento, setDataVencimento] = React.useState("");
   const [formaPagamento, setFormaPagamento] =
     React.useState<(typeof FORMAS_PAGAMENTO)[number]["id"]>("pix");
   const [tipoNegocio, setTipoNegocio] = React.useState<"pessoal" | "negocio">("pessoal");
@@ -179,6 +183,8 @@ export function NovaTransacaoModal({
       setDividaId(transacaoEditando.divida_id ?? "");
       setContaId(transacaoEditando.conta_id ?? "");
       setData(transacaoEditando.data);
+      setDataVencimento(transacaoEditando.data_vencimento ?? "");
+      setMostrarVencimento(!!transacaoEditando.data_vencimento);
       setFormaPagamento(
         (transacaoEditando.forma_pagamento as (typeof FORMAS_PAGAMENTO)[number]["id"]) ?? "pix"
       );
@@ -196,6 +202,8 @@ export function NovaTransacaoModal({
       setErro(null);
       setTipo("despesa");
       setData(new Date().toISOString().slice(0, 10));
+      setDataVencimento("");
+      setMostrarVencimento(false);
       setFormaPagamento("pix");
       setTipoNegocio(mundo);
       setConfirmandoExclusao(false);
@@ -243,6 +251,7 @@ export function NovaTransacaoModal({
       forma_pagamento: formaPagamento,
       tipo_negocio: podeMarcarNegocio ? tipoNegocio : "pessoal",
       divida_id: categoriaEhDivida ? dividaId || null : null,
+      data_vencimento: mostrarVencimento ? dataVencimento || null : null,
     };
 
     if (semInternet) {
@@ -393,7 +402,7 @@ export function NovaTransacaoModal({
               ))}
             </datalist>
 
-            {categoriasDoTipo.length > 0 && (
+            {usuarioEfetivoId && (
               <div className="flex flex-col gap-1.5">
                 <span className="text-small font-medium text-foreground">Categoria</span>
                 <div className="flex flex-wrap gap-2">
@@ -412,6 +421,17 @@ export function NovaTransacaoModal({
                       {c.nome}
                     </button>
                   ))}
+                  {/* Botão "+" pra criar uma categoria personalizada sem sair
+                      do modal (pedido do usuário, 22/set/2026) — a categoria
+                      nova já nasce selecionada. */}
+                  <CriarCategoriaInline
+                    usuarioId={usuarioEfetivoId}
+                    tipo={tipo}
+                    onCriada={(nova) => {
+                      setCategorias((atual) => [...atual, nova]);
+                      setCategoriaId(nova.id);
+                    }}
+                  />
                 </div>
               </div>
             )}
@@ -464,6 +484,29 @@ export function NovaTransacaoModal({
                 </select>
               </div>
             </div>
+
+            {/* Vencimento é opcional e separado da data do lançamento (ver
+                comentário em Transacao.data_vencimento, tipos.ts) — ex: um
+                gasto anotado hoje que só vence mês que vem. Fica escondido
+                atrás de um botão pra não poluir o formulário na maioria das
+                anotações, que não têm vencimento nenhum. */}
+            {mostrarVencimento ? (
+              <DateMaskInput
+                label="Data de vencimento (opcional)"
+                value={dataVencimento}
+                onChange={setDataVencimento}
+                helperText="O lançamento continua registrado na data acima — isso é só pra lembrar quando vence."
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMostrarVencimento(true)}
+                className="flex items-center gap-1.5 self-start text-small font-medium text-muted hover:text-foreground"
+              >
+                <CalendarClock size={15} />
+                Adicionar data de vencimento
+              </button>
+            )}
 
             {contas.length > 1 && (
               <div className="flex flex-col gap-1.5">
