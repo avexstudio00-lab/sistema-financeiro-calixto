@@ -18,6 +18,7 @@ import { LIMITE_TRANSACOES_GRATIS, nivelPlano } from "@/lib/planos";
 import { agruparGastosPorCategoria, heatmapDoMes } from "@/lib/graficos-utils";
 import { formatarMoeda } from "@/lib/format";
 import { salvarCache, lerCache } from "@/lib/offline/cache";
+import { verificarAlertaOrcamentoPush } from "@/lib/data/notificacoesPush";
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
 import { useFilaPendente } from "@/lib/offline/useFilaPendente";
 import { sincronizarFila } from "@/lib/offline/sincronizarFila";
@@ -304,6 +305,18 @@ export default function DashboardPage() {
       .filter((a) => a.percentual >= 80)
       .sort((a, b) => b.percentual - a.percentual);
   }, [limites, transacoesPessoais, categorias]);
+
+  // Notificacao push (Bloco 5) do alerta de orcamento acima -- dispara uma
+  // vez por carregamento do painel (nao a cada re-render do useMemo). O
+  // servidor reconfere tudo e tem dedupe por categoria+mes (ver
+  // /api/notificacoes/orcamento), entao isto e so um "avise se for o caso".
+  const notificouOrcamentoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (alertasOrcamento.length === 0) return;
+    if (notificouOrcamentoRef.current) return;
+    notificouOrcamentoRef.current = true;
+    verificarAlertaOrcamentoPush();
+  }, [alertasOrcamento]);
 
   const transacoesFiltradas = transacoesPessoais.filter((t) => {
     if (filtroTipo !== "todos" && t.tipo !== filtroTipo) return false;
