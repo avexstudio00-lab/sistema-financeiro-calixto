@@ -15,7 +15,9 @@ export async function criarConta(
   nome: string,
   tipo: Conta["tipo"],
   saldoInicial: number,
-  limite: number | null = null
+  limite: number | null = null,
+  diaFechamento: number | null = null,
+  diaVencimento: number | null = null
 ) {
   return supabase
     .from("contas")
@@ -26,20 +28,37 @@ export async function criarConta(
       saldo_inicial: saldoInicial,
       saldo_atual: saldoInicial,
       limite,
+      dia_fechamento: diaFechamento,
+      dia_vencimento: diaVencimento,
     })
     .select()
     .single();
 }
 
-/** Edita nome/tipo/limite da carteira. Não mexe em saldo_inicial nem
- * saldo_atual — o saldo é sempre resultado das transações lançadas nela
- * (ver `ajustarSaldoConta` em transacoes.ts), então editar aqui não recalcula
- * nada, só os dados de identificação da conta. */
+/** Edita nome/tipo/limite/dias de fatura da carteira. Não mexe em
+ * saldo_inicial nem saldo_atual — o saldo é sempre resultado das transações
+ * lançadas nela (ver `ajustarSaldoConta` em transacoes.ts), então editar
+ * aqui não recalcula nada, só os dados de identificação da conta. */
 export async function atualizarConta(
   id: string,
-  dados: { nome: string; tipo: Conta["tipo"]; limite: number | null }
+  dados: {
+    nome: string;
+    tipo: Conta["tipo"];
+    limite: number | null;
+    diaFechamento?: number | null;
+    diaVencimento?: number | null;
+  }
 ) {
-  return supabase.from("contas").update(dados).eq("id", id);
+  return supabase
+    .from("contas")
+    .update({
+      nome: dados.nome,
+      tipo: dados.tipo,
+      limite: dados.limite,
+      ...(dados.diaFechamento !== undefined ? { dia_fechamento: dados.diaFechamento } : {}),
+      ...(dados.diaVencimento !== undefined ? { dia_vencimento: dados.diaVencimento } : {}),
+    })
+    .eq("id", id);
 }
 
 /** Apaga a carteira. Se ela ainda tiver transações lançadas, o banco recusa
