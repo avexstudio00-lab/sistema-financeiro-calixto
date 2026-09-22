@@ -53,6 +53,17 @@ export interface Transacao {
    * só pra um lembrete futuro de vencimento e pra mostrar "vence em ..." na
    * lista. Nulo em qualquer lançamento sem vencimento (a maioria). */
   data_vencimento: string | null;
+  /** Preenchidos só quando esse lançamento é uma parcela de uma "compra
+   * parcelada comum" (ex: "celular em 10x", sem ser investimento — ver
+   * `criarCompraParcelada` em transacoes.ts). `grupo_parcela_id` é o mesmo
+   * UUID em todas as parcelas da mesma compra; `parcela_numero`/
+   * `parcela_total` identificam a posição (ex: 3/10). Nulos em qualquer
+   * lançamento avulso, como sempre foi. Cada parcela é uma `transacao`
+   * normal e independente — editar/apagar uma delas usa exatamente o mesmo
+   * fluxo de qualquer outro lançamento (Bloco 1), sem código novo. */
+  grupo_parcela_id: string | null;
+  parcela_numero: number | null;
+  parcela_total: number | null;
   categorias?: Categoria | null;
 }
 
