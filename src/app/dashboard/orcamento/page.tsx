@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, PiggyBank, Trash2 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { CriarCategoriaInline } from "@/components/dashboard/CriarCategoriaInline";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarTransacoes } from "@/lib/data/transacoes";
@@ -110,12 +111,23 @@ export default function OrcamentoPage() {
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
-      <div>
-        <h1 className="text-h2 text-foreground">Orçamento por categoria</h1>
-        <p className="text-body text-muted">
-          Defina um limite mensal pras categorias que você quer controlar — a gente avisa quando o gasto
-          do mês estiver perto de estourar.
-        </p>
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-h2 text-foreground">Orçamento por categoria</h1>
+          <p className="text-body text-muted">
+            Defina um limite mensal pras categorias que você quer controlar — a gente avisa quando o gasto
+            do mês estiver perto de estourar.
+          </p>
+        </div>
+        {user && (
+          <CriarCategoriaInline
+            usuarioId={user.id}
+            tipo="despesa"
+            rotulo="Nova categoria de gasto"
+            botaoClassName="flex items-center gap-1.5 rounded-full border border-dashed border-border px-4 py-2 text-small font-medium text-muted transition-colors hover:border-primary-400 hover:text-primary-700"
+            onCriada={(nova) => setCategorias((atual) => [...atual, nova])}
+          />
+        )}
       </div>
 
       {emAlerta.length > 0 && (
