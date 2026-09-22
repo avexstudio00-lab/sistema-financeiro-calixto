@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { processarPagamentoConfirmado, processarAssinaturaCancelada } from "@/lib/asaas/ativarAssinatura";
+import { notificarFalhaPagamento } from "@/lib/asaas/notificarFalhaPagamento";
 
 // Sem rate limit nesta rota de propósito: quem chama é o próprio Asaas
 // (server-to-server, protegido pelo token compartilhado abaixo, não pelo
@@ -83,6 +84,15 @@ export async function POST(request: Request) {
       case "SUBSCRIPTION_DELETED":
         if (!evento.subscription) throw new Error(`Evento ${evento.event} sem campo "subscription".`);
         await processarAssinaturaCancelada(evento.subscription, admin);
+        break;
+      case "PAYMENT_OVERDUE":
+        // Falha/atraso de cobranca (Bloco 5, notificacao push) -- nao muda
+        // status de assinatura nenhum aqui (isso continua so acontecendo em
+        // PAYMENT_CONFIRMED/SUBSCRIPTION_DELETED); so avisa o usuario que a
+        // cobranca venceu sem pagar, pra ele regularizar antes de perder o
+        // acesso ao plano.
+        if (!evento.payment) throw new Error(`Evento ${evento.event} sem campo "payment".`);
+        await notificarFalhaPagamento(evento.payment, admin);
         break;
       default:
         // Evento que não precisamos tratar (ex: PAYMENT_CREATED, PAYMENT_OVERDUE,
