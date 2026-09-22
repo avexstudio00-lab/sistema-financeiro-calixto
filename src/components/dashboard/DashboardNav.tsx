@@ -24,6 +24,7 @@ import {
   ArrowLeftRight,
   User,
   UserPlus,
+  ScrollText,
   type LucideIcon,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -58,6 +59,7 @@ const HREFS_PRINCIPAIS_MOBILE_EMPRESA = [
 
 const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard", label: "Painel", icon: LayoutDashboard },
+  { href: "/dashboard/extrato", label: "Extrato", icon: ScrollText },
   { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
   { href: "/dashboard/investimentos", label: "Investimentos", icon: TrendingUp },
   { href: "/dashboard/metas", label: "Metas", icon: PiggyBank },
@@ -76,7 +78,12 @@ const LINK_EQUIPE: LinkNav = { href: "/dashboard/equipe", label: "Minha equipe",
 // e fluxo de caixa) — escondidos de quem entrou como funcionário, que só
 // pode ver/mexer em estoque e vendas (o RLS já bloqueia essas telas por
 // trás, isso aqui só evita mostrar um link que vai dar em tela vazia).
-const LINKS_EMPRESA_FINANCEIRO = new Set(["/dashboard/empresa/contas", "/dashboard/empresa/das", "/dashboard/empresa/fluxo-caixa"]);
+const LINKS_EMPRESA_FINANCEIRO = new Set([
+  "/dashboard/empresa/contas",
+  "/dashboard/empresa/das",
+  "/dashboard/empresa/fluxo-caixa",
+  "/dashboard/empresa/extrato",
+]);
 
 const LINKS_EMPRESA: LinkNav[] = [
   // Rótulo curto de propósito ("Empresa", não "Painel da empresa"): esse
@@ -91,6 +98,7 @@ const LINKS_EMPRESA: LinkNav[] = [
   { href: "/dashboard/empresa", label: "Empresa", icon: LayoutDashboard },
   { href: "/dashboard/empresa/vendas", label: "Vendas", icon: ShoppingCart },
   { href: "/dashboard/empresa/produtos", label: "Estoque", icon: Package },
+  { href: "/dashboard/empresa/extrato", label: "Extrato", icon: ScrollText },
   { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
   { href: "/dashboard/empresa/clientes-fornecedores", label: "Clientes", icon: Users },
   { href: "/dashboard/empresa/das", label: "DAS / Impostos", icon: FileText },
