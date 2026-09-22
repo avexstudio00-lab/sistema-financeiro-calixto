@@ -27,11 +27,15 @@ export async function verificarAlertaOrcamentoPush(): Promise<void> {
   }
 }
 
-function urlBase64ToUint8Array(base64Url: string): Uint8Array {
+function urlBase64ToUint8Array(base64Url: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64Url.length % 4)) % 4);
   const base64 = (base64Url + padding).replace(/-/g, "+").replace(/_/g, "/");
   const bruto = atob(base64);
-  return Uint8Array.from([...bruto].map((c) => c.charCodeAt(0)));
+  const bytes = new Uint8Array(bruto.length);
+  for (let i = 0; i < bruto.length; i++) {
+    bytes[i] = bruto.charCodeAt(i);
+  }
+  return bytes;
 }
 
 /** Verdadeiro se este navegador tem tudo que e preciso pra Web Push
