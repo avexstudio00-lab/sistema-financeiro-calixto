@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { atualizarNome, atualizarTipoPerfil, deletarFotoPerfil, enviarFotoPerfil } from "@/lib/data/usuarios";
 import { supabase } from "@/lib/supabase/client";
+import { NotificacoesPush } from "@/components/dashboard/NotificacoesPush";
 
 type TipoPerfil = "clt" | "mei" | "me";
 
@@ -404,6 +405,8 @@ export default function PerfilPage() {
           </Button>
         </form>
       </Card>
+
+      <NotificacoesPush />
 
       {erro && <p className="text-small text-rose-600">{erro}</p>}
 
