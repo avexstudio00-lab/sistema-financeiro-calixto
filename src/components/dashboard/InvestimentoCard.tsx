@@ -35,7 +35,7 @@ import {
   RegistrarPagamentoEmprestimoDialog,
   type ContextoPagamentoEmprestimo,
 } from "@/components/dashboard/RegistrarPagamentoEmprestimoDialog";
-import type { Investimento, ParcelaInvestimento, PagamentoInvestimento } from "@/lib/data/tipos";
+import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, CotacoesMercado } from "@/lib/data/tipos";
 
 export const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon }> = {
   cdi: { label: "CDI", icone: TrendingUp },
@@ -58,6 +58,11 @@ export interface InvestimentoCardProps {
   /** Eventos de "só juros"/quitação já registrados nesse empréstimo — ver
    * `listarPagamentosInvestimento` em src/lib/data/investimentos.ts. */
   pagamentos?: PagamentoInvestimento[];
+  /** Cotações ao vivo (CDI, câmbio, títulos do Tesouro Direto) — vem de
+   * `obterCotacoesMercado()` na página. Undefined enquanto ainda está
+   * buscando ou se a busca falhou; nesses casos os tipos "cdi"/"tesouro com
+   * título" caem pro cálculo com a taxa gravada no investimento. */
+  cotacoes?: CotacoesMercado;
   salvando: boolean;
   onSalvarTaxa: (inv: Investimento, novaTaxa: number) => void | Promise<void>;
   onAtualizarValor: (inv: Investimento, novoValor: number) => void | Promise<void>;
@@ -94,6 +99,7 @@ export function InvestimentoCard({
   inv,
   parcelas,
   pagamentos = [],
+  cotacoes,
   salvando,
   onSalvarTaxa,
   onAtualizarValor,
@@ -120,12 +126,22 @@ export function InvestimentoCard({
   const [diariaEmEdicao, setDiariaEmEdicao] = React.useState("");
   const [dialogoPagamento, setDialogoPagamento] = React.useState<ContextoPagamentoEmprestimo | null>(null);
 
-  const ganho = calcularGanhoEstimado(inv);
-  const percentual = calcularPercentualGanho(inv);
-  const valorAtual = calcularValorAtualEstimado(inv);
+  const ganho = calcularGanhoEstimado(inv, undefined, cotacoes);
+  const percentual = calcularPercentualGanho(inv, undefined, cotacoes);
+  const valorAtual = calcularValorAtualEstimado(inv, undefined, cotacoes);
   const Icone = TIPO_META[inv.tipo].icone;
   const automatico = temCalculoAutomatico(inv.tipo);
   const revenda = ehTipoRevenda(inv.tipo);
+  // CDI agora é sempre automático (taxa ao vivo do Banco Central) -- não tem
+  // mais o que editar manualmente, então nem mostra o botão de taxa.
+  const cdiAoVivo = inv.tipo === "cdi";
+  // Tesouro com título vinculado (fluxo novo, escolhido na criação a partir
+  // da lista ao vivo) usa o PU de venda atual em vez de uma taxa digitada.
+  // Tesouro sem título (fluxo legado) continua editável por taxa manual.
+  const tituloAoVivo = inv.titulo_tesouro
+    ? cotacoes?.titulosTesouro.find((t) => t.chave === inv.titulo_tesouro)
+    : undefined;
+  const tesouroComTitulo = inv.tipo === "tesouro" && !!inv.titulo_tesouro;
   const emprestimoNovoEstilo = inv.tipo === "emprestimo" && inv.valor_retornavel != null && inv.data_vencimento_final != null;
   const emprestimoAVista = inv.tipo === "emprestimo" && inv.forma_pagamento !== "parcelado";
   const parcelasEmAberto = parcelas.filter((p) => !p.pago);
@@ -314,7 +330,17 @@ export function InvestimentoCard({
               Editar valor com juros
             </button>
           )
-        ) : emprestimoNovoEstilo ? null : automatico ? (
+        ) : emprestimoNovoEstilo ? null : cdiAoVivo ? (
+          <span className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground">
+            <TrendingUp size={12} />
+            CDI atual: {cotacoes?.cdi != null ? `${String(cotacoes.cdi).replace(".", ",")}% ao ano` : "buscando..."}
+          </span>
+        ) : tesouroComTitulo ? (
+          <span className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground">
+            <Landmark size={12} />
+            {tituloAoVivo ? `PU atual: ${formatarMoeda(tituloAoVivo.puVenda)}` : "Aguardando cotação do título..."}
+          </span>
+        ) : automatico ? (
           editandoTaxa ? (
             <div className="flex items-center gap-2">
               <div className="w-24">
