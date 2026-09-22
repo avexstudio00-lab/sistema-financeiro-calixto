@@ -22,6 +22,8 @@ import {
   gerarValoresSugeridosParcelas,
   TAXA_CDI_SUGERIDA,
 } from "@/lib/data/investimentos";
+import { obterCotacoesMercado } from "@/lib/data/mercado";
+import type { CotacoesMercado } from "@/lib/data/tipos";
 
 const TIPOS_INVESTIMENTO = [
   {
@@ -120,6 +122,18 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const [valoresEditadosManualmente, setValoresEditadosManualmente] = React.useState<boolean[]>([]);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
+  // Cotações ao vivo (CDI/Tesouro Direto, Bloco 9+10) -- buscadas quando o
+  // modal abre. `undefined` = ainda carregando; lista de títulos vazia =
+  // API fora do ar / sem cache ainda, cai pro fluxo antigo (título em
+  // texto livre + taxa manual) sem travar a criação do investimento.
+  const [cotacoes, setCotacoes] = React.useState<CotacoesMercado | undefined>(undefined);
+  const [tituloTesouroSelecionado, setTituloTesouroSelecionado] = React.useState("");
+  const [quantidadeCotas, setQuantidadeCotas] = React.useState("");
+
+  React.useEffect(() => {
+    if (!aberto) return;
+    obterCotacoesMercado().then(setCotacoes);
+  }, [aberto]);
 
   React.useEffect(() => {
     if (!aberto) {
@@ -140,6 +154,9 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setValoresParcelas([]);
       setValoresEditadosManualmente([]);
       setErro(null);
+      setTituloTesouroSelecionado("");
+      setQuantidadeCotas("");
+      setCotacoes(undefined);
     }
   }, [aberto]);
 
@@ -168,8 +185,21 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     }
   }, [tipo, aberto]);
 
-  const precisaTaxa = tipo === "cdi" || tipo === "tesouro";
-  const precisaDescricao = tipo === "tesouro" || tipo === "bolsa";
+  // Lista de títulos do Tesouro Direto vinda da API ao vivo (Bloco 9+10) --
+  // vazia = API fora do ar / sem cache ainda, e nesse caso o formulário cai
+  // pro fluxo antigo (título em texto livre + taxa manual) sem travar a
+  // criação do investimento.
+  const titulosDisponiveis = cotacoes?.titulosTesouro ?? [];
+  const tesouroAoVivo = tipo === "tesouro" && titulosDisponiveis.length > 0;
+  const tituloEscolhido = tesouroAoVivo
+    ? titulosDisponiveis.find((t) => t.chave === tituloTesouroSelecionado)
+    : undefined;
+  // CDI agora é sempre automático (taxa ao vivo do Banco Central, ver
+  // calcularValorAtualEstimado) -- só Tesouro Direto sem título vinculado
+  // (fluxo legado, ou API fora do ar) ainda pede uma taxa digitada à mão.
+  const precisaTaxa = tipo === "tesouro" && !tesouroAoVivo;
+  const precisaDescricao = (tipo === "tesouro" && !tesouroAoVivo) || tipo === "bolsa";
+  const quantidadeCotasNumero = parsearValorDigitado(quantidadeCotas);
   const podeParcelar = tipo === "emprestimo" || tipo === "revenda";
   const parcelando = podeParcelar && formaPagamento === "parcelado";
   const ehEmprestimo = tipo === "emprestimo";
@@ -284,7 +314,21 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setErro(tipo === "tesouro" ? "Informe o título (ex: Tesouro Selic 2029)." : "Informe o ativo (ex: PETR4, HGLG11).");
       return;
     }
-    const taxaNumero = precisaTaxa ? Number(taxa.replace(",", ".")) : null;
+    if (tesouroAoVivo && !tituloEscolhido) {
+      setErro("Escolha o título do Tesouro Direto.");
+      return;
+    }
+    if (tesouroAoVivo && (!quantidadeCotasNumero || quantidadeCotasNumero <= 0)) {
+      setErro("Digite quantas cotas você comprou desse título.");
+      return;
+    }
+    const taxaNumero = tipo === "cdi"
+      ? (cotacoes?.cdi ?? TAXA_CDI_SUGERIDA)
+      : tesouroAoVivo
+        ? (tituloEscolhido?.taxaVenda ?? null)
+        : precisaTaxa
+          ? Number(taxa.replace(",", "."))
+          : null;
     if (precisaTaxa && (taxaNumero === null || Number.isNaN(taxaNumero))) {
       setErro("Digite uma taxa válida.");
       return;
@@ -344,12 +388,14 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       valor_investido: valorNumero,
       valor_atual: valorNumero,
       taxa: taxaNumero,
-      descricao: precisaDescricao ? descricao.trim() : null,
+      descricao: tesouroAoVivo ? (tituloEscolhido?.nomeExibicao ?? null) : precisaDescricao ? descricao.trim() : null,
       tipo_ganho: null,
       data_inicio: dataInicio,
       forma_pagamento: podeParcelar ? formaPagamento : null,
       numero_parcelas: parcelando ? numeroParcelasNumero : null,
       valor_parcela: parcelando && valorParcelaCalculado ? Number(valorParcelaCalculado.toFixed(2)) : null,
+      titulo_tesouro: tesouroAoVivo ? (tituloEscolhido?.chave ?? null) : null,
+      quantidade_cotas: tesouroAoVivo ? quantidadeCotasNumero : null,
       periodicidade_parcelas: parcelando ? periodicidade : null,
       valor_retornavel: ehEmprestimo ? valorRetornavelNumero : null,
       data_vencimento_final: dataVencimentoFinalCalculada,
@@ -444,12 +490,56 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
             }
           />
 
-          {tipo === "tesouro" && (
+          {tipo === "cdi" && (
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/5 px-4 py-3 text-small text-foreground">
+              <TrendingUp size={16} className="shrink-0 text-primary-600" />
+              {cotacoes === undefined
+                ? "Buscando a taxa CDI atual..."
+                : `Taxa CDI atual: ${(cotacoes.cdi ?? TAXA_CDI_SUGERIDA).toString().replace(".", ",")}% ao ano — atualiza sozinho todo dia, sem precisar digitar.`}
+            </div>
+          )}
+          {tipo === "tesouro" && tesouroAoVivo && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Título</span>
+                <select
+                  value={tituloTesouroSelecionado}
+                  onChange={(e) => setTituloTesouroSelecionado(e.target.value)}
+                  className="h-11 rounded-xl border border-border bg-card px-4 text-small text-foreground"
+                >
+                  <option value="">Selecione o título...</option>
+                  {titulosDisponiveis.map((t) => (
+                    <option key={t.chave} value={t.chave}>
+                      {t.nomeExibicao} — taxa {t.taxaVenda.toFixed(2).replace(".", ",")}% · PU{" "}
+                      {formatarMoedaSimples(t.puVenda)}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-muted">
+                  Preço e taxa vêm direto da API do Tesouro Transparente — atualizam sozinhos todo dia.
+                </span>
+              </div>
+              <Input
+                label="Quantidade de cotas"
+                inputMode="decimal"
+                value={quantidadeCotas}
+                onChange={(e) => setQuantidadeCotas(e.target.value)}
+                placeholder="Ex: 0,53"
+                helperText="Aceita fração — o Tesouro Direto permite comprar parte de um título."
+              />
+            </>
+          )}
+          {tipo === "tesouro" && !tesouroAoVivo && (
             <Input
               label="Título"
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
               placeholder="Ex: Tesouro Selic 2029"
+              helperText={
+                cotacoes !== undefined
+                  ? "Não consegui buscar a lista de títulos agora — digite manualmente."
+                  : undefined
+              }
             />
           )}
           {tipo === "bolsa" && (
@@ -632,12 +722,11 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
 
           {precisaTaxa && (
             <Input
-              label={tipo === "cdi" ? "Taxa do CDI (% ao ano)" : "Taxa (% ao ano)"}
+              label="Taxa (% ao ano)"
               inputMode="decimal"
               value={taxa}
               onChange={(e) => setTaxa(e.target.value)}
               placeholder="0,0"
-              helperText={tipo === "cdi" ? "Valor de referência do mercado — você pode ajustar." : undefined}
             />
           )}
 
