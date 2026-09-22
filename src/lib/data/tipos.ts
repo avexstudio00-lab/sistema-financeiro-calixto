@@ -6,6 +6,13 @@ export interface Conta {
   saldo_inicial: number;
   saldo_atual: number;
   limite: number | null;
+  /** Só fazem sentido pra `tipo === "cartao_credito"` (nulos em qualquer
+   * outro tipo) -- dia do mês (1-31) em que a fatura fecha e em que ela
+   * vence. Usados só pra agrupar as transações da conta por ciclo de fatura
+   * na tela de fatura (ver src/lib/data/faturaCartao.ts) -- nunca mudam
+   * como o saldo em si é calculado. */
+  dia_fechamento: number | null;
+  dia_vencimento: number | null;
 }
 
 export interface Categoria {
