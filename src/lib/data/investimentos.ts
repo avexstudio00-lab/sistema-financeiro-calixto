@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { NOMES_MES } from "@/lib/format";
-import type { Investimento, ParcelaInvestimento, PagamentoInvestimento } from "./tipos";
+import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, CotacoesMercado } from "./tipos";
 
 /** Taxa CDI de referência (% ao ano) sugerida ao cadastrar um investimento
  * do tipo CDI — apenas um valor inicial editável, nunca aplicado sem o
@@ -24,6 +24,8 @@ export interface NovoInvestimento {
   valor_retornavel: number | null;
   data_vencimento_final: string | null;
   valor_diaria: number | null;
+  titulo_tesouro: string | null;
+  quantidade_cotas: number | null;
 }
 
 export async function listarInvestimentos(usuarioId: string): Promise<Investimento[]> {
@@ -485,13 +487,26 @@ type DadosCalculo = Pick<
   | "data_inicio"
   | "valor_retornavel"
   | "data_vencimento_final"
+  | "titulo_tesouro"
+  | "quantidade_cotas"
 > &
   Partial<Pick<Investimento, "quitado" | "valor_quitado">>;
 
 /**
  * Estima o valor atual de um investimento na data de hoje, a partir dos
- * dados informados pelo usuário (nunca inventa taxas ou cotações):
- * - CDI / Tesouro Direto: juros compostos anuais pela taxa informada.
+ * dados informados pelo usuário e, quando disponível, das cotações de
+ * mercado ao vivo (`cotacoes` — ver src/lib/mercado/cotacoes.ts):
+ * - CDI: usa a taxa CDI ATUAL (ao vivo, cacheada 1x por dia) em vez da taxa
+ *   fixa digitada na criação — pedido explícito do usuário em 22/set/2026:
+ *   "se o CDI mudar amanhã, o site já atualiza sozinho". Cai pra taxa
+ *   digitada (`taxa`) só se a cotação ao vivo ainda não chegou (`cotacoes`
+ *   não informado) ou a API está fora do ar sem nenhum cache ainda.
+ * - Tesouro Direto: se o investimento tem um título específico vinculado
+ *   (`titulo_tesouro` + `quantidade_cotas`, fluxo novo) e esse título está
+ *   na lista de cotações ao vivo, o valor atual é `quantidade_cotas × PU de
+ *   venda de hoje` — nada de taxa composta manual. Investimentos "tesouro"
+ *   antigos (sem título vinculado) continuam no cálculo legado por taxa,
+ *   igual a CDI antes desta mudança.
  * - Empréstimo: se já foi quitado (`quitado: true`), o valor fica travado
  *   no que foi de fato recebido (`valor_quitado`) — não cresce mais, não
  *   importa a data. Enquanto em aberto, o ganho combinado
@@ -509,9 +524,12 @@ type DadosCalculo = Pick<
  *   o que o usuário atualizou manualmente por último (no caso de "revenda",
  *   o valor de venda registrado).
  */
-export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date = new Date()): number {
+export function calcularValorAtualEstimado(
+  inv: DadosCalculo,
+  referencia: Date = new Date(),
+  cotacoes?: CotacoesMercado
+): number {
   const principal = Number(inv.valor_investido);
-  const taxa = inv.taxa != null ? Number(inv.taxa) : 0;
   const dias = diasEntre(inv.data_inicio, referencia);
 
   if (inv.tipo === "emprestimo" && inv.quitado && inv.valor_quitado != null) {
@@ -519,8 +537,19 @@ export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date =
   }
 
   switch (inv.tipo) {
-    case "cdi":
+    case "cdi": {
+      const taxaEfetiva = cotacoes?.cdi ?? (inv.taxa != null ? Number(inv.taxa) : 0);
+      const anos = dias / 365;
+      return principal * Math.pow(1 + taxaEfetiva / 100, anos);
+    }
     case "tesouro": {
+      const titulo = inv.titulo_tesouro
+        ? cotacoes?.titulosTesouro.find((t) => t.chave === inv.titulo_tesouro)
+        : undefined;
+      if (titulo && inv.quantidade_cotas) {
+        return Number(inv.quantidade_cotas) * titulo.puVenda;
+      }
+      const taxa = inv.taxa != null ? Number(inv.taxa) : 0;
       const anos = dias / 365;
       return principal * Math.pow(1 + taxa / 100, anos);
     }
@@ -534,8 +563,11 @@ export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date =
         return principal + juros * progresso;
       }
       // Legado (empréstimo criado antes desta mudança, sem valor_retornavel).
+      const taxaEmprestimo = inv.taxa != null ? Number(inv.taxa) : 0;
       const ganho =
-        inv.tipo_ganho === "mensal" ? principal * (taxa / 100) * (dias / 30) : principal * (taxa / 100);
+        inv.tipo_ganho === "mensal"
+          ? principal * (taxaEmprestimo / 100) * (dias / 30)
+          : principal * (taxaEmprestimo / 100);
       return principal + ganho;
     }
     case "bolsa":
@@ -545,8 +577,12 @@ export function calcularValorAtualEstimado(inv: DadosCalculo, referencia: Date =
   }
 }
 
-export function calcularGanhoEstimado(inv: DadosCalculo, referencia: Date = new Date()): number {
-  return calcularValorAtualEstimado(inv, referencia) - Number(inv.valor_investido);
+export function calcularGanhoEstimado(
+  inv: DadosCalculo,
+  referencia: Date = new Date(),
+  cotacoes?: CotacoesMercado
+): number {
+  return calcularValorAtualEstimado(inv, referencia, cotacoes) - Number(inv.valor_investido);
 }
 
 /**
@@ -555,10 +591,14 @@ export function calcularGanhoEstimado(inv: DadosCalculo, referencia: Date = new 
  * Compra e revenda), onde o usuário pensa em "quanto eu ganhei em cima do
  * que paguei" em vez de um valor em R$.
  */
-export function calcularPercentualGanho(inv: DadosCalculo, referencia: Date = new Date()): number {
+export function calcularPercentualGanho(
+  inv: DadosCalculo,
+  referencia: Date = new Date(),
+  cotacoes?: CotacoesMercado
+): number {
   const principal = Number(inv.valor_investido);
   if (!principal) return 0;
-  return (calcularGanhoEstimado(inv, referencia) / principal) * 100;
+  return (calcularGanhoEstimado(inv, referencia, cotacoes) / principal) * 100;
 }
 
 /** true quando o ganho do investimento é calculado automaticamente pela taxa. */
@@ -583,12 +623,12 @@ export interface PontoEvolucaoInvestimentos {
  * "ganho no período" (ver `calcularGanhoNoPeriodo`). Antes da data_inicio,
  * o investimento ainda não existia, então vale 0.
  */
-export function calcularValorNaData(inv: Investimento, referencia: Date): number {
+export function calcularValorNaData(inv: Investimento, referencia: Date, cotacoes?: CotacoesMercado): number {
   const inicio = new Date(inv.data_inicio + "T00:00:00");
   if (inicio > referencia) return 0;
 
   if (temCalculoAutomatico(inv.tipo)) {
-    return calcularValorAtualEstimado(inv, referencia);
+    return calcularValorAtualEstimado(inv, referencia, cotacoes);
   }
 
   // Bolsa / Compra e revenda: interpola entre o valor investido (início) e
@@ -608,13 +648,14 @@ export function calcularValorNaData(inv: Investimento, referencia: Date): number
  */
 export function calcularEvolucaoInvestimentos(
   investimentos: Investimento[],
-  meses = 6
+  meses = 6,
+  cotacoes?: CotacoesMercado
 ): PontoEvolucaoInvestimentos[] {
   const agora = new Date();
   const pontos: PontoEvolucaoInvestimentos[] = [];
   for (let i = meses - 1; i >= 0; i--) {
     const fimDoMes = new Date(agora.getFullYear(), agora.getMonth() - i + 1, 0);
-    const total = investimentos.reduce((acc, inv) => acc + calcularValorNaData(inv, fimDoMes), 0);
+    const total = investimentos.reduce((acc, inv) => acc + calcularValorNaData(inv, fimDoMes, cotacoes), 0);
     pontos.push({ mes: NOMES_MES[fimDoMes.getMonth()], total });
   }
   return pontos;
@@ -624,10 +665,10 @@ export function calcularEvolucaoInvestimentos(
  * data qualquer — 0 antes de existir, `calcularValorNaData - valor_investido`
  * depois. Separado de `calcularValorNaData` porque "ganho no período" (ver
  * abaixo) precisa isolar só a parte que cresceu, sem contar capital novo. */
-function calcularGanhoAcumuladoNaData(inv: Investimento, referencia: Date): number {
+function calcularGanhoAcumuladoNaData(inv: Investimento, referencia: Date, cotacoes?: CotacoesMercado): number {
   const inicio = new Date(inv.data_inicio + "T00:00:00");
   if (inicio > referencia) return 0;
-  return calcularValorNaData(inv, referencia) - Number(inv.valor_investido);
+  return calcularValorNaData(inv, referencia, cotacoes) - Number(inv.valor_investido);
 }
 
 /**
@@ -640,7 +681,11 @@ function calcularGanhoAcumuladoNaData(inv: Investimento, referencia: Date): numb
  * pra responder "quanto eu ganhei só de CDI (ou só de empréstimo) nos
  * últimos 6 meses".
  */
-export function calcularGanhoNoPeriodo(investimentos: Investimento[], meses: number): number {
+export function calcularGanhoNoPeriodo(
+  investimentos: Investimento[],
+  meses: number,
+  cotacoes?: CotacoesMercado
+): number {
   const hoje = new Date();
   // Usa `adicionarMeses` (com offset negativo) em vez de `new Date(ano, mes -
   // meses, dia)` cru — o construtor de Date "rola pra frente" em vez de
@@ -648,8 +693,8 @@ export function calcularGanhoNoPeriodo(investimentos: Investimento[], meses: num
   // 03/mar em vez de 28/fev), o que encurtava a janela do período sem avisar.
   const dataPassada = new Date(adicionarMeses(formatarDataIso(hoje), -meses) + "T00:00:00");
   return investimentos.reduce((acc, inv) => {
-    const ganhoHoje = calcularGanhoAcumuladoNaData(inv, hoje);
-    const ganhoPassado = calcularGanhoAcumuladoNaData(inv, dataPassada);
+    const ganhoHoje = calcularGanhoAcumuladoNaData(inv, hoje, cotacoes);
+    const ganhoPassado = calcularGanhoAcumuladoNaData(inv, dataPassada, cotacoes);
     return acc + (ganhoHoje - ganhoPassado);
   }, 0);
 }
