@@ -38,7 +38,16 @@ async function buscarComTimeout(url: string, timeoutMs = 8000): Promise<Response
   const controlador = new AbortController();
   const timer = setTimeout(() => controlador.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controlador.signal });
+    // Sem User-Agent, algumas dessas APIs públicas (a AwesomeAPI de câmbio,
+    // por trás de proteção anti-bot) rejeitam silenciosamente requisições
+    // vindas de servidor -- funciona liso no navegador (tem UA de verdade),
+    // mas falha sempre a partir da função serverless da Vercel. Um UA de
+    // navegador comum contorna isso sem custo nenhum pras outras fontes
+    // (Banco Central e Tesouro Transparente já funcionavam sem isso).
+    return await fetch(url, {
+      signal: controlador.signal,
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; SistemaFinanceiroCalixto/1.0)" },
+    });
   } finally {
     clearTimeout(timer);
   }
