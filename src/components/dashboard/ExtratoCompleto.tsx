@@ -266,6 +266,11 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
                               </span>
                             </Badge>
                           )}
+                          {t.parcela_numero && t.parcela_total && (
+                            <Badge variant="neutral" size="sm">
+                              {t.parcela_numero}/{t.parcela_total}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </div>
