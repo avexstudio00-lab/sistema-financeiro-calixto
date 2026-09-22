@@ -32,6 +32,7 @@ import { sincronizarFila } from "@/lib/offline/sincronizarFila";
 import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
 import { BannerOffline } from "@/components/dashboard/BannerOffline";
 import { FilaPendenteBanner } from "@/components/dashboard/FilaPendenteBanner";
+import { CambioConversor } from "@/components/dashboard/CambioConversor";
 import type { Transacao, Produto, ContaPagar, ContaReceber } from "@/lib/data/tipos";
 
 const MESES = [
@@ -351,6 +352,8 @@ export default function PainelEmpresaPage() {
 
       {offlineDesde && <BannerOffline salvoEm={offlineDesde} />}
       <FilaPendenteBanner aoSincronizar={carregar} />
+
+      <CambioConversor />
 
       <Card className="flex items-start gap-3 border-primary-200 bg-primary-50/60">
         <Receipt size={20} className="mt-0.5 shrink-0 text-primary-600" />
