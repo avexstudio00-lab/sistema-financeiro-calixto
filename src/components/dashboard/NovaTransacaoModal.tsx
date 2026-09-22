@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Sparkles, Trash2, Home, Building2, CalendarClock } from "lucide-react";
+import { X, Plus, Sparkles, Trash2, Home, Building2, CalendarClock, Layers } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
@@ -13,6 +13,7 @@ import { listarContas } from "@/lib/data/contas";
 import { listarDividasComProgresso } from "@/lib/data/dividas";
 import {
   criarTransacao,
+  criarCompraParcelada,
   atualizarTransacao,
   deletarTransacao,
   listarDescricoesUsadas,
@@ -96,6 +97,11 @@ export function NovaTransacaoModal({
   const [data, setData] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [mostrarVencimento, setMostrarVencimento] = React.useState(false);
   const [dataVencimento, setDataVencimento] = React.useState("");
+  // Compra parcelada comum (Bloco 2, 22/set/2026) -- só faz sentido criando
+  // uma anotação nova de despesa (nunca editando uma parcela já existente,
+  // nem receita). Ver criarCompraParcelada em lib/data/transacoes.ts.
+  const [mostrarParcelamento, setMostrarParcelamento] = React.useState(false);
+  const [numeroParcelas, setNumeroParcelas] = React.useState("2");
   const [formaPagamento, setFormaPagamento] =
     React.useState<(typeof FORMAS_PAGAMENTO)[number]["id"]>("pix");
   const [tipoNegocio, setTipoNegocio] = React.useState<"pessoal" | "negocio">("pessoal");
@@ -204,6 +210,8 @@ export function NovaTransacaoModal({
       setData(new Date().toISOString().slice(0, 10));
       setDataVencimento("");
       setMostrarVencimento(false);
+      setMostrarParcelamento(false);
+      setNumeroParcelas("2");
       setFormaPagamento("pix");
       setTipoNegocio(mundo);
       setConfirmandoExclusao(false);
@@ -226,7 +234,19 @@ export function NovaTransacaoModal({
       return;
     }
 
+    const parcelando = !editando && tipo === "despesa" && mostrarParcelamento;
+    const numeroParcelasNumero = Number(numeroParcelas);
+    if (parcelando && (!Number.isInteger(numeroParcelasNumero) || numeroParcelasNumero < 2 || numeroParcelasNumero > 60)) {
+      setErro("Número de parcelas inválido — use um número inteiro entre 2 e 60.");
+      return;
+    }
+
     const semInternet = typeof navigator !== "undefined" && !navigator.onLine;
+
+    if (parcelando && semInternet) {
+      setErro("Sem internet agora — compra parcelada só funciona com conexão. Tente de novo quando reconectar.");
+      return;
+    }
 
     // Editar uma anotação existente depende do valor antigo dela pra
     // desfazer o efeito no saldo da conta antes de aplicar o novo (ver
@@ -268,11 +288,17 @@ export function NovaTransacaoModal({
 
     const { error } = transacaoEditando
       ? await atualizarTransacao(transacaoEditando, dados)
-      : await criarTransacao(dados);
+      : parcelando
+        ? await criarCompraParcelada(dados, numeroParcelasNumero)
+        : await criarTransacao(dados);
     setSalvando(false);
 
     if (error) {
-      setErro("Não foi possível salvar. Tente novamente.");
+      setErro(
+        parcelando
+          ? "Algumas parcelas podem não ter sido salvas. Confira o extrato antes de tentar de novo."
+          : "Não foi possível salvar. Tente novamente."
+      );
       return;
     }
     onSalvo();
@@ -381,7 +407,7 @@ export function NovaTransacaoModal({
             </div>
 
             <Input
-              label="Valor"
+              label={mostrarParcelamento ? "Valor de cada parcela" : "Valor"}
               inputMode="decimal"
               autoFocus
               value={valor}
@@ -506,6 +532,45 @@ export function NovaTransacaoModal({
                 <CalendarClock size={15} />
                 Adicionar data de vencimento
               </button>
+            )}
+
+            {/* Compra parcelada comum (ex: "celular em 10x") -- só faz
+                sentido numa despesa nova (nunca editando uma parcela já
+                existente, nem numa entrada). Cada parcela vira uma
+                transação própria, uma por mês a partir da data acima (ver
+                criarCompraParcelada, lib/data/transacoes.ts). */}
+            {!editando && tipo === "despesa" && (
+              mostrarParcelamento ? (
+                <div className="flex flex-col gap-1.5 rounded-xl border border-border p-3">
+                  <Input
+                    label="Número de parcelas"
+                    inputMode="numeric"
+                    value={numeroParcelas}
+                    onChange={(e) => setNumeroParcelas(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Ex: 10"
+                  />
+                  <p className="text-small text-muted">
+                    Lança {numeroParcelas || "0"}x de {formatarMoeda(Number(valor.replace(",", ".")) || 0)},
+                    uma por mês a partir da data escolhida acima.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarParcelamento(false)}
+                    className="self-start text-small font-medium text-muted hover:text-foreground"
+                  >
+                    Cancelar parcelamento
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setMostrarParcelamento(true)}
+                  className="flex items-center gap-1.5 self-start text-small font-medium text-muted hover:text-foreground"
+                >
+                  <Layers size={15} />
+                  Parcelar essa compra
+                </button>
+              )
             )}
 
             {contas.length > 1 && (
