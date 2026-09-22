@@ -43,7 +43,7 @@ export async function criarInvestimento(dados: NovoInvestimento) {
  * dia do mês quando o mês de destino for mais curto, ex: 31/jan + 1 mês =
  * 28 ou 29/fev, nunca março). Cálculo só com aritmética de calendário —
  * sem passar por Date→ISO, que converteria pra UTC e poderia mudar o dia. */
-function adicionarMeses(dataIso: string, meses: number): string {
+export function adicionarMeses(dataIso: string, meses: number): string {
   const [ano, mes, dia] = dataIso.split("-").map(Number);
   const totalMeses = mes - 1 + meses;
   const novoAno = ano + Math.floor(totalMeses / 12);
