@@ -250,6 +250,12 @@ export default function PainelEmpresaPage() {
           // nunca preenchido em anotação de negócio, então sempre null aqui.
           divida_id: null,
           data_vencimento: item.dados.data_vencimento ?? null,
+          // Compra parcelada comum (Bloco 2, 22/set/2026) não é suportada na
+          // fila offline (ver validação em NovaTransacaoModal) -- nunca
+          // preenchido aqui.
+          grupo_parcela_id: null,
+          parcela_numero: null,
+          parcela_total: null,
           categorias: null,
           __pendente: true,
         }))
