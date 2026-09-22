@@ -210,6 +210,44 @@ export interface Investimento {
   valor_quitado: number | null;
   /** Data em que a quitação foi registrada. Nula até `quitado` virar true. */
   data_quitacao: string | null;
+  /** Só para tipo "tesouro": qual título do Tesouro Direto foi comprado
+   * (chave "Tipo Titulo|Data Vencimento ISO", ex: "Tesouro Selic|2029-03-01"),
+   * usado pra buscar o preço/taxa atual em `cotacoes_mercado` (ver
+   * src/lib/mercado/cotacoes.ts). Nulo em investimentos "tesouro" antigos,
+   * que continuam usando o cálculo legado por taxa digitada na criação. */
+  titulo_tesouro: string | null;
+  /** Só para tipo "tesouro" com `titulo_tesouro` preenchido: quantas cotas
+   * (podem ser fracionadas, ex: 0,53) desse título foram compradas -- valor
+   * atual = quantidade_cotas × PU de venda ao vivo do título. */
+  quantidade_cotas: number | null;
+}
+
+/** Um título do Tesouro Direto disponível hoje, com preço/taxa de venda
+ * mais recentes -- ver `obterTitulosTesouro` em src/lib/mercado/cotacoes.ts. */
+export interface TituloTesouro {
+  /** Chave única pra casar com `Investimento.titulo_tesouro`. */
+  chave: string;
+  nomeExibicao: string;
+  tipoTitulo: string;
+  dataVencimento: string;
+  taxaVenda: number;
+  puVenda: number;
+  dataBase: string;
+}
+
+/** Cotações de mercado ao vivo (Bloco 9+10) -- CDI, câmbio USD/EUR e a
+ * lista de títulos do Tesouro Direto, todas cacheadas 1x por dia (ver
+ * src/lib/mercado/cotacoes.ts e /api/mercado/cotacoes). Qualquer campo
+ * pode vir `null`/vazio se a fonte externa estiver fora do ar e ainda não
+ * houver nenhum cache -- nesses casos quem usa cai pro cálculo legado. */
+export interface CotacoesMercado {
+  cdi: number | null;
+  cdiAtualizadoEm: string | null;
+  usd: number | null;
+  eur: number | null;
+  cambioAtualizadoEm: string | null;
+  titulosTesouro: TituloTesouro[];
+  titulosAtualizadoEm: string | null;
 }
 
 /** Uma parcela de um investimento com forma_pagamento "parcelado" (ex:
