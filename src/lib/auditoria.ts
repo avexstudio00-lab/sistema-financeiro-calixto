@@ -28,7 +28,10 @@ export type TipoEventoSeguranca =
   | "assinatura_ativada_webhook"
   | "assinatura_cancelada_webhook"
   | "trial_iniciado"
-  | "trial_rate_limitado";
+  | "trial_rate_limitado"
+  | "push_inscrito"
+  | "push_cancelado"
+  | "push_falha_cobranca_notificada";
 
 export async function registrarEventoSeguranca(
   usuarioId: string | null,
