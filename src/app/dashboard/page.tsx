@@ -263,6 +263,12 @@ export default function DashboardPage() {
       conta_fixa_id: null,
       divida_id: item.dados.divida_id ?? null,
       data_vencimento: item.dados.data_vencimento ?? null,
+      // Compra parcelada comum (Bloco 2, 22/set/2026) não é suportada na
+      // fila offline (ver validação em NovaTransacaoModal) -- nunca
+      // preenchido aqui.
+      grupo_parcela_id: null,
+      parcela_numero: null,
+      parcela_total: null,
       categorias: categorias.find((c) => c.id === item.dados.categoria_id) ?? null,
       __pendente: true,
     }));
