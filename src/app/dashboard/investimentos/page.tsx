@@ -26,11 +26,12 @@ import {
   registrarQuitacaoAntecipadaParcelado,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
+import { obterCotacoesMercado } from "@/lib/data/mercado";
 import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
 import { InvestimentoCard, TIPO_META } from "@/components/dashboard/InvestimentoCard";
 import type { DadosJurosParcela } from "@/components/dashboard/ParcelasInvestimento";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
-import type { Investimento, ParcelaInvestimento, PagamentoInvestimento } from "@/lib/data/tipos";
+import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, CotacoesMercado } from "@/lib/data/tipos";
 
 const ORDEM_TIPOS: Investimento["tipo"][] = ["cdi", "tesouro", "bolsa", "emprestimo", "revenda"];
 
@@ -49,6 +50,11 @@ export default function InvestimentosPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [salvandoAcao, setSalvandoAcao] = React.useState(false);
+  // Cotações ao vivo (CDI, câmbio, títulos do Tesouro) -- busca sozinha ao
+  // entrar na tela, sem travar o carregamento dos investimentos em si; até
+  // chegar (ou se falhar), os cálculos caem pro comportamento legado por
+  // taxa gravada (ver `calcularValorAtualEstimado` em src/lib/data/investimentos.ts).
+  const [cotacoes, setCotacoes] = React.useState<CotacoesMercado | undefined>(undefined);
 
   // Cada tipo de investimento (CDI, empréstimo etc.) tem seu próprio
   // mini-dashboard, separado dos outros — só se combinam quando a pessoa
@@ -75,6 +81,10 @@ export default function InvestimentosPage() {
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  React.useEffect(() => {
+    obterCotacoesMercado().then(setCotacoes);
+  }, []);
 
   const parcelasPorInvestimento = React.useMemo(() => {
     const mapa = new Map<string, ParcelaInvestimento[]>();
@@ -111,18 +121,21 @@ export default function InvestimentosPage() {
     let totalAtual = 0;
     for (const inv of lista) {
       totalInvestido += Number(inv.valor_investido);
-      totalAtual += calcularValorAtualEstimado(inv);
+      totalAtual += calcularValorAtualEstimado(inv, undefined, cotacoes);
     }
     const ganhoTotal = totalAtual - totalInvestido;
-    const ganhoPeriodo = periodoMeses == null ? ganhoTotal : calcularGanhoNoPeriodo(lista, periodoMeses);
+    const ganhoPeriodo = periodoMeses == null ? ganhoTotal : calcularGanhoNoPeriodo(lista, periodoMeses, cotacoes);
     return { totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo };
   }
 
-  const resumoGeral = React.useMemo(() => calcularResumo(investimentos), [investimentos, periodoMeses]);
+  const resumoGeral = React.useMemo(() => calcularResumo(investimentos), [investimentos, periodoMeses, cotacoes]);
 
   const linhaEvolucao = React.useMemo(() => {
-    return calcularEvolucaoInvestimentos(investimentos, periodoMeses ?? 12).map((p) => ({ mes: p.mes, valor: p.total }));
-  }, [investimentos, periodoMeses]);
+    return calcularEvolucaoInvestimentos(investimentos, periodoMeses ?? 12, cotacoes).map((p) => ({
+      mes: p.mes,
+      valor: p.total,
+    }));
+  }, [investimentos, periodoMeses, cotacoes]);
 
   const labelGanho = periodoMeses == null ? "Ganho estimado" : `Ganho nos últimos ${periodoMeses} meses`;
 
@@ -292,6 +305,7 @@ export default function InvestimentosPage() {
             inv={inv}
             parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
             pagamentos={pagamentosPorInvestimento.get(inv.id) ?? []}
+            cotacoes={cotacoes}
             salvando={salvandoAcao}
             onSalvarTaxa={handleSalvarTaxa}
             onAtualizarValor={handleAtualizarValor}
