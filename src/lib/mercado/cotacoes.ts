@@ -95,8 +95,14 @@ export interface ResultadoCambio {
 }
 
 /**
- * Câmbio USD/EUR -> BRL de hoje -- fonte: AwesomeAPI (pública, sem chave,
- * amplamente usada por apps financeiros brasileiros). Mesmo padrão de
+ * Câmbio USD/EUR -> BRL (PTAX) de hoje -- fonte: Banco Central, séries SGS
+ * 1 (dólar) e 21619 (euro), mesma família de API já usada em
+ * `obterCotacaoCdi` (pública, sem chave, sem custo). Trocado da AwesomeAPI
+ * pro Banco Central em 22/set/2026: a AwesomeAPI vinha respondendo 429
+ * (rate limit) quando chamada a partir da função serverless da Vercel,
+ * mesmo funcionando liso direto do navegador -- provavelmente por vir de
+ * um IP compartilhado de nuvem. O Banco Central, usado sem esse problema
+ * pro CDI, é mais consistente com o resto do projeto. Mesmo padrão de
  * cache e mesma resiliência (nunca lança erro) que `obterCotacaoCdi`.
  */
 export async function obterCotacaoCambio(admin: SupabaseClient): Promise<ResultadoCambio> {
@@ -106,26 +112,25 @@ export async function obterCotacaoCambio(admin: SupabaseClient): Promise<Resulta
     return { usd: dados?.usd ?? null, eur: dados?.eur ?? null, atualizadoEm: cache!.atualizado_em };
   }
   try {
-    const resposta = await buscarComTimeout("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL");
-    if (!resposta.ok) throw new Error(`AwesomeAPI respondeu ${resposta.status}`);
-    const json = (await resposta.json()) as Record<string, { bid: string }>;
-    const usd = Number(json.USDBRL?.bid);
-    const eur = Number(json.EURBRL?.bid);
+    const [respostaUsd, respostaEur] = await Promise.all([
+      buscarComTimeout("https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/1?formato=json"),
+      buscarComTimeout("https://api.bcb.gov.br/dados/serie/bcdata.sgs.21619/dados/ultimos/1?formato=json"),
+    ]);
+    if (!respostaUsd.ok) throw new Error(`Banco Central (dólar) respondeu ${respostaUsd.status}`);
+    if (!respostaEur.ok) throw new Error(`Banco Central (euro) respondeu ${respostaEur.status}`);
+    const [jsonUsd, jsonEur] = (await Promise.all([respostaUsd.json(), respostaEur.json()])) as {
+      data: string;
+      valor: string;
+    }[][];
+    const usd = Number(jsonUsd[0]?.valor);
+    const eur = Number(jsonEur[0]?.valor);
     if (!Number.isFinite(usd) || !Number.isFinite(eur)) {
-      throw new Error("Câmbio inválido na resposta da AwesomeAPI.");
+      throw new Error("Câmbio inválido na resposta do Banco Central.");
     }
     await gravarCache(admin, "cambio", null, { usd, eur });
     return { usd, eur, atualizadoEm: new Date().toISOString() };
   } catch (erro) {
     console.error("Erro ao buscar câmbio USD/EUR atual:", erro);
-    // DIAGNÓSTICO TEMPORÁRIO (22/set/2026) -- grava o motivo da falha numa
-    // chave separada só pra investigar por que essa fonte especificamente
-    // falha a partir da função serverless (CDI e Tesouro, mesmo padrão de
-    // fetch, funcionam normalmente) -- remover depois de identificar a causa.
-    await gravarCache(admin, "cambio_debug", null, {
-      erro: erro instanceof Error ? erro.message : String(erro),
-      quando: new Date().toISOString(),
-    }).catch(() => {});
     const dados = (cache?.dados_json as { usd: number; eur: number } | null) ?? null;
     return { usd: dados?.usd ?? null, eur: dados?.eur ?? null, atualizadoEm: cache?.atualizado_em ?? null };
   }
