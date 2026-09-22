@@ -78,6 +78,7 @@ export default function PainelEmpresaPage() {
   const [contasReceber, setContasReceber] = React.useState<ContaReceber[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
+  const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
 
   // Modo offline: quando não dá pra buscar do servidor, mostra o último
   // retrato bom que a gente tinha salvo pra aquele mês específico (ver
@@ -184,6 +185,25 @@ export default function PainelEmpresaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function handleAbrirModalNova() {
+    setTransacaoEditando(null);
+    setModalAberto(true);
+  }
+
+  function handleEditarTransacao(transacao: TransacaoExibida) {
+    // Anotação ainda pendente de sincronizar (fila offline) não existe de
+    // verdade no servidor ainda -- não dá pra editar/apagar até enviar
+    // (mesma regra do painel pessoal, ver FilaPendenteBanner pra reenviar).
+    if (transacao.__pendente) return;
+    setTransacaoEditando(transacao);
+    setModalAberto(true);
+  }
+
+  function handleFecharModal() {
+    setModalAberto(false);
+    setTransacaoEditando(null);
+  }
+
   function mudarMes(delta: number) {
     let novoMes = mes + delta;
     let novoAno = ano;
@@ -229,6 +249,7 @@ export default function PainelEmpresaPage() {
           // Dívida é conceito só de "Minha vida" (ver NovaTransacaoModal) --
           // nunca preenchido em anotação de negócio, então sempre null aqui.
           divida_id: null,
+          data_vencimento: item.dados.data_vencimento ?? null,
           categorias: null,
           __pendente: true,
         }))
@@ -315,7 +336,7 @@ export default function PainelEmpresaPage() {
               <ChevronRight size={18} />
             </button>
           </div>
-          <Button size="lg" variant="secondary" onClick={() => setModalAberto(true)} className="hidden sm:inline-flex">
+          <Button size="lg" variant="secondary" onClick={handleAbrirModalNova} className="hidden sm:inline-flex">
             <Plus size={18} />
             Anotar gasto ou receita
           </Button>
@@ -433,7 +454,7 @@ export default function PainelEmpresaPage() {
                 <p className="text-body text-muted">
                   Nenhum lançamento do negócio esse mês ainda. Registre uma venda ou anote um gasto pra começar.
                 </p>
-                <Button variant="secondary" onClick={() => setModalAberto(true)}>
+                <Button variant="secondary" onClick={handleAbrirModalNova}>
                   <Plus size={18} />
                   Anotar agora
                 </Button>
@@ -444,7 +465,10 @@ export default function PainelEmpresaPage() {
                   <Card
                     key={t.id}
                     padding="sm"
-                    className={`flex flex-wrap items-center justify-between gap-4 ${t.__pendente ? "opacity-70" : ""}`}
+                    onClick={() => handleEditarTransacao(t)}
+                    className={`flex flex-wrap items-center justify-between gap-4 transition-colors ${
+                      t.__pendente ? "opacity-70" : "cursor-pointer hover:bg-muted/5"
+                    }`}
                   >
                     {/* `min-w-0` no bloco ícone+texto (mesma causa raiz da
                         seção 23 do contexto do projeto) deixa a descrição
@@ -500,14 +524,20 @@ export default function PainelEmpresaPage() {
           home do iPhone). */}
       <button
         type="button"
-        onClick={() => setModalAberto(true)}
+        onClick={handleAbrirModalNova}
         aria-label="Anotar gasto ou receita do negócio"
         className="fixed bottom-24 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-card-hover transition-transform hover:scale-105 sm:hidden"
       >
         <Plus size={26} />
       </button>
 
-      <NovaTransacaoModal aberto={modalAberto} mundo="negocio" onFechar={() => setModalAberto(false)} onSalvo={carregar} />
+      <NovaTransacaoModal
+        aberto={modalAberto}
+        mundo="negocio"
+        transacaoEditando={transacaoEditando}
+        onFechar={handleFecharModal}
+        onSalvo={carregar}
+      />
     </Container>
   );
 }
