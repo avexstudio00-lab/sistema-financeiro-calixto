@@ -118,6 +118,14 @@ export async function obterCotacaoCambio(admin: SupabaseClient): Promise<Resulta
     return { usd, eur, atualizadoEm: new Date().toISOString() };
   } catch (erro) {
     console.error("Erro ao buscar câmbio USD/EUR atual:", erro);
+    // DIAGNÓSTICO TEMPORÁRIO (22/set/2026) -- grava o motivo da falha numa
+    // chave separada só pra investigar por que essa fonte especificamente
+    // falha a partir da função serverless (CDI e Tesouro, mesmo padrão de
+    // fetch, funcionam normalmente) -- remover depois de identificar a causa.
+    await gravarCache(admin, "cambio_debug", null, {
+      erro: erro instanceof Error ? erro.message : String(erro),
+      quando: new Date().toISOString(),
+    }).catch(() => {});
     const dados = (cache?.dados_json as { usd: number; eur: number } | null) ?? null;
     return { usd: dados?.usd ?? null, eur: dados?.eur ?? null, atualizadoEm: cache?.atualizado_em ?? null };
   }
