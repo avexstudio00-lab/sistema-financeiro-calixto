@@ -22,6 +22,9 @@ export interface NovaTransacao {
    * src/lib/data/dividas.ts). Omitido em todo lançamento que não é
    * pagamento de dívida. */
   divida_id?: string | null;
+  /** Opcional: data real de vencimento desse lançamento (ver comentário em
+   * `Transacao.data_vencimento`, tipos.ts). Omitido = sem vencimento. */
+  data_vencimento?: string | null;
 }
 
 export async function listarTransacoes(
