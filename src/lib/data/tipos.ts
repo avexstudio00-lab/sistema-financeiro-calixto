@@ -40,6 +40,12 @@ export interface Transacao {
    * escolhendo pra qual dívida é o pagamento (ver Divida acima) — nulo em
    * qualquer outro lançamento. */
   divida_id: string | null;
+  /** Opcional: data em que esse lançamento vence de verdade (ex: fatura
+   * anotada hoje mas que só vence mês que vem). Nunca usada pra agrupar o
+   * Extrato (isso continua sendo `data`, a data do lançamento em si) — serve
+   * só pra um lembrete futuro de vencimento e pra mostrar "vence em ..." na
+   * lista. Nulo em qualquer lançamento sem vencimento (a maioria). */
+  data_vencimento: string | null;
   categorias?: Categoria | null;
 }
 
