@@ -9,6 +9,8 @@ const VAZIO: CotacoesMercado = {
   cambioAtualizadoEm: null,
   titulosTesouro: [],
   titulosAtualizadoEm: null,
+  poupanca: null,
+  poupancaAtualizadoEm: null,
 };
 
 /**
