@@ -33,7 +33,17 @@ import type { DadosJurosParcela } from "@/components/dashboard/ParcelasInvestime
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
 import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, CotacoesMercado } from "@/lib/data/tipos";
 
-const ORDEM_TIPOS: Investimento["tipo"][] = ["cdi", "tesouro", "bolsa", "emprestimo", "revenda"];
+const ORDEM_TIPOS: Investimento["tipo"][] = [
+  "cdi",
+  "poupanca",
+  "cdb",
+  "lci",
+  "lca",
+  "tesouro",
+  "bolsa",
+  "emprestimo",
+  "revenda",
+];
 
 const OPCOES_PERIODO: { id: number | null; label: string }[] = [
   { id: 3, label: "3 meses" },
