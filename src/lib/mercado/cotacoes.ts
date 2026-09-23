@@ -136,6 +136,57 @@ export async function obterCotacaoCambio(admin: SupabaseClient): Promise<Resulta
   }
 }
 
+export interface ResultadoPoupanca {
+  valor: number | null;
+  atualizadoEm: string | null;
+}
+
+/**
+ * Rendimento anualizado da poupança, já pronto pra usar em
+ * `calcularValorAtualEstimado` do mesmo jeito que `cdi` -- fonte: Banco
+ * Central, séries SGS 432 (meta Selic definida pelo Copom, % ao ano) e 226
+ * (TR, % ao mês), mesma família de API já usada em `obterCotacaoCdi`.
+ *
+ * Regra oficial da poupança (Lei 12.703/2012): quando a meta Selic está
+ * acima de 8,5% ao ano, a poupança rende 0,5% ao mês + TR; quando está em
+ * 8,5% ao ano ou menos, rende 70% da meta Selic (equivalente mensal) + TR.
+ * O valor cacheado aqui já é a taxa mensal resultante composta pra virar uma
+ * taxa ANUALIZADA (mesmo formato de `cdi`), pra `calcularValorAtualEstimado`
+ * não precisar saber nada sobre Selic/TR -- só aplica a mesma fórmula
+ * `principal * (1 + taxa/100) ^ (dias/365)` de sempre.
+ */
+export async function obterCotacaoPoupanca(admin: SupabaseClient): Promise<ResultadoPoupanca> {
+  const cache = await lerCache(admin, "poupanca");
+  if (cacheFresco(cache)) {
+    return { valor: cache!.valor, atualizadoEm: cache!.atualizado_em };
+  }
+  try {
+    const [respostaSelic, respostaTr] = await Promise.all([
+      buscarComTimeout("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"),
+      buscarComTimeout("https://api.bcb.gov.br/dados/serie/bcdata.sgs.226/dados/ultimos/1?formato=json"),
+    ]);
+    if (!respostaSelic.ok) throw new Error(`Banco Central (Selic) respondeu ${respostaSelic.status}`);
+    if (!respostaTr.ok) throw new Error(`Banco Central (TR) respondeu ${respostaTr.status}`);
+    const [jsonSelic, jsonTr] = (await Promise.all([respostaSelic.json(), respostaTr.json()])) as {
+      data: string;
+      valor: string;
+    }[][];
+    const selicAnual = Number(jsonSelic[0]?.valor);
+    const trMensal = Number(jsonTr[0]?.valor);
+    if (!Number.isFinite(selicAnual) || !Number.isFinite(trMensal)) {
+      throw new Error("Selic/TR inválidas na resposta do Banco Central.");
+    }
+    const taxaBaseMensal = selicAnual > 8.5 ? 0.5 : (Math.pow(1 + selicAnual / 100, 1 / 12) - 1) * 100 * 0.7;
+    const taxaMensal = taxaBaseMensal + trMensal;
+    const taxaAnual = (Math.pow(1 + taxaMensal / 100, 12) - 1) * 100;
+    await gravarCache(admin, "poupanca", taxaAnual, { selicAnual, trMensal });
+    return { valor: taxaAnual, atualizadoEm: new Date().toISOString() };
+  } catch (erro) {
+    console.error("Erro ao calcular rendimento da poupança:", erro);
+    return { valor: cache?.valor ?? null, atualizadoEm: cache?.atualizado_em ?? null };
+  }
+}
+
 function dataBrParaIso(dataBr: string): string {
   const [dia, mes, ano] = dataBr.split("/");
   return `${ano}-${mes}-${dia}`;
