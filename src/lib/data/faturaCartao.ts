@@ -147,3 +147,30 @@ export function agruparPorFatura(
 
   return Array.from(porChave.values()).sort((a, b) => (a.ciclo.chave < b.ciclo.chave ? 1 : -1));
 }
+
+/** Soma o total da fatura EM ABERTO de todos os cartões de crédito
+ * informados de uma vez -- usado no widget de patrimônio líquido do painel
+ * (a fatura ainda não fechada/paga conta como um passivo, junto com as
+ * dívidas pessoais). Reaproveita `agruparPorFatura`/`CicloFatura.aberta`,
+ * a mesma lógica já usada na tela de UM cartão (`/dashboard/cartao/[id]`),
+ * só que somada pra todos de uma vez. `transacoes` pode vir com lançamentos
+ * de mais de uma conta -- esta função filtra por `conta_id` internamente.
+ * Cartões sem `dia_fechamento`/`dia_vencimento` configurados são ignorados
+ * (não dá pra calcular o ciclo sem isso). Uma fatura com saldo credor (mais
+ * estorno/pagamento do que compra) não soma nada -- só falta real de
+ * pagamento é um passivo. */
+export function calcularFaturaAbertaTotal(
+  contasCartao: { id: string; dia_fechamento: number | null; dia_vencimento: number | null }[],
+  transacoes: Transacao[],
+  hoje: Date = new Date()
+): number {
+  let total = 0;
+  for (const conta of contasCartao) {
+    if (!conta.dia_fechamento || !conta.dia_vencimento) continue;
+    const transacoesDaConta = transacoes.filter((t) => t.conta_id === conta.id);
+    const grupos = agruparPorFatura(transacoesDaConta, conta.dia_fechamento, conta.dia_vencimento, hoje);
+    const faturaAberta = grupos.find((g) => g.ciclo.aberta);
+    if (faturaAberta) total += Math.max(0, faturaAberta.total);
+  }
+  return total;
+}
