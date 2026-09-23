@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarContas } from "@/lib/data/contas";
-import { listarDividasComProgresso } from "@/lib/data/dividas";
+import { listarDividasComProgresso, NOME_CATEGORIA_DIVIDA } from "@/lib/data/dividas";
 import {
   criarTransacao,
   criarCompraParcelada,
@@ -24,11 +24,11 @@ import { salvarDadosFormOffline, lerDadosFormOffline } from "@/lib/offline/dados
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
 import { formatarMoeda } from "@/lib/format";
 import type { Categoria, Conta, DividaComProgresso, Transacao } from "@/lib/data/tipos";
-
-/** Nome exato da categoria padrão "Dívida" (ver seção do contexto do
- * projeto sobre dívidas, 17/set/2026) — comparado por nome porque
- * categorias padrão não têm nenhum campo de "tipo especial", só nome. */
-const NOME_CATEGORIA_DIVIDA = "Dívida";
+// `NOME_CATEGORIA_DIVIDA` (nome exato da categoria padrão "Dívida", ver
+// seção do contexto do projeto sobre dívidas, 17/set/2026) agora mora em
+// src/lib/data/dividas.ts, reaproveitado aqui pra nunca dessincronizar do
+// que a tela de Dívidas usa pra achar o id certo ao abrir esse modal já
+// pré-preenchido num pagamento de parcela (23/set/2026).
 
 const FORMAS_PAGAMENTO = [
   { id: "pix", label: "Pix" },
