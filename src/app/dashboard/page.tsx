@@ -2,7 +2,19 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowDownCircle, ArrowUpCircle, Wallet, Plus, Filter, Lock, AlertTriangle } from "lucide-react";
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Wallet,
+  Plus,
+  Filter,
+  Lock,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Landmark,
+  Receipt,
+} from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -12,8 +24,13 @@ import { listarTransacoes, contarTransacoesDoMes } from "@/lib/data/transacoes";
 import { listarCategorias } from "@/lib/data/categorias";
 import { listarMetas } from "@/lib/data/metas";
 import { listarLimites } from "@/lib/data/limitesCategoria";
-import { gerarLancamentosPendentes } from "@/lib/data/contasFixas";
+import { gerarLancamentosPendentes, listarContasFixas } from "@/lib/data/contasFixas";
 import { listarEvolucaoMensal, type PontoEvolucaoMensal } from "@/lib/data/graficos";
+import { listarContas } from "@/lib/data/contas";
+import { listarInvestimentos, calcularValorAtualEstimado } from "@/lib/data/investimentos";
+import { listarDividasComProgresso } from "@/lib/data/dividas";
+import { calcularFaturaAbertaTotal } from "@/lib/data/faturaCartao";
+import { obterCotacoesMercado } from "@/lib/data/mercado";
 import { LIMITE_TRANSACOES_GRATIS, nivelPlano } from "@/lib/planos";
 import { agruparGastosPorCategoria, heatmapDoMes } from "@/lib/graficos-utils";
 import { formatarMoeda } from "@/lib/format";
@@ -32,7 +49,7 @@ import { GraficoDonutCategorias } from "@/components/dashboard/graficos/GraficoD
 import { GraficoRankingGastos } from "@/components/dashboard/graficos/GraficoRankingGastos";
 import { GraficoColunasComparativo } from "@/components/dashboard/graficos/GraficoColunasComparativo";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
-import type { Categoria, Transacao, Meta, LimiteCategoria } from "@/lib/data/tipos";
+import type { Categoria, Transacao, Meta, LimiteCategoria, ContaFixa } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO_FILTRO = [
   { id: "pix", label: "Pix" },
@@ -72,6 +89,18 @@ interface DadosCacheDashboard {
  * envio". */
 type TransacaoExibida = Transacao & { __pendente?: boolean };
 
+/** Resumo do widget de Patrimônio líquido (ver plano no comentário do
+ * `React.useEffect` que calcula isto, mais abaixo) -- soma de contas +
+ * investimentos, menos dívidas em aberto e a fatura de cartão ainda não
+ * paga. */
+interface PatrimonioResumo {
+  totalContas: number;
+  totalInvestimentos: number;
+  totalDividas: number;
+  totalFaturaAberta: number;
+  liquido: number;
+}
+
 export default function DashboardPage() {
   const { user, perfil } = useAuth();
   const [transacoes, setTransacoes] = React.useState<Transacao[]>([]);
@@ -83,6 +112,15 @@ export default function DashboardPage() {
   const [modalAberto, setModalAberto] = React.useState(false);
   const [bloqueado, setBloqueado] = React.useState(false);
   const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
+
+  // Patrimônio líquido e "custo médio mensal" (widgets do Painel, pedido do
+  // usuário em 22/set/2026) -- dados próprios, buscados nos efeitos
+  // separados logo abaixo, sem mexer no `carregar()` acima (que já tem toda
+  // a lógica delicada de cache offline).
+  const [patrimonio, setPatrimonio] = React.useState<PatrimonioResumo | null>(null);
+  const [patrimonioExpandido, setPatrimonioExpandido] = React.useState(false);
+  const [contasFixasLista, setContasFixasLista] = React.useState<ContaFixa[]>([]);
+  const [custoExpandido, setCustoExpandido] = React.useState(false);
 
   // Modo offline: quando não dá pra buscar do servidor, mostra o último
   // "retrato" bom que a gente tinha salvo. `offlineDesde` guarda a hora
@@ -202,6 +240,73 @@ export default function DashboardPage() {
     const { inicio, fim } = limitesDoPeriodo(filtroPeriodo);
     listarTransacoes(user.id, { inicio, fim }).then(setTransacoesPeriodo);
   }, [user, nivel, filtroPeriodo]);
+
+  // Patrimônio líquido (widget clicável na "Visão geral", ver JSX abaixo) =
+  // saldo de todas as contas + valor atual estimado de todos os
+  // investimentos - dívidas ainda não quitadas - fatura de cartão em aberto
+  // (a fatura já fechada mas ainda não paga é um passivo tanto quanto uma
+  // dívida). Empréstimo já quitado entra pelo `valor_quitado` (via
+  // `calcularValorAtualEstimado`) porque o app nunca lança o recebimento
+  // desse dinheiro numa conta -- excluir subestimaria o patrimônio.
+  // Efeito independente do `carregar()` principal, mesmo padrão da tela de
+  // Investimentos (que busca cotações à parte da lista).
+  React.useEffect(() => {
+    if (!user) return;
+    let cancelado = false;
+    (async () => {
+      const [contas, investimentos, dividas, cotacoes] = await Promise.all([
+        listarContas(user.id),
+        listarInvestimentos(user.id),
+        listarDividasComProgresso(user.id),
+        obterCotacoesMercado(),
+      ]);
+      if (cancelado) return;
+
+      const contasCartao = contas.filter((c) => c.tipo === "cartao_credito");
+      let totalFaturaAberta = 0;
+      if (contasCartao.length > 0) {
+        const hoje = new Date();
+        // ~2 meses de histórico bastam pra cobrir o ciclo em aberto de
+        // qualquer configuração de fechamento/vencimento.
+        const inicio = new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1).toISOString().slice(0, 10);
+        const fim = hoje.toISOString().slice(0, 10);
+        // `calcularFaturaAbertaTotal` já filtra por `conta_id` de cada
+        // cartão internamente -- não precisa pré-filtrar aqui.
+        const transacoesCartao = await listarTransacoes(user.id, { inicio, fim });
+        if (cancelado) return;
+        totalFaturaAberta = calcularFaturaAbertaTotal(
+          contasCartao.map((c) => ({ id: c.id, dia_fechamento: c.dia_fechamento, dia_vencimento: c.dia_vencimento })),
+          transacoesCartao,
+          hoje
+        );
+      }
+
+      const totalContas = contas.reduce((acc, c) => acc + Number(c.saldo_atual), 0);
+      const totalInvestimentos = investimentos.reduce(
+        (acc, inv) => acc + calcularValorAtualEstimado(inv, undefined, cotacoes),
+        0
+      );
+      const totalDividas = dividas.filter((d) => !d.quitada).reduce((acc, d) => acc + Number(d.valor_restante), 0);
+
+      setPatrimonio({
+        totalContas,
+        totalInvestimentos,
+        totalDividas,
+        totalFaturaAberta,
+        liquido: totalContas + totalInvestimentos - totalDividas - totalFaturaAberta,
+      });
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [user]);
+
+  // Contas fixas (usadas só pra estimar o "custo médio mensal" abaixo, ver
+  // `custoMedioMensal`) -- lista completa, independente do `carregar()`.
+  React.useEffect(() => {
+    if (!user) return;
+    listarContasFixas(user.id).then(setContasFixasLista);
+  }, [user]);
 
   async function handleAbrirModal() {
     if (!user || !perfil) return;
@@ -357,6 +462,30 @@ export default function DashboardPage() {
     )[lista.length - 1];
   }, [metas]);
 
+  // "Quanto você custa em média por mês" -- média das saídas dos últimos
+  // meses (reaproveita a mesma evolução mensal já buscada pro Painel), com o
+  // mês atual ajustado somando as contas fixas de despesa que ainda não
+  // geraram lançamento este mês (senão o mês corrente, ainda incompleto,
+  // puxaria a média pra baixo).
+  const custoMedioMensal = React.useMemo(() => {
+    if (evolucaoMensal.length === 0) return null;
+
+    const hoje = new Date();
+    const anoAtual = hoje.getFullYear();
+    const mesAtual = hoje.getMonth() + 1;
+    const pendentesEsteMes = contasFixasLista
+      .filter((cf) => cf.ativa && cf.tipo === "despesa")
+      .filter((cf) => cf.ultimo_ano_gerado !== anoAtual || cf.ultimo_mes_gerado !== mesAtual)
+      .reduce((acc, cf) => acc + Number(cf.valor), 0);
+
+    const saidasAjustadas = evolucaoMensal.map((p, i) =>
+      i === evolucaoMensal.length - 1 ? p.saidas + pendentesEsteMes : p.saidas
+    );
+    const media = saidasAjustadas.reduce((acc, v) => acc + v, 0) / saidasAjustadas.length;
+
+    return { media, pendentesEsteMes, meses: evolucaoMensal.length };
+  }, [evolucaoMensal, contasFixasLista]);
+
   const agora = new Date();
 
   return (
@@ -427,6 +556,106 @@ export default function DashboardPage() {
           <p className="text-h2 text-secondary">{formatarMoeda(saldo)}</p>
           {evolucaoMensal.length > 1 && (
             <Sparkline dados={evolucaoMensal.map((p) => p.saldo)} cor="#14b8a6" />
+          )}
+        </Card>
+      </div>
+
+      {/* Patrimônio líquido e "custo médio mensal" -- pedido do usuário
+          (22/set/2026): não merecem aba própria, são um "negocinho" clicável
+          dentro do Painel que já existe. Clicar expande a explicação do
+          cálculo + o detalhamento, sem navegar pra lugar nenhum. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setPatrimonioExpandido((v) => !v)}
+            className="flex items-center justify-between gap-2 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Landmark size={18} className="shrink-0 text-secondary" />
+              <div>
+                <p className="text-small text-muted">Patrimônio líquido</p>
+                <p className="text-h3 text-foreground">
+                  {patrimonio ? formatarMoeda(patrimonio.liquido) : "Calculando..."}
+                </p>
+              </div>
+            </div>
+            {patrimonioExpandido ? (
+              <ChevronUp size={18} className="shrink-0 text-muted" />
+            ) : (
+              <ChevronDown size={18} className="shrink-0 text-muted" />
+            )}
+          </button>
+
+          {patrimonioExpandido && patrimonio && (
+            <div className="flex flex-col gap-2 border-t border-border pt-3 text-small text-muted">
+              <p>
+                É quanto sobraria se você juntasse tudo o que tem e pagasse tudo o que deve hoje: soma o saldo das
+                suas contas com o valor atual estimado dos seus investimentos, e subtrai suas dívidas em aberto e a
+                fatura de cartão que ainda não fechou ou não foi paga.
+              </p>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span>Contas</span>
+                  <span className="font-medium text-foreground">+{formatarMoeda(patrimonio.totalContas)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Investimentos</span>
+                  <span className="font-medium text-foreground">
+                    +{formatarMoeda(patrimonio.totalInvestimentos)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Dívidas em aberto</span>
+                  <span className="font-medium text-red-500">-{formatarMoeda(patrimonio.totalDividas)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Fatura de cartão em aberto</span>
+                  <span className="font-medium text-red-500">-{formatarMoeda(patrimonio.totalFaturaAberta)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between border-t border-border pt-1">
+                  <span className="font-medium text-foreground">Total</span>
+                  <span className="font-semibold text-secondary">{formatarMoeda(patrimonio.liquido)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setCustoExpandido((v) => !v)}
+            className="flex items-center justify-between gap-2 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Receipt size={18} className="shrink-0 text-red-500" />
+              <div>
+                <p className="text-small text-muted">Você custa em média</p>
+                <p className="text-h3 text-foreground">
+                  {custoMedioMensal ? `${formatarMoeda(custoMedioMensal.media)}/mês` : "Calculando..."}
+                </p>
+              </div>
+            </div>
+            {custoExpandido ? (
+              <ChevronUp size={18} className="shrink-0 text-muted" />
+            ) : (
+              <ChevronDown size={18} className="shrink-0 text-muted" />
+            )}
+          </button>
+
+          {custoExpandido && custoMedioMensal && (
+            <div className="flex flex-col gap-2 border-t border-border pt-3 text-small text-muted">
+              <p>
+                Média das suas saídas nos últimos {custoMedioMensal.meses}{" "}
+                {custoMedioMensal.meses === 1 ? "mês" : "meses"}. O mês atual entra ajustado, somando{" "}
+                <span className="font-medium text-foreground">
+                  {formatarMoeda(custoMedioMensal.pendentesEsteMes)}
+                </span>{" "}
+                em contas fixas de despesa que ainda vão vencer este mês — assim o mês em andamento (ainda
+                incompleto) não puxa a média pra baixo.
+              </p>
+            </div>
           )}
         </Card>
       </div>
