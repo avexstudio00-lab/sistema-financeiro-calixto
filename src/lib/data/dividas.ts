@@ -51,6 +51,31 @@ export async function alternarQuitadaDivida(dividaId: string, quitada: boolean) 
   return supabase.from("dividas").update({ quitada }).eq("id", dividaId);
 }
 
+/** Edita os dados base da dívida (nome, valor total) depois de já cadastrada
+ * — pedido do usuário em 22/set/2026 ("tem como a pessoa editar tudo?"):
+ * antes só dava pra apagar e recriar. Não mexe em `quitada` — isso continua
+ * só pelo toggle "Marcar como quitada"/"Reabrir", e o valor pago continua
+ * sempre calculado a partir do extrato real (ver `listarDividasComProgresso`
+ * acima), nunca editável diretamente. */
+export async function atualizarDivida(dividaId: string, dados: { nome: string; valorTotal: number }) {
+  return supabase.from("dividas").update({ nome: dados.nome, valor_total: dados.valorTotal }).eq("id", dividaId);
+}
+
+/**
+ * Em quantos meses a dívida é quitada, simulando um pagamento mensal
+ * hipotético constante a partir de hoje — pedido do usuário em 22/set/2026,
+ * mesma lógica do Bloco 8 item "h" ("pagando X por mês, quita em Y meses") e
+ * do simulador equivalente em Metas (`calcularMesesParaAtingirMeta`): não é
+ * baseado no ritmo histórico de pagamentos, é um simulador com um valor
+ * hipotético digitado pela pessoa. `null` quando o valor mensal é
+ * inválido/zero.
+ */
+export function calcularMesesParaQuitar(valorRestante: number, pagamentoMensal: number): number | null {
+  if (valorRestante <= 0) return 0;
+  if (!Number.isFinite(pagamentoMensal) || pagamentoMensal <= 0) return null;
+  return Math.ceil(valorRestante / pagamentoMensal);
+}
+
 /** Apaga só o cadastro da dívida — os pagamentos já anotados continuam
  * intactos em `transacoes` (só perdem a referência, `divida_id` vira null
  * via ON DELETE SET NULL), exatamente como uma conta fixa removida nunca
