@@ -130,7 +130,32 @@ export interface Divida {
    * automaticamente quando o valor pago alcança o total — ver
    * src/lib/data/dividas.ts. */
   quitada: boolean;
+  /** true quando essa dívida tem parcelas cadastradas em `divida_parcelas`
+   * (feature "dívida parcelada", 23/set/2026) — dívidas antigas continuam
+   * `false`, sem nenhuma parcela, e funcionam exatamente como sempre. */
+  parcelada: boolean;
+  /** Quanto a pessoa pegou emprestado de verdade (principal), só preenchido
+   * quando ela quer ver o simulador estático "vale a pena" (juros total =
+   * valor_total - valor_emprestado). Opcional mesmo em dívida parcelada —
+   * ver `calcularCustoJuros` em src/lib/data/dividas.ts. */
+  valor_emprestado: number | null;
   criado_em: string;
+}
+
+/** Uma parcela de uma dívida parcelada — mesma forma de `ParcelaInvestimento`,
+ * mas SEM campo `pago`: o status de cada parcela nunca é guardado à parte,
+ * é sempre derivado (waterfall) a partir do `valor_pago` já somado ao vivo
+ * de `transacoes.divida_id` (ver `calcularStatusParcelasDivida` em
+ * src/lib/data/dividas.ts) — assim um pagamento manual cobrindo 2+ parcelas
+ * de uma vez já abate as duas sozinho, sem precisar marcar nada na mão. */
+export interface DividaParcela {
+  id: string;
+  divida_id: string;
+  usuario_id: string;
+  numero: number;
+  valor: number;
+  data_vencimento: string;
+  data_criacao: string;
 }
 
 /** `Divida` com o progresso já calculado a partir da soma de
