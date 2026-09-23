@@ -63,6 +63,13 @@ export default function InvestimentosPage() {
   // em todos".
   const [modoVisualizacao, setModoVisualizacao] = React.useState<"porTipo" | "combinado">("porTipo");
   const [periodoMeses, setPeriodoMeses] = React.useState<number | null>(6);
+  // Filtro por tipo dentro do modo "Por tipo" -- pedido do usuário em
+  // 22/set/2026: uma aba pra escolher UM tipo (ex: só Empréstimo) em vez de
+  // rolar a tela pra ver todas as seções empilhadas. "todos" mantém o
+  // comportamento de sempre (todas as seções, uma embaixo da outra). Só
+  // afeta o modo "Por tipo" -- o modo "Todos juntos" já mistura tudo por
+  // desenho e continua igual, como o próprio usuário pediu pra manter.
+  const [filtroTipo, setFiltroTipo] = React.useState<Investimento["tipo"] | "todos">("todos");
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
@@ -115,6 +122,11 @@ export default function InvestimentosPage() {
     }
     return ORDEM_TIPOS.map((tipo) => ({ tipo, itens: mapa.get(tipo) ?? [] })).filter((g) => g.itens.length > 0);
   }, [investimentos]);
+
+  const gruposFiltrados = React.useMemo(
+    () => (filtroTipo === "todos" ? grupos : grupos.filter((g) => g.tipo === filtroTipo)),
+    [grupos, filtroTipo]
+  );
 
   function calcularResumo(lista: Investimento[]) {
     let totalInvestido = 0;
@@ -412,7 +424,38 @@ export default function InvestimentosPage() {
             </>
           ) : (
             <div className="flex flex-col gap-8">
-              {grupos.map(({ tipo, itens }) => {
+              {grupos.length > 1 && (
+                <div className="flex flex-wrap gap-1.5 rounded-xl bg-muted/10 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setFiltroTipo("todos")}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-small font-medium transition-all",
+                      filtroTipo === "todos" ? "bg-card text-primary-700 shadow-sm" : "text-muted"
+                    )}
+                  >
+                    Todos
+                  </button>
+                  {grupos.map(({ tipo }) => {
+                    const Icone = TIPO_META[tipo].icone;
+                    return (
+                      <button
+                        key={tipo}
+                        type="button"
+                        onClick={() => setFiltroTipo(tipo)}
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-small font-medium transition-all",
+                          filtroTipo === tipo ? "bg-card text-primary-700 shadow-sm" : "text-muted"
+                        )}
+                      >
+                        <Icone size={14} />
+                        {TIPO_META[tipo].label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {gruposFiltrados.map(({ tipo, itens }) => {
                 const Icone = TIPO_META[tipo].icone;
                 const resumo = calcularResumo(itens);
                 return (
