@@ -297,9 +297,19 @@ export default function PlanoPage() {
             <Card
               key={planoId}
               padding="lg"
-              className={cn("flex h-full flex-col gap-5", ehAtual && "border-2 border-primary-500")}
+              className={cn("flex h-full min-w-0 flex-col gap-5", ehAtual && "border-2 border-primary-500")}
             >
-              <div className="flex items-center justify-between">
+              {/* `min-w-0` no Card (item do grid) + `flex-wrap` aqui: sem os
+                  dois, o Badge "Para negócio e investimento" + "Seu plano
+                  atual" juntos (ambos `whitespace-nowrap`, ver Badge.tsx)
+                  forçavam o card inteiro a ficar mais largo que a tela no
+                  celular, e a sobra ficava cortada, sem rastro, pelo
+                  `overflow-x: hidden` global (mesma causa raiz já documentada
+                  no projeto — seção 23/26 do contexto: item de grid/flex sem
+                  `min-width: 0` não encolhe abaixo do próprio conteúdo).
+                  Reportado pelo usuário em 23/set/2026: os cards de plano
+                  apareciam "grudados" na borda direita no iPhone. */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Badge variant={planoId === "clt" ? "primary" : "neutral"}>{BADGE_PLANO[planoId]}</Badge>
                 {ehAtual && <Badge variant="primary">Seu plano atual</Badge>}
               </div>
