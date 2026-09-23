@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, HandCoins, Trophy, Trash2, RotateCcw } from "lucide-react";
+import { Plus, HandCoins, Trophy, Trash2, RotateCcw, Pencil, Calculator } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -13,12 +13,31 @@ import {
   listarDividasComProgresso,
   alternarQuitadaDivida,
   removerDivida,
+  atualizarDivida,
+  calcularMesesParaQuitar,
 } from "@/lib/data/dividas";
+import { adicionarMeses } from "@/lib/data/investimentos";
 import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
 import type { DividaComProgresso } from "@/lib/data/tipos";
 
 function formatarMoeda(valor: number) {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+const NOMES_MES_EXTENSO = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+function hojeIso(): string {
+  const hoje = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}-${pad(hoje.getDate())}`;
+}
+
+function mesAnoExtenso(dataIso: string): string {
+  const [ano, mes] = dataIso.split("-").map(Number);
+  return `${NOMES_MES_EXTENSO[mes - 1]} de ${ano}`;
 }
 
 export default function DividasPage() {
@@ -32,6 +51,10 @@ export default function DividasPage() {
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
   const [removendoId, setRemovendoId] = React.useState<string | null>(null);
+  const [dividaEditandoId, setDividaEditandoId] = React.useState<string | null>(null);
+  const [edicao, setEdicao] = React.useState({ nome: "", valorTotal: "" });
+  const [salvandoEdicao, setSalvandoEdicao] = React.useState(false);
+  const [simulacaoEmEdicao, setSimulacaoEmEdicao] = React.useState<Record<string, string>>({});
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
@@ -70,6 +93,21 @@ export default function DividasPage() {
   async function handleRemover(dividaId: string) {
     await removerDivida(dividaId);
     setRemovendoId(null);
+    carregar();
+  }
+
+  function abrirEdicao(divida: DividaComProgresso) {
+    setDividaEditandoId(divida.id);
+    setEdicao({ nome: divida.nome, valorTotal: String(divida.valor_total) });
+  }
+
+  async function handleSalvarEdicao(divida: DividaComProgresso) {
+    const valor = Number(edicao.valorTotal.replace(",", "."));
+    if (edicao.nome.trim().length < 2 || !valor || valor <= 0) return;
+    setSalvandoEdicao(true);
+    await atualizarDivida(divida.id, { nome: edicao.nome.trim(), valorTotal: valor });
+    setSalvandoEdicao(false);
+    setDividaEditandoId(null);
     carregar();
   }
 
@@ -146,16 +184,64 @@ export default function DividasPage() {
                 const progresso =
                   divida.valor_total > 0 ? (divida.valor_pago / divida.valor_total) * 100 : 0;
                 const quitandoSozinha = progresso >= 100;
+                const simulacaoTexto = simulacaoEmEdicao[divida.id] ?? "";
+                const pagamentoSimulado = Number(simulacaoTexto.replace(",", "."));
+                const mesesSimulados =
+                  simulacaoTexto.trim() === ""
+                    ? null
+                    : calcularMesesParaQuitar(divida.valor_restante, pagamentoSimulado);
+
+                if (dividaEditandoId === divida.id) {
+                  return (
+                    <Card key={divida.id} className="flex flex-col gap-4">
+                      <h3 className="text-h3 text-foreground">Editar dívida</h3>
+                      <Input
+                        label="Nome da dívida"
+                        value={edicao.nome}
+                        onChange={(e) => setEdicao((prev) => ({ ...prev, nome: e.target.value }))}
+                      />
+                      <Input
+                        label="Valor total"
+                        inputMode="decimal"
+                        value={edicao.valorTotal}
+                        onChange={(e) => setEdicao((prev) => ({ ...prev, valorTotal: e.target.value }))}
+                      />
+                      <div className="flex gap-2">
+                        <Button variant="tertiary" className="flex-1" onClick={() => setDividaEditandoId(null)}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          disabled={salvandoEdicao}
+                          onClick={() => handleSalvarEdicao(divida)}
+                        >
+                          {salvandoEdicao ? "Salvando..." : "Salvar"}
+                        </Button>
+                      </div>
+                    </Card>
+                  );
+                }
+
                 return (
                   <Card key={divida.id} className="flex flex-col gap-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="min-w-0 text-h3 text-foreground">{divida.nome}</h3>
-                      {quitandoSozinha && (
-                        <Badge variant="primary" size="sm">
-                          <Trophy size={12} />
-                          Quitada
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {quitandoSozinha && (
+                          <Badge variant="primary" size="sm">
+                            <Trophy size={12} />
+                            Quitada
+                          </Badge>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicao(divida)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
+                          aria-label="Editar dívida"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <AnelProgresso
@@ -207,6 +293,34 @@ export default function DividasPage() {
                         </Button>
                       </div>
                     )}
+
+                    <div className="flex flex-col gap-2 rounded-xl bg-muted/5 p-3">
+                      <div className="flex items-center gap-1.5 text-small font-medium text-foreground">
+                        <Calculator size={14} className="text-rose-500" />
+                        Simular: pagando quanto por mês?
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="min-w-[120px] flex-1">
+                          <Input
+                            placeholder="Ex: 150,00"
+                            inputMode="decimal"
+                            value={simulacaoEmEdicao[divida.id] ?? ""}
+                            onChange={(e) =>
+                              setSimulacaoEmEdicao((prev) => ({ ...prev, [divida.id]: e.target.value }))
+                            }
+                          />
+                        </div>
+                        {mesesSimulados != null && (
+                          <span className="text-small text-muted">
+                            {mesesSimulados === 0
+                              ? "Você já quitou essa dívida!"
+                              : mesesSimulados === 1
+                                ? `Quita em 1 mês (${mesAnoExtenso(adicionarMeses(hojeIso(), 1))})`
+                                : `Quita em ${mesesSimulados} meses (${mesAnoExtenso(adicionarMeses(hojeIso(), mesesSimulados))})`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </Card>
                 );
               })}
