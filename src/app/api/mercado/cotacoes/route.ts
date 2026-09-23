@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { usuarioAutenticadoDaRequisicao, supabaseAdmin } from "@/lib/supabase/admin";
 import { limitarRequisicoes, RESPOSTA_RATE_LIMIT } from "@/lib/rateLimit";
-import { obterCotacaoCdi, obterCotacaoCambio, obterTitulosTesouro } from "@/lib/mercado/cotacoes";
+import { obterCotacaoCdi, obterCotacaoCambio, obterTitulosTesouro, obterCotacaoPoupanca } from "@/lib/mercado/cotacoes";
 import type { CotacoesMercado } from "@/lib/data/tipos";
 
 export const runtime = "nodejs";
@@ -39,10 +39,11 @@ export async function GET(request: Request) {
   }
 
   const admin = supabaseAdmin();
-  const [cdi, cambio, tesouro] = await Promise.all([
+  const [cdi, cambio, tesouro, poupanca] = await Promise.all([
     obterCotacaoCdi(admin),
     obterCotacaoCambio(admin),
     obterTitulosTesouro(admin),
+    obterCotacaoPoupanca(admin),
   ]);
 
   const corpo: CotacoesMercado = {
@@ -53,6 +54,8 @@ export async function GET(request: Request) {
     cambioAtualizadoEm: cambio.atualizadoEm,
     titulosTesouro: tesouro.titulos,
     titulosAtualizadoEm: tesouro.atualizadoEm,
+    poupanca: poupanca.valor,
+    poupancaAtualizadoEm: poupanca.atualizadoEm,
   };
   return NextResponse.json(corpo);
 }
