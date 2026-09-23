@@ -7,6 +7,17 @@ import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, Cotacoes
  * usuário confirmar ou ajustar. */
 export const TAXA_CDI_SUGERIDA = 13.9;
 
+/** Rendimento anualizado sugerido da poupança (equivalente a 0,5% ao mês
+ * composto, o cenário mais comum hoje — Selic acima de 8,5% ao ano) --
+ * só usado como fallback enquanto a cotação ao vivo (Selic + TR, ver
+ * `obterCotacaoPoupanca`) ainda não chegou ou está fora do ar. */
+export const TAXA_POUPANCA_SUGERIDA = 6.17;
+
+/** Percentual do CDI sugerido pra CDB/LCI/LCA ao cadastrar (100% do CDI é o
+ * caso mais comum de referência — o usuário ajusta pro que o banco ofereceu
+ * de verdade, ex: 90%, 110%). */
+export const PERCENTUAL_CDI_SUGERIDO = 100;
+
 export interface NovoInvestimento {
   usuario_id: string;
   nome: string;
@@ -542,6 +553,25 @@ export function calcularValorAtualEstimado(
       const anos = dias / 365;
       return principal * Math.pow(1 + taxaEfetiva / 100, anos);
     }
+    case "poupanca": {
+      const taxaEfetiva = cotacoes?.poupanca ?? (inv.taxa != null ? Number(inv.taxa) : TAXA_POUPANCA_SUGERIDA);
+      const anos = dias / 365;
+      return principal * Math.pow(1 + taxaEfetiva / 100, anos);
+    }
+    case "cdb":
+    case "lci":
+    case "lca": {
+      // Rende um percentual do CDI (ex: 100%, 110%, 90% do CDI) -- o
+      // percentual combinado fica gravado em `taxa` (mesmo campo que CDI usa
+      // pra taxa % ao ano, só que aqui o número é um percentual do CDI, não
+      // uma taxa anual direta). Sempre baseado no CDI AO VIVO quando
+      // disponível, igual ao tipo "cdi".
+      const cdiAnual = cotacoes?.cdi ?? TAXA_CDI_SUGERIDA;
+      const percentualCdi = inv.taxa != null ? Number(inv.taxa) : PERCENTUAL_CDI_SUGERIDO;
+      const taxaEfetiva = cdiAnual * (percentualCdi / 100);
+      const anos = dias / 365;
+      return principal * Math.pow(1 + taxaEfetiva / 100, anos);
+    }
     case "tesouro": {
       const titulo = inv.titulo_tesouro
         ? cotacoes?.titulosTesouro.find((t) => t.chave === inv.titulo_tesouro)
@@ -603,7 +633,15 @@ export function calcularPercentualGanho(
 
 /** true quando o ganho do investimento é calculado automaticamente pela taxa. */
 export function temCalculoAutomatico(tipo: Investimento["tipo"]): boolean {
-  return tipo === "cdi" || tipo === "tesouro" || tipo === "emprestimo";
+  return (
+    tipo === "cdi" ||
+    tipo === "tesouro" ||
+    tipo === "emprestimo" ||
+    tipo === "poupanca" ||
+    tipo === "cdb" ||
+    tipo === "lci" ||
+    tipo === "lca"
+  );
 }
 
 /** true pros tipos onde o usuário registra um valor de venda (em vez de só
