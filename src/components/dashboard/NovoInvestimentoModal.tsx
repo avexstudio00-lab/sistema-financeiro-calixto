@@ -9,6 +9,10 @@ import {
   HandCoins,
   TrendingUp,
   ShoppingBag,
+  PiggyBank,
+  Building2,
+  Home,
+  Sprout,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -21,6 +25,8 @@ import {
   gerarDatasSugeridasParcelas,
   gerarValoresSugeridosParcelas,
   TAXA_CDI_SUGERIDA,
+  TAXA_POUPANCA_SUGERIDA,
+  PERCENTUAL_CDI_SUGERIDO,
 } from "@/lib/data/investimentos";
 import { obterCotacoesMercado } from "@/lib/data/mercado";
 import type { CotacoesMercado } from "@/lib/data/tipos";
@@ -31,6 +37,30 @@ const TIPOS_INVESTIMENTO = [
     nome: "CDI",
     descricao: "Renda fixa atrelada ao CDI. O ganho é calculado pela taxa.",
     icone: TrendingUp,
+  },
+  {
+    id: "poupanca",
+    nome: "Poupança",
+    descricao: "Rende sozinho pela regra oficial (Selic + TR) — sem taxa pra digitar.",
+    icone: PiggyBank,
+  },
+  {
+    id: "cdb",
+    nome: "CDB",
+    descricao: "Renda fixa de banco — você informa quanto % do CDI ele rende.",
+    icone: Building2,
+  },
+  {
+    id: "lci",
+    nome: "LCI",
+    descricao: "Crédito imobiliário, isento de IR — também um % do CDI.",
+    icone: Home,
+  },
+  {
+    id: "lca",
+    nome: "LCA",
+    descricao: "Crédito do agronegócio, isento de IR — também um % do CDI.",
+    icone: Sprout,
   },
   {
     id: "tesouro",
@@ -109,6 +139,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const [valorInvestido, setValorInvestido] = React.useState("");
   const [dataInicio, setDataInicio] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [taxa, setTaxa] = React.useState(String(TAXA_CDI_SUGERIDA).replace(".", ","));
+  const [percentualCdi, setPercentualCdi] = React.useState(String(PERCENTUAL_CDI_SUGERIDO));
   const [descricao, setDescricao] = React.useState("");
   const [formaPagamento, setFormaPagamento] = React.useState<"vista" | "parcelado">("vista");
   const [numeroParcelas, setNumeroParcelas] = React.useState("");
@@ -142,6 +173,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setValorInvestido("");
       setDataInicio(new Date().toISOString().slice(0, 10));
       setTaxa(String(TAXA_CDI_SUGERIDA).replace(".", ","));
+      setPercentualCdi(String(PERCENTUAL_CDI_SUGERIDO));
       setDescricao("");
       setFormaPagamento("vista");
       setNumeroParcelas("");
@@ -194,10 +226,14 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
   const tituloEscolhido = tesouroAoVivo
     ? titulosDisponiveis.find((t) => t.chave === tituloTesouroSelecionado)
     : undefined;
-  // CDI agora é sempre automático (taxa ao vivo do Banco Central, ver
-  // calcularValorAtualEstimado) -- só Tesouro Direto sem título vinculado
-  // (fluxo legado, ou API fora do ar) ainda pede uma taxa digitada à mão.
+  // CDI e Poupança agora são sempre automáticos (taxa ao vivo do Banco
+  // Central, ver calcularValorAtualEstimado) -- só Tesouro Direto sem título
+  // vinculado (fluxo legado, ou API fora do ar) ainda pede uma taxa digitada
+  // à mão. CDB/LCI/LCA são automáticos também, mas com um percentual do CDI
+  // que a pessoa digita (não uma taxa % ao ano) -- ver `ehRendaFixaPercentualCdi`.
   const precisaTaxa = tipo === "tesouro" && !tesouroAoVivo;
+  const ehPoupanca = tipo === "poupanca";
+  const ehRendaFixaPercentualCdi = tipo === "cdb" || tipo === "lci" || tipo === "lca";
   const precisaDescricao = (tipo === "tesouro" && !tesouroAoVivo) || tipo === "bolsa";
   const quantidadeCotasNumero = parsearValorDigitado(quantidadeCotas);
   const podeParcelar = tipo === "emprestimo" || tipo === "revenda";
@@ -322,15 +358,24 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setErro("Digite quantas cotas você comprou desse título.");
       return;
     }
+    const percentualCdiNumero = Number(percentualCdi.replace(",", "."));
     const taxaNumero = tipo === "cdi"
       ? (cotacoes?.cdi ?? TAXA_CDI_SUGERIDA)
-      : tesouroAoVivo
-        ? (tituloEscolhido?.taxaVenda ?? null)
-        : precisaTaxa
-          ? Number(taxa.replace(",", "."))
-          : null;
+      : ehPoupanca
+        ? (cotacoes?.poupanca ?? TAXA_POUPANCA_SUGERIDA)
+        : ehRendaFixaPercentualCdi
+          ? (Number.isFinite(percentualCdiNumero) && percentualCdiNumero > 0 ? percentualCdiNumero : PERCENTUAL_CDI_SUGERIDO)
+          : tesouroAoVivo
+            ? (tituloEscolhido?.taxaVenda ?? null)
+            : precisaTaxa
+              ? Number(taxa.replace(",", "."))
+              : null;
     if (precisaTaxa && (taxaNumero === null || Number.isNaN(taxaNumero))) {
       setErro("Digite uma taxa válida.");
+      return;
+    }
+    if (ehRendaFixaPercentualCdi && (!Number.isFinite(percentualCdiNumero) || percentualCdiNumero <= 0)) {
+      setErro("Digite um percentual do CDI válido (ex: 100).");
       return;
     }
     if (ehEmprestimo && (!valorRetornavelNumero || valorRetornavelNumero <= 0)) {
@@ -497,6 +542,28 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
                 ? "Buscando a taxa CDI atual..."
                 : `Taxa CDI atual: ${(cotacoes.cdi ?? TAXA_CDI_SUGERIDA).toString().replace(".", ",")}% ao ano — atualiza sozinho todo dia, sem precisar digitar.`}
             </div>
+          )}
+          {ehPoupanca && (
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/5 px-4 py-3 text-small text-foreground">
+              <PiggyBank size={16} className="shrink-0 text-primary-600" />
+              {cotacoes === undefined
+                ? "Buscando o rendimento atual da poupança..."
+                : `Rendimento atual da poupança: ${(cotacoes.poupanca ?? TAXA_POUPANCA_SUGERIDA).toFixed(2).replace(".", ",")}% ao ano — calculado pela regra oficial (Selic + TR), atualiza sozinho todo dia.`}
+            </div>
+          )}
+          {ehRendaFixaPercentualCdi && (
+            <Input
+              label="Percentual do CDI"
+              inputMode="decimal"
+              value={percentualCdi}
+              onChange={(e) => setPercentualCdi(e.target.value)}
+              placeholder="100"
+              helperText={
+                cotacoes?.cdi != null
+                  ? `Ex: 100 = 100% do CDI. Com o CDI atual (${String(cotacoes.cdi).replace(".", ",")}% ao ano), isso rende ${((cotacoes.cdi * (Number(percentualCdi.replace(",", ".")) || 0)) / 100).toFixed(2).replace(".", ",")}% ao ano.`
+                  : "Ex: 100 = 100% do CDI — o que o banco te ofereceu na hora de contratar."
+              }
+            />
           )}
           {tipo === "tesouro" && tesouroAoVivo && (
             <>
