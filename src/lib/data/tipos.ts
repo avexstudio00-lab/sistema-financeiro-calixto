@@ -168,7 +168,7 @@ export interface Investimento {
   id: string;
   usuario_id: string;
   nome: string;
-  tipo: "cdi" | "tesouro" | "bolsa" | "emprestimo" | "revenda";
+  tipo: "cdi" | "tesouro" | "bolsa" | "emprestimo" | "revenda" | "poupanca" | "cdb" | "lci" | "lca";
   valor_investido: number;
   valor_atual: number;
   taxa: number | null;
@@ -248,6 +248,11 @@ export interface CotacoesMercado {
   cambioAtualizadoEm: string | null;
   titulosTesouro: TituloTesouro[];
   titulosAtualizadoEm: string | null;
+  /** Rendimento anualizado da poupança, já calculado a partir da Selic + TR
+   * (regra oficial, ver `obterCotacaoPoupanca` em src/lib/mercado/cotacoes.ts)
+   * -- pronto pra usar do mesmo jeito que `cdi`. */
+  poupanca: number | null;
+  poupancaAtualizadoEm: string | null;
 }
 
 /** Uma parcela de um investimento com forma_pagamento "parcelado" (ex:
