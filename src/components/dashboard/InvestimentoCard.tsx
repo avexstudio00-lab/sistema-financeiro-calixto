@@ -15,6 +15,10 @@ import {
   Banknote,
   CheckCircle2,
   Percent,
+  PiggyBank,
+  Building2,
+  Home,
+  Sprout,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -39,6 +43,10 @@ import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, Cotacoes
 
 export const TIPO_META: Record<Investimento["tipo"], { label: string; icone: LucideIcon }> = {
   cdi: { label: "CDI", icone: TrendingUp },
+  poupanca: { label: "Poupança", icone: PiggyBank },
+  cdb: { label: "CDB", icone: Building2 },
+  lci: { label: "LCI", icone: Home },
+  lca: { label: "LCA", icone: Sprout },
   tesouro: { label: "Tesouro Direto", icone: Landmark },
   bolsa: { label: "Bolsa de Valores", icone: LineChartIcon },
   emprestimo: { label: "Empréstimo", icone: HandCoins },
@@ -132,9 +140,14 @@ export function InvestimentoCard({
   const Icone = TIPO_META[inv.tipo].icone;
   const automatico = temCalculoAutomatico(inv.tipo);
   const revenda = ehTipoRevenda(inv.tipo);
-  // CDI agora é sempre automático (taxa ao vivo do Banco Central) -- não tem
-  // mais o que editar manualmente, então nem mostra o botão de taxa.
+  // CDI e Poupança são sempre automáticos (taxa/rendimento ao vivo do Banco
+  // Central) -- não tem o que editar manualmente, então nem mostra o botão
+  // de taxa, só um badge informativo. CDB/LCI/LCA também são automáticos,
+  // mas com um percentual do CDI que a pessoa combinou com o banco -- esse
+  // sim continua editável (cai no branch genérico `automatico` abaixo).
   const cdiAoVivo = inv.tipo === "cdi";
+  const poupancaAoVivo = inv.tipo === "poupanca";
+  const rendaFixaPercentualCdi = inv.tipo === "cdb" || inv.tipo === "lci" || inv.tipo === "lca";
   // Tesouro com título vinculado (fluxo novo, escolhido na criação a partir
   // da lista ao vivo) usa o PU de venda atual em vez de uma taxa digitada.
   // Tesouro sem título (fluxo legado) continua editável por taxa manual.
@@ -335,6 +348,12 @@ export function InvestimentoCard({
             <TrendingUp size={12} />
             CDI atual: {cotacoes?.cdi != null ? `${String(cotacoes.cdi).replace(".", ",")}% ao ano` : "buscando..."}
           </span>
+        ) : poupancaAoVivo ? (
+          <span className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground">
+            <PiggyBank size={12} />
+            Poupança atual:{" "}
+            {cotacoes?.poupanca != null ? `${cotacoes.poupanca.toFixed(2).replace(".", ",")}% ao ano` : "buscando..."}
+          </span>
         ) : tesouroComTitulo ? (
           <span className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground">
             <Landmark size={12} />
@@ -369,7 +388,13 @@ export function InvestimentoCard({
             >
               <Pencil size={12} />
               Taxa: {inv.taxa ?? 0}%{" "}
-              {inv.tipo === "emprestimo" ? (inv.tipo_ganho === "mensal" ? "ao mês" : "fixo") : "ao ano"}
+              {inv.tipo === "emprestimo"
+                ? inv.tipo_ganho === "mensal"
+                  ? "ao mês"
+                  : "fixo"
+                : rendaFixaPercentualCdi
+                  ? "do CDI"
+                  : "ao ano"}
             </button>
           )
         ) : editandoValor ? (
