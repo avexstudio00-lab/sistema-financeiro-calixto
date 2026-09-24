@@ -33,7 +33,7 @@ import {
   ehTipoRevenda,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
-import { ParcelasInvestimento, type DadosJurosParcela } from "@/components/dashboard/ParcelasInvestimento";
+import { ParcelasInvestimento, type DadosJurosParcela, type DadosEdicaoParcela } from "@/components/dashboard/ParcelasInvestimento";
 import { HistoricoPagamentosEmprestimo } from "@/components/dashboard/HistoricoPagamentosEmprestimo";
 import {
   RegistrarPagamentoEmprestimoDialog,
@@ -80,7 +80,7 @@ export interface InvestimentoCardProps {
   ) => void | Promise<void>;
   onExcluir: (inv: Investimento) => void | Promise<void>;
   onAlternarParcela: (parcela: ParcelaInvestimento) => void | Promise<void>;
-  onEditarDataParcela: (parcela: ParcelaInvestimento, novaDataIso: string) => void | Promise<void>;
+  onEditarParcela: (parcela: ParcelaInvestimento, dados: DadosEdicaoParcela) => void | Promise<void>;
   /** Edita a diária de atraso combinada (R$/dia) — só empréstimo. */
   onAtualizarDiaria?: (inv: Investimento, valorDiaria: number | null) => void | Promise<void>;
   /** "Só juros" no empréstimo à vista (rola o vencimento 1 mês). */
@@ -114,7 +114,7 @@ export function InvestimentoCard({
   onEditarEmprestimo,
   onExcluir,
   onAlternarParcela,
-  onEditarDataParcela,
+  onEditarParcela,
   onAtualizarDiaria,
   onRegistrarJurosAvista,
   onRegistrarQuitacao,
@@ -520,7 +520,7 @@ export function InvestimentoCard({
         valorDiariaPorDia={inv.valor_diaria}
         salvando={salvando}
         onAlternarPaga={onAlternarParcela}
-        onEditarData={onEditarDataParcela}
+        onEditarParcela={onEditarParcela}
         onRegistrarJuros={onRegistrarJurosParcela}
       />
 
