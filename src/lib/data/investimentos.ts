@@ -170,7 +170,7 @@ export async function criarParcelasDoInvestimento(
 /** Recalcula `investimentos.data_vencimento_final` como o vencimento mais
  * tardio entre as parcelas do investimento, e grava no banco. Chamado depois
  * de criar as parcelas e sempre que uma data individual é editada
- * manualmente (ver `atualizarDataVencimentoParcela`) — mantém essa coluna
+ * manualmente (ver `editarParcelaInvestimento`) — mantém essa coluna
  * como a fonte única de "até quando o ganho do empréstimo cresce", mesmo
  * quando as parcelas têm frequência combinada de forma mista (algumas
  * quinzenais, outras mensais, editadas à mão). */
@@ -185,19 +185,51 @@ export async function recalcularVencimentoFinalDoInvestimento(investimentoId: st
   return supabase.from("investimentos").update({ data_vencimento_final: maisTarde }).eq("id", investimentoId);
 }
 
-/** Edita manualmente o vencimento de UMA parcela (ex: o combinado real foi
- * quinzenal/mensal misturado, ou a pessoa remarcou uma data) e mantém
- * `data_vencimento_final` do investimento sincronizado depois. */
-export async function atualizarDataVencimentoParcela(
+/** Edita manualmente a data e/ou o valor de UMA parcela já criada (ex: o
+ * combinado real foi quinzenal/mensal misturado, a pessoa remarcou uma
+ * data, ou digitou o valor errado ao cadastrar — pedido explícito do
+ * usuário em 24/set/2026: "coloquei a primeira parcela de 55 e era pra ser
+ * 110"). Mantém `data_vencimento_final` do investimento sincronizado
+ * depois, igual já fazia só pra data.
+ *
+ * `aplicarValorNasSeguintes` cobre o segundo caso que o usuário pediu: em
+ * vez de corrigir uma parcela avulsa, ele quer repassar um valor novo pra
+ * essa parcela E todas as seguintes ainda não pagas (ex: renegociou de
+ * R$110 pra R$120 daqui pra frente) — mesmo padrão de escolha "só essa" vs
+ * "essa e as seguintes" já usado em `registrarPagamentoJuros`
+ * (`empurrarSeguintes`). Nunca sobrescreve parcela já paga (`pago = true`)
+ * — isso já foi de fato recebido com o valor antigo, mudar retroativamente
+ * distorceria o histórico. */
+export async function editarParcelaInvestimento(
   parcelaId: string,
   investimentoId: string,
-  novaData: string
+  novaData: string,
+  novoValor: number,
+  aplicarValorNasSeguintes: boolean
 ) {
-  const { error } = await supabase
+  const { data: parcelaAtual, error: erroBusca } = await supabase
     .from("investimento_parcelas")
-    .update({ data_vencimento: novaData })
+    .select("numero")
+    .eq("id", parcelaId)
+    .single();
+  if (erroBusca || !parcelaAtual) return { data: null, error: erroBusca };
+
+  const { error: erroParcela } = await supabase
+    .from("investimento_parcelas")
+    .update({ data_vencimento: novaData, valor: Number(novoValor.toFixed(2)) })
     .eq("id", parcelaId);
-  if (error) return { data: null, error };
+  if (erroParcela) return { data: null, error: erroParcela };
+
+  if (aplicarValorNasSeguintes) {
+    const { error: erroSeguintes } = await supabase
+      .from("investimento_parcelas")
+      .update({ valor: Number(novoValor.toFixed(2)) })
+      .eq("investimento_id", investimentoId)
+      .eq("pago", false)
+      .gt("numero", (parcelaAtual as { numero: number }).numero);
+    if (erroSeguintes) return { data: null, error: erroSeguintes };
+  }
+
   return recalcularVencimentoFinalDoInvestimento(investimentoId);
 }
 
@@ -444,6 +476,39 @@ export async function registrarQuitacaoAntecipadaParcelado(
   return supabase
     .from("investimentos")
     .update({ quitado: true, valor_quitado: valorPago, data_quitacao: dataPagamento })
+    .eq("id", investimentoId);
+}
+
+/** Marca o empréstimo parcelado como quitado quando a ÚLTIMA parcela em
+ * aberto é marcada como paga pelo caminho "uma por uma" (botão "Marcar
+ * paga" de cada parcela) — até 24/set/2026 só o botão "Quitar tudo agora"
+ * (`registrarQuitacaoAntecipadaParcelado`) escrevia `quitado`/`valor_quitado`/
+ * `data_quitacao`, então um empréstimo pago parcela a parcela nunca
+ * aparecia como quitado (nem no badge, nem separado dos em aberto — pedido
+ * do usuário: "o quitado não pode misturar com o em aberto"). `valorQuitado`
+ * é a soma do valor de todas as parcelas (o que foi de fato combinado
+ * receber; juros/diária de atraso continuam registrados à parte em
+ * `investimento_pagamentos` quando usados nessa parcela). */
+export async function marcarEmprestimoQuitadoPorParcelas(investimentoId: string, valorQuitado: number) {
+  return supabase
+    .from("investimentos")
+    .update({
+      quitado: true,
+      valor_quitado: Number(valorQuitado.toFixed(2)),
+      data_quitacao: new Date().toISOString().slice(0, 10),
+    })
+    .eq("id", investimentoId);
+}
+
+/** Reabre um empréstimo parcelado que tinha sido marcado como quitado (por
+ * qualquer um dos dois caminhos acima) quando a pessoa desmarca uma parcela
+ * como paga de novo (ex: clicou "Marcar paga" sem querer) — evita ficar com
+ * `quitado: true` e uma parcela em aberto ao mesmo tempo, o que quebraria a
+ * separação quitados/em aberto na tela. */
+export async function reabrirEmprestimoParcelado(investimentoId: string) {
+  return supabase
+    .from("investimentos")
+    .update({ quitado: false, valor_quitado: null, data_quitacao: null })
     .eq("id", investimentoId);
 }
 
