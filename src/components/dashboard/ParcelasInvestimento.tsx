@@ -17,6 +17,14 @@ export interface DadosJurosParcela {
   empurrarSeguintes: boolean;
 }
 
+export interface DadosEdicaoParcela {
+  novaData: string;
+  novoValor: number;
+  /** true = aplica `novoValor` nessa parcela E em todas as seguintes ainda
+   * não pagas (renegociação pra frente); false = só nessa parcela. */
+  aplicarSeguintes: boolean;
+}
+
 export interface ParcelasInvestimentoProps {
   parcelas: ParcelaInvestimento[];
   periodicidade?: "mensal" | "quinzenal" | "semanal" | null;
@@ -25,10 +33,12 @@ export interface ParcelasInvestimentoProps {
   valorDiariaPorDia?: number | null;
   salvando: boolean;
   onAlternarPaga: (parcela: ParcelaInvestimento) => void;
-  /** Edita manualmente o vencimento de uma parcela já criada — usado
-   * quando o combinado real tem frequência mista (ex: uma parcela ficou
-   * quinzenal e as outras mensais) e precisa de ajuste depois de cadastrar. */
-  onEditarData?: (parcela: ParcelaInvestimento, novaDataIso: string) => void;
+  /** Edita manualmente a data e/ou o valor de uma parcela já criada — usado
+   * tanto quando o combinado real tem frequência mista (ex: uma parcela
+   * ficou quinzenal e as outras mensais) quanto pra corrigir um valor
+   * digitado errado ao cadastrar, ou renegociar o valor das próximas
+   * parcelas (ver `DadosEdicaoParcela.aplicarSeguintes`). */
+  onEditarParcela?: (parcela: ParcelaInvestimento, dados: DadosEdicaoParcela) => void | Promise<void>;
   /** "Só juros" nessa parcela — a dívida dela continua em aberto e o
    * vencimento rola 1 mês pra frente (só dela, ou dela em diante — ver
    * `empurrarSeguintes`). Só aparece pra empréstimos parcelados. */
@@ -59,11 +69,15 @@ export function ParcelasInvestimento({
   valorDiariaPorDia,
   salvando,
   onAlternarPaga,
-  onEditarData,
+  onEditarParcela,
   onRegistrarJuros,
 }: ParcelasInvestimentoProps) {
   const [expandido, setExpandido] = React.useState(false);
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
+  const [dataEmEdicao, setDataEmEdicao] = React.useState("");
+  const [valorEmEdicao, setValorEmEdicao] = React.useState("");
+  const [aplicarValorSeguintes, setAplicarValorSeguintes] = React.useState(false);
+  const [erroEdicao, setErroEdicao] = React.useState<string | null>(null);
   const [jurosId, setJurosId] = React.useState<string | null>(null);
   const [dataPagamentoJuros, setDataPagamentoJuros] = React.useState(hojeIso());
   const [jurosTexto, setJurosTexto] = React.useState("");
@@ -82,11 +96,50 @@ export function ParcelasInvestimento({
   const diasAtrasoJuros = parcelaEmJuros ? calcularDiasAtraso(parcelaEmJuros.data_vencimento, dataPagamentoJuros) : 0;
   const diariaSugerida = calcularValorDiaria(diasAtrasoJuros, valorDiariaPorDia ?? null);
 
+  const parcelaEmEdicao = editandoId ? parcelas.find((p) => p.id === editandoId) ?? null : null;
+  const temSeguintesParaEdicao = parcelaEmEdicao
+    ? parcelas.some((p) => p.numero > parcelaEmEdicao.numero && !p.pago)
+    : false;
+
   React.useEffect(() => {
     if (diariaEditadaManualmente) return;
     setDiariaTexto(formatarValorParaInput(diariaSugerida));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diariaSugerida, diariaEditadaManualmente]);
+
+  function abrirEdicao(parcela: ParcelaInvestimento) {
+    setJurosId(null);
+    setEditandoId(parcela.id);
+    setDataEmEdicao(parcela.data_vencimento);
+    setValorEmEdicao(formatarValorParaInput(Number(parcela.valor)));
+    setAplicarValorSeguintes(false);
+    setErroEdicao(null);
+  }
+
+  function fecharEdicao() {
+    setEditandoId(null);
+    setErroEdicao(null);
+  }
+
+  async function confirmarEdicao() {
+    if (!parcelaEmEdicao || !onEditarParcela) return;
+    const novoValor = parsearValor(valorEmEdicao || "0");
+    if (!novoValor || novoValor <= 0) {
+      setErroEdicao("Digite um valor válido pra parcela.");
+      return;
+    }
+    if (!dataEmEdicao) {
+      setErroEdicao("Escolha a data de vencimento.");
+      return;
+    }
+    setErroEdicao(null);
+    await onEditarParcela(parcelaEmEdicao, {
+      novaData: dataEmEdicao,
+      novoValor,
+      aplicarSeguintes: aplicarValorSeguintes,
+    });
+    setEditandoId(null);
+  }
 
   function abrirJuros(parcela: ParcelaInvestimento) {
     setEditandoId(null);
@@ -192,12 +245,12 @@ export function ParcelasInvestimento({
                         Juros
                       </button>
                     )}
-                    {onEditarData && !editando && !emJuros && (
+                    {onEditarParcela && !editando && !emJuros && (
                       <button
                         type="button"
-                        aria-label="Editar data de vencimento"
+                        aria-label="Editar parcela"
                         disabled={salvando}
-                        onClick={() => setEditandoId(parcela.id)}
+                        onClick={() => abrirEdicao(parcela)}
                         className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-muted/10"
                       >
                         <Pencil size={12} />
@@ -221,23 +274,64 @@ export function ParcelasInvestimento({
                     )}
                   </div>
                 </div>
-                {editando && onEditarData && (
-                  <div className="flex flex-wrap items-end gap-2">
-                    <DateMaskInput
-                      value={parcela.data_vencimento}
-                      onChange={(iso) => {
-                        if (!iso) return;
-                        onEditarData(parcela, iso);
-                        setEditandoId(null);
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setEditandoId(null)}
-                      className="h-11 rounded-xl px-3 text-xs font-medium text-muted hover:bg-muted/10"
-                    >
-                      Cancelar
-                    </button>
+                {editando && onEditarParcela && (
+                  <div className="flex flex-col gap-2 rounded-lg bg-white p-2.5 ring-1 ring-inset ring-border">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <DateMaskInput label="Vencimento" value={dataEmEdicao} onChange={setDataEmEdicao} />
+                      <div className="w-28">
+                        <Input
+                          label="Valor"
+                          inputMode="decimal"
+                          value={valorEmEdicao}
+                          onChange={(e) => setValorEmEdicao(e.target.value)}
+                          placeholder="0,00"
+                        />
+                      </div>
+                    </div>
+                    {temSeguintesParaEdicao && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-foreground">Aplicar esse valor em</span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setAplicarValorSeguintes(false)}
+                            className={cn(
+                              "rounded-lg border px-2.5 py-1 text-xs font-medium transition-all",
+                              !aplicarValorSeguintes
+                                ? "border-primary-500 bg-primary-50 text-primary-700"
+                                : "border-border text-muted"
+                            )}
+                          >
+                            Só essa parcela
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAplicarValorSeguintes(true)}
+                            className={cn(
+                              "rounded-lg border px-2.5 py-1 text-xs font-medium transition-all",
+                              aplicarValorSeguintes
+                                ? "border-primary-500 bg-primary-50 text-primary-700"
+                                : "border-border text-muted"
+                            )}
+                          >
+                            Essa e as seguintes
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {erroEdicao && <p className="text-xs text-rose-600">{erroEdicao}</p>}
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button type="button" size="sm" variant="secondary" disabled={salvando} onClick={confirmarEdicao}>
+                        Salvar
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={fecharEdicao}
+                        className="h-9 rounded-xl px-3 text-xs font-medium text-muted hover:bg-muted/10"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
                 )}
                 {emJuros && (
