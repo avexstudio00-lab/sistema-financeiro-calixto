@@ -1,12 +1,29 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, History } from "lucide-react";
+import { ChevronDown, ChevronUp, History, Pencil, Trash2 } from "lucide-react";
 import { formatarMoeda } from "@/lib/format";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
+import { editarPagamentoInvestimento, excluirPagamentoInvestimento } from "@/lib/data/investimentos";
 import type { PagamentoInvestimento } from "@/lib/data/tipos";
 
 export interface HistoricoPagamentosEmprestimoProps {
   pagamentos: PagamentoInvestimento[];
+  /** Chamado depois de editar/excluir um evento, pra tela recarregar os
+   * dados do empréstimo (saldo, vencimento, quitado). Sem ele, o histórico
+   * fica só de leitura, como antes. */
+  onAlterado?: () => void | Promise<void>;
+}
+
+function paraTexto(valor: number | null | undefined): string {
+  return valor == null ? "" : String(Number(valor).toFixed(2)).replace(".", ",");
+}
+
+function parsear(texto: string): number {
+  const n = Number(texto.trim().replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : NaN;
 }
 
 /** Histórico dos eventos "só juros" / "quitação" de um empréstimo. Desde
