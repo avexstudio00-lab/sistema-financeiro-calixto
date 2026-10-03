@@ -85,6 +85,36 @@ const PLANOS = [
     cta: "Assinar por R$ 50",
     href: "/cadastro?plano=grupo",
   },
+  {
+    id: "avancado_multi",
+    nome: "Negócio Bi-Empresa",
+    preco: "R$ 45",
+    periodo: "/mês",
+    badge: "Duas empresas",
+    destaque: false,
+    recursos: [
+      "Módulo pessoal completo",
+      "Gestão de até 2 empresas independentes",
+      "Troque de empresa num clique",
+    ],
+    cta: "Assinar por R$ 45",
+    href: "/cadastro?plano=avancado_multi",
+  },
+  {
+    id: "grupo_multi",
+    nome: "Bi-Empresa + Grupo",
+    preco: "R$ 55",
+    periodo: "/mês",
+    badge: "Duas empresas em grupo",
+    destaque: false,
+    recursos: [
+      "Tudo do Negócio Bi-Empresa",
+      "Acesso multiusuário (até 2 convidados)",
+      "Visão consolidada do grupo econômico",
+    ],
+    cta: "Assinar por R$ 55",
+    href: "/cadastro?plano=grupo_multi",
+  },
 ];
 
 export function Planos() {
@@ -99,7 +129,7 @@ export function Planos() {
           className="mx-auto items-center text-center"
         />
 
-        <div className="grid items-start gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid items-start gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {PLANOS.map((plano, i) => (
             <FadeIn key={plano.id} delay={i * 100}>
               <Card
