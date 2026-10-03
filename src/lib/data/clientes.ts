@@ -1,12 +1,13 @@
 import { supabase } from "@/lib/supabase/client";
+import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import type { Cliente } from "./tipos";
 
 export async function listarClientes(usuarioId: string): Promise<Cliente[]> {
-  const { data } = await supabase
+  const { data } = await filtrarPorEmpresa(supabase
     .from("clientes")
     .select("*")
     .eq("usuario_id", usuarioId)
-    .order("nome", { ascending: true });
+    .order("nome", { ascending: true }));
   return (data as Cliente[]) ?? [];
 }
 
@@ -18,7 +19,7 @@ export async function criarCliente(
 ) {
   return supabase
     .from("clientes")
-    .insert({ usuario_id: usuarioId, nome, telefone: telefone || null, email: email || null })
+    .insert({ ...campoEmpresa(), usuario_id: usuarioId, nome, telefone: telefone || null, email: email || null })
     .select()
     .single();
 }
