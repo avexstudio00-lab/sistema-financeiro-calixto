@@ -512,6 +512,117 @@ export async function reabrirEmprestimoParcelado(investimentoId: string) {
     .eq("id", investimentoId);
 }
 
+/** Dados editáveis de UM evento do histórico de pagamentos de empréstimo
+ * (item 4.5 da especificação de 03/out/2026 — gestão linha a linha). */
+export interface DadosEdicaoPagamento {
+  dataPagamento: string;
+  /** Só juros: parte de juros. Quitação: valor principal recebido. */
+  valorPrincipal: number;
+  valorDiaria: number;
+}
+
+/** Edita um evento do histórico ("só juros" ou "quitação") sem mexer nos
+ * outros: corrige data, valor e a proporção juros/diária. O total pago é
+ * sempre recalculado (principal + diária) e os dias de atraso também, a
+ * partir do vencimento de referência gravado no próprio evento. Numa
+ * quitação, o `valor_quitado`/`data_quitacao` do empréstimo acompanham. */
+export async function editarPagamentoInvestimento(pagamento: PagamentoInvestimento, dados: DadosEdicaoPagamento) {
+  const principal = Number(dados.valorPrincipal.toFixed(2));
+  const diaria = Number(dados.valorDiaria.toFixed(2));
+  const valorPago = Number((principal + diaria).toFixed(2));
+  const diasAtraso = pagamento.vencimento_referencia
+    ? calcularDiasAtraso(pagamento.vencimento_referencia, dados.dataPagamento)
+    : pagamento.dias_atraso;
+
+  const { error } = await supabase
+    .from("investimento_pagamentos")
+    .update({
+      data_pagamento: dados.dataPagamento,
+      dias_atraso: diasAtraso,
+      valor_juros: pagamento.tipo === "juros" ? principal : null,
+      valor_diaria: diaria,
+      valor_pago: valorPago,
+    })
+    .eq("id", pagamento.id);
+  if (error) return { data: null, error };
+
+  if (pagamento.tipo === "quitacao") {
+    return supabase
+      .from("investimentos")
+      .update({ valor_quitado: valorPago, data_quitacao: dados.dataPagamento })
+      .eq("id", pagamento.investimento_id)
+      .eq("quitado", true);
+  }
+  return { data: null, error: null };
+}
+
+/** Exclui UM evento do histórico e desfaz o efeito dele no empréstimo:
+ *
+ * - "só juros": o vencimento tinha rolado 1 mês (`vencimento_referencia` ->
+ *   `proximo_vencimento`). Se esse for o evento de juros MAIS RECENTE daquele
+ *   alvo (o empréstimo à vista, ou aquela parcela) e a data ainda for a que
+ *   ele gerou, volta pro vencimento original. Se já houve outro "só juros"
+ *   depois, não mexe na data (a corrente de vencimentos seguiria quebrada) —
+ *   a pessoa ajusta pela edição da parcela/empréstimo.
+ * - "quitação": reabre o empréstimo. No parcelado quitado de uma vez,
+ *   também desmarca as parcelas que foram dadas como pagas naquela data.
+ *
+ * O saldo devedor e o ganho do card são recalculados sozinhos na tela a
+ * partir de parcelas/quitado — nada disso é guardado como número solto.
+ * (Ainda não existe lançamento em conta bancária pra esses eventos — isso
+ * chega com o item 5.10; quando chegar, a reversão entra aqui.) */
+export async function excluirPagamentoInvestimento(pagamento: PagamentoInvestimento) {
+  if (pagamento.tipo === "juros") {
+    const base = supabase
+      .from("investimento_pagamentos")
+      .select("id")
+      .eq("investimento_id", pagamento.investimento_id)
+      .eq("tipo", "juros")
+      .neq("id", pagamento.id)
+      .gt("criado_em", pagamento.criado_em);
+    const { data: posteriores } = pagamento.parcela_id
+      ? await base.eq("parcela_id", pagamento.parcela_id)
+      : await base.is("parcela_id", null);
+    const ehMaisRecente = ((posteriores as { id: string }[] | null) ?? []).length === 0;
+
+    if (ehMaisRecente && pagamento.vencimento_referencia && pagamento.proximo_vencimento) {
+      if (!pagamento.parcela_id) {
+        const { error } = await supabase
+          .from("investimentos")
+          .update({ data_vencimento_final: pagamento.vencimento_referencia })
+          .eq("id", pagamento.investimento_id)
+          .eq("data_vencimento_final", pagamento.proximo_vencimento);
+        if (error) return { data: null, error };
+      } else {
+        const { error } = await supabase
+          .from("investimento_parcelas")
+          .update({ data_vencimento: pagamento.vencimento_referencia })
+          .eq("id", pagamento.parcela_id)
+          .eq("data_vencimento", pagamento.proximo_vencimento);
+        if (error) return { data: null, error };
+      }
+    }
+  } else {
+    const { data: parcelas } = await supabase
+      .from("investimento_parcelas")
+      .select("id")
+      .eq("investimento_id", pagamento.investimento_id)
+      .eq("pago", true)
+      .eq("data_pagamento", pagamento.data_pagamento);
+    for (const p of (parcelas as { id: string }[] | null) ?? []) {
+      await supabase.from("investimento_parcelas").update({ pago: false, data_pagamento: null }).eq("id", p.id);
+    }
+    const { error } = await reabrirEmprestimoParcelado(pagamento.investimento_id);
+    if (error) return { data: null, error };
+  }
+
+  const { error: erroDelete } = await supabase.from("investimento_pagamentos").delete().eq("id", pagamento.id);
+  if (erroDelete) return { data: null, error: erroDelete };
+
+  if (pagamento.parcela_id) return recalcularVencimentoFinalDoInvestimento(pagamento.investimento_id);
+  return { data: null, error: null };
+}
+
 export async function atualizarValorAtualInvestimento(id: string, valorAtual: number) {
   return supabase.from("investimentos").update({ valor_atual: valorAtual }).eq("id", id);
 }
