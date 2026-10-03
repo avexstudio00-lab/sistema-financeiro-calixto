@@ -256,3 +256,16 @@ export function calcularMesesParaQuitar(valorRestante: number, pagamentoMensal: 
 export async function removerDivida(dividaId: string) {
   return supabase.from("dividas").delete().eq("id", dividaId);
 }
+
+/** Edita valor e vencimento de UMA parcela (item 5.1 da especificação de
+ * 03/out/2026) e mantém o total da dívida igual à soma das parcelas. */
+export async function editarParcelaDivida(parcela: DividaParcela, dados: { valor: number; dataVencimento: string }) {
+  const { error } = await supabase
+    .from("divida_parcelas")
+    .update({ valor: Number(dados.valor.toFixed(2)), data_vencimento: dados.dataVencimento })
+    .eq("id", parcela.id);
+  if (error) return { error };
+  const { data: todas } = await supabase.from("divida_parcelas").select("valor").eq("divida_id", parcela.divida_id);
+  const total = ((todas as { valor: number }[] | null) ?? []).reduce((acc, p) => acc + Number(p.valor), 0);
+  return supabase.from("dividas").update({ valor_total: Number(total.toFixed(2)) }).eq("id", parcela.divida_id);
+}
