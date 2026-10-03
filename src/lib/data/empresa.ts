@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { NOMES_MES } from "@/lib/format";
+import { filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import type { Transacao } from "./tipos";
 
 function limitesDoMes(ano: number, mes: number) {
@@ -10,13 +11,15 @@ function limitesDoMes(ano: number, mes: number) {
 
 async function transacoesNegocioDoMes(usuarioId: string, ano: number, mes: number): Promise<Transacao[]> {
   const { inicio, fim } = limitesDoMes(ano, mes);
-  const { data } = await supabase
-    .from("transacoes")
-    .select("*, categorias(*)")
-    .eq("usuario_id", usuarioId)
-    .eq("tipo_negocio", "negocio")
-    .gte("data", inicio)
-    .lte("data", fim);
+  const { data } = await filtrarPorEmpresa(
+    supabase
+      .from("transacoes")
+      .select("*, categorias(*)")
+      .eq("usuario_id", usuarioId)
+      .eq("tipo_negocio", "negocio")
+      .gte("data", inicio)
+      .lte("data", fim)
+  );
   return (data as Transacao[]) ?? [];
 }
 
@@ -54,11 +57,9 @@ export async function gerarResumoEmpresa(usuarioId: string, ano: number, mes: nu
     faturamentoAnterior > 0 ? ((faturamento - faturamentoAnterior) / faturamentoAnterior) * 100 : null;
   const variacaoCustos = custosAnterior > 0 ? ((custos - custosAnterior) / custosAnterior) * 100 : null;
 
-  const { data: todasNegocio } = await supabase
-    .from("transacoes")
-    .select("tipo, valor")
-    .eq("usuario_id", usuarioId)
-    .eq("tipo_negocio", "negocio");
+  const { data: todasNegocio } = await filtrarPorEmpresa(
+    supabase.from("transacoes").select("tipo, valor").eq("usuario_id", usuarioId).eq("tipo_negocio", "negocio")
+  );
   const linhas = (todasNegocio as { tipo: "receita" | "despesa"; valor: number }[]) ?? [];
   const saldoAcumulado = somar(linhas, "receita") - somar(linhas, "despesa");
 
@@ -119,14 +120,16 @@ export interface PontoFaturamentoAnual {
 /** Faturamento do negócio mês a mês num ano, pro relatório anual (base pra
  * declaração do MEI/ME) — soma das receitas do negócio por mês de calendário. */
 export async function faturamentoAnualPorMes(usuarioId: string, ano: number): Promise<PontoFaturamentoAnual[]> {
-  const { data } = await supabase
-    .from("transacoes")
-    .select("valor, data")
-    .eq("usuario_id", usuarioId)
-    .eq("tipo_negocio", "negocio")
-    .eq("tipo", "receita")
-    .gte("data", `${ano}-01-01`)
-    .lte("data", `${ano}-12-31`);
+  const { data } = await filtrarPorEmpresa(
+    supabase
+      .from("transacoes")
+      .select("valor, data")
+      .eq("usuario_id", usuarioId)
+      .eq("tipo_negocio", "negocio")
+      .eq("tipo", "receita")
+      .gte("data", `${ano}-01-01`)
+      .lte("data", `${ano}-12-31`)
+  );
 
   const linhas = (data as { valor: number; data: string }[]) ?? [];
   const porMes = new Array(13).fill(0) as number[];
