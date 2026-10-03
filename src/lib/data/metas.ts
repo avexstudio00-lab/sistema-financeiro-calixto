@@ -71,3 +71,105 @@ export function calcularMesesParaAtingirMeta(valorRestante: number, aporteMensal
 export async function excluirMeta(metaId: string) {
   return supabase.from("metas").delete().eq("id", metaId);
 }
+
+// ---------------------------------------------------------------------------
+// Item 5.13 da especificação de 03/out/2026: custódia da meta.
+// Quando o dinheiro da meta fica aplicado (poupança ou CDB com liquidez), a
+// meta ganha um investimento espelho ("CDB — [Meta]") e passa a mostrar o
+// saldo dele. Aportes saem de uma carteira (despesa em "Investimentos") e
+// retiradas voltam pra uma carteira (receita em "Resgates e rendimentos").
+// ---------------------------------------------------------------------------
+
+export type CustodiaMeta = NonNullable<Meta["custodia"]>;
+
+export const ROTULO_CUSTODIA: Record<CustodiaMeta, string> = {
+  caixinha_mp: "Caixinha (Mercado Pago ou similar)",
+  conta_secundaria: "Conta separada",
+  poupanca: "Poupança",
+  cdb_liquidez: "CDB com liquidez diária",
+};
+
+/** Custódias que viram um investimento espelho rendendo sozinho. */
+export function custodiaRende(c: Meta["custodia"]): c is "poupanca" | "cdb_liquidez" {
+  return c === "poupanca" || c === "cdb_liquidez";
+}
+
+export async function definirCustodiaMeta(meta: Meta, custodia: CustodiaMeta | null, usuarioId: string) {
+  let investimentoId = meta.investimento_id ?? null;
+  if (custodiaRende(custodia) && !investimentoId) {
+    const ehCdb = custodia === "cdb_liquidez";
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { data } = await supabase
+      .from("investimentos")
+      .insert({
+        usuario_id: usuarioId,
+        nome: `${ehCdb ? "CDB" : "Poupança"} — ${meta.nome}`.slice(0, 80),
+        tipo: ehCdb ? "cdb" : "poupanca",
+        valor_investido: Number(meta.valor_atual),
+        valor_atual: Number(meta.valor_atual),
+        // CDB: % do CDI (100%). Poupança: taxa recalculada ao vivo.
+        taxa: ehCdb ? 100 : 6.17,
+        descricao: `Espelho da meta "${meta.nome}"`,
+        tipo_ganho: null,
+        data_inicio: hoje,
+        forma_pagamento: null,
+      })
+      .select("id")
+      .single();
+    investimentoId = (data as { id: string } | null)?.id ?? null;
+  }
+  return supabase.from("metas").update({ custodia, investimento_id: investimentoId }).eq("id", meta.id);
+}
+
+/** Aporte (+) ou retirada (−) na meta, movimentando a carteira e o
+ * investimento espelho quando houver. */
+export async function movimentarMeta(params: {
+  meta: Meta;
+  usuarioId: string;
+  valor: number;
+  sentido: "aporte" | "retirada";
+  contaId: string | null;
+  valorAtualEspelho?: number | null;
+}) {
+  const { meta, valor, sentido } = params;
+  const { lancarMovimentoInvestimento } = await import("./movimentosInvestimento");
+  if (params.contaId) {
+    await lancarMovimentoInvestimento({
+      usuarioId: params.usuarioId,
+      contaId: params.contaId,
+      sentido: sentido === "aporte" ? "aplicacao" : "resgate",
+      valor,
+      data: new Date().toISOString().slice(0, 10),
+      descricao: `${sentido === "aporte" ? "Aporte na meta" : "Retirada da meta"}: ${meta.nome}`,
+    });
+  }
+  const base = params.valorAtualEspelho ?? Number(meta.valor_atual);
+  const novoValor = Math.max(0, sentido === "aporte" ? base + valor : base - valor);
+  if (meta.investimento_id) {
+    const { data: inv } = await supabase
+      .from("investimentos")
+      .select("valor_investido")
+      .eq("id", meta.investimento_id)
+      .maybeSingle();
+    const investido = Number((inv as { valor_investido: number } | null)?.valor_investido ?? 0);
+    const novoInvestido = Math.max(0, sentido === "aporte" ? investido + valor : investido - valor);
+    await supabase
+      .from("investimentos")
+      .update({ valor_investido: novoInvestido, valor_atual: novoValor })
+      .eq("id", meta.investimento_id);
+  }
+  const status: Meta["status"] = novoValor >= Number(meta.valor_meta) ? "concluida" : "em_andamento";
+  await supabase
+    .from("metas")
+    .update({ valor_atual: Number(novoValor.toFixed(2)), status, conta_origem_id: params.contaId ?? meta.conta_origem_id ?? null })
+    .eq("id", meta.id);
+}
+
+/** Sincroniza a meta com o valor estimado do investimento espelho (o
+ * rendimento entra sozinho na meta). Só grava se mudou mais de 1 centavo. */
+export async function sincronizarMetaComEspelho(meta: Meta, valorEspelho: number) {
+  if (Math.abs(Number(meta.valor_atual) - valorEspelho) < 0.01) return false;
+  const status: Meta["status"] = valorEspelho >= Number(meta.valor_meta) ? "concluida" : "em_andamento";
+  await supabase.from("metas").update({ valor_atual: Number(valorEspelho.toFixed(2)), status }).eq("id", meta.id);
+  return true;
+}
