@@ -108,6 +108,7 @@ export default function ContasFixasPage() {
   }
 
   async function handleAlternarAtiva(cf: ContaFixa) {
+    setConfirmandoPausaId(null);
     setAlternando(cf.id);
     await alternarAtivaContaFixa(cf.id, !cf.ativa);
     await carregar();
@@ -121,6 +122,7 @@ export default function ContasFixasPage() {
   // gerou lançamento este mês (mesma checagem do badge "Já lançada este
   // mês"), busca esse lançamento pra oferecer a opção de apagá-lo também.
   async function iniciarRemocao(cf: ContaFixa) {
+    setConfirmandoPausaId(null);
     setConfirmandoRemocaoId(cf.id);
     setLancamentoVinculado(null);
     const geradaEsteMes = cf.ultimo_ano_gerado === anoAtual && cf.ultimo_mes_gerado === mesAtual;
@@ -161,6 +163,18 @@ export default function ContasFixasPage() {
           automaticamente pra você no dia do vencimento.
         </p>
       </div>
+
+      <Card className="flex items-start gap-3 border-primary-200 bg-primary-50/60">
+        <Info size={20} className="mt-0.5 shrink-0 text-primary-700" />
+        <div className="flex flex-col gap-1">
+          <p className="text-small font-semibold text-foreground">Como funciona a pausa</p>
+          <p className="text-small text-foreground">
+            Pausar uma conta fixa <strong>não apaga nem altera</strong> nenhum lançamento que já foi feito —
+            nem o deste mês, nem os dos meses anteriores. Ela só deixa de gerar lançamentos automáticos nos
+            próximos meses, até você tocar em reativar (▶).
+          </p>
+        </div>
+      </Card>
 
       {avisoGeracao !== null && (
         <Card className="flex items-center gap-3 border-primary-200 bg-primary-50">
@@ -248,11 +262,10 @@ export default function ContasFixasPage() {
             />
           </div>
 
-          <Input
+          <DateMaskInput
             label="Repetir até (opcional)"
-            type="date"
             value={form.dataFim}
-            onChange={(e) => setForm((f) => ({ ...f, dataFim: e.target.value }))}
+            onChange={(v) => setForm((f) => ({ ...f, dataFim: v }))}
             helperText="Deixe em branco pra repetir todo mês, sem data pra parar."
           />
 
@@ -318,9 +331,14 @@ export default function ContasFixasPage() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => handleAlternarAtiva(cf)}
+                      onClick={() => clicarPausarOuReativar(cf)}
                       disabled={alternando === cf.id}
                       aria-label={cf.ativa ? "Pausar conta fixa" : "Reativar conta fixa"}
+                      title={
+                        cf.ativa
+                          ? "Pausar: para de lançar nos próximos meses. O que já foi lançado continua como está."
+                          : "Reativar: volta a lançar automaticamente todo mês."
+                      }
                       className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
                     >
                       {cf.ativa ? <Pause size={16} /> : <Play size={16} />}
@@ -336,6 +354,27 @@ export default function ContasFixasPage() {
                     </button>
                   </div>
                 </div>
+
+                {confirmandoPausaId === cf.id && (
+                  <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-small text-amber-900">
+                      Pausar <strong>&quot;{cf.descricao}&quot;</strong>?
+                    </p>
+                    <ul className="list-disc pl-5 text-small text-amber-900">
+                      <li>Os lançamentos que já existem (deste mês e dos anteriores) continuam exatamente como estão.</li>
+                      <li>A partir de agora, nenhum lançamento novo será criado automaticamente.</li>
+                      <li>Quando quiser, toque em reativar (▶) e ela volta a lançar todo mês.</li>
+                    </ul>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="tertiary" onClick={() => setConfirmandoPausaId(null)}>
+                        Cancelar
+                      </Button>
+                      <Button size="sm" disabled={alternando === cf.id} onClick={() => handleAlternarAtiva(cf)}>
+                        Sim, pausar
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {confirmandoEsta && (
                   <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
