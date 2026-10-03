@@ -69,3 +69,270 @@
     background: white !important;
   }
 }
+
+/* ==========================================================================
+   Contraste WCAG 2.1 AA (Fase 2, item 4.1 — 03/out/2026)
+   --------------------------------------------------------------------------
+   O app usa ~200 fundos claros fixos (bg-primary-50, bg-rose-50, bg-white…)
+   e textos coloridos (text-primary-600, text-red-500…) sem variante dark:.
+   No modo escuro isso virava texto claro em cima de fundo quase branco
+   (ex: legenda da tela de Dívidas, badges do extrato). E no modo claro
+   alguns tons (emerald-600, red-500, amber-600) ficavam abaixo de 4.5:1.
+   Em vez de editar tela por tela, corrigimos aqui, de forma centralizada:
+   - modo escuro: fundos claros viram um "tingido" translúcido da mesma cor
+     sobre o card escuro; textos coloridos sobem pra tons 300/400 (≥5:1);
+   - modo claro: textos coloridos que reprovavam descem um tom (700/600).
+   Fora de @layer de propósito, pra vencer as utilities do Tailwind.
+   ========================================================================== */
+
+.dark .bg-primary-50,
+.dark .bg-primary-50\/40,
+.dark .bg-primary-50\/60 {
+  background-color: rgb(16 185 129 / 0.12);
+}
+
+.dark .bg-primary-100,
+.dark .bg-primary-100\/60 {
+  background-color: rgb(16 185 129 / 0.2);
+}
+
+.dark .bg-primary-200 {
+  background-color: rgb(16 185 129 / 0.28);
+}
+
+.dark .border-primary-100,
+.dark .border-primary-200 {
+  border-color: rgb(16 185 129 / 0.35);
+}
+
+.dark .bg-emerald-50,
+.dark .bg-emerald-50\/40,
+.dark .bg-emerald-50\/60 {
+  background-color: rgb(16 185 129 / 0.12);
+}
+
+.dark .bg-emerald-100,
+.dark .bg-emerald-100\/60 {
+  background-color: rgb(16 185 129 / 0.2);
+}
+
+.dark .bg-emerald-200 {
+  background-color: rgb(16 185 129 / 0.28);
+}
+
+.dark .border-emerald-100,
+.dark .border-emerald-200 {
+  border-color: rgb(16 185 129 / 0.35);
+}
+
+.dark .bg-accent-50,
+.dark .bg-accent-50\/40,
+.dark .bg-accent-50\/60 {
+  background-color: rgb(20 184 166 / 0.12);
+}
+
+.dark .bg-accent-100,
+.dark .bg-accent-100\/60 {
+  background-color: rgb(20 184 166 / 0.2);
+}
+
+.dark .bg-accent-200 {
+  background-color: rgb(20 184 166 / 0.28);
+}
+
+.dark .border-accent-100,
+.dark .border-accent-200 {
+  border-color: rgb(20 184 166 / 0.35);
+}
+
+.dark .bg-red-50,
+.dark .bg-red-50\/40,
+.dark .bg-red-50\/60 {
+  background-color: rgb(239 68 68 / 0.12);
+}
+
+.dark .bg-red-100,
+.dark .bg-red-100\/60 {
+  background-color: rgb(239 68 68 / 0.2);
+}
+
+.dark .bg-red-200 {
+  background-color: rgb(239 68 68 / 0.28);
+}
+
+.dark .border-red-100,
+.dark .border-red-200 {
+  border-color: rgb(239 68 68 / 0.35);
+}
+
+.dark .bg-rose-50,
+.dark .bg-rose-50\/40,
+.dark .bg-rose-50\/60 {
+  background-color: rgb(244 63 94 / 0.12);
+}
+
+.dark .bg-rose-100,
+.dark .bg-rose-100\/60 {
+  background-color: rgb(244 63 94 / 0.2);
+}
+
+.dark .bg-rose-200 {
+  background-color: rgb(244 63 94 / 0.28);
+}
+
+.dark .border-rose-100,
+.dark .border-rose-200 {
+  border-color: rgb(244 63 94 / 0.35);
+}
+
+.dark .bg-amber-50,
+.dark .bg-amber-50\/40,
+.dark .bg-amber-50\/60 {
+  background-color: rgb(245 158 11 / 0.12);
+}
+
+.dark .bg-amber-100,
+.dark .bg-amber-100\/60 {
+  background-color: rgb(245 158 11 / 0.2);
+}
+
+.dark .bg-amber-200 {
+  background-color: rgb(245 158 11 / 0.28);
+}
+
+.dark .border-amber-100,
+.dark .border-amber-200 {
+  border-color: rgb(245 158 11 / 0.35);
+}
+
+.dark .bg-white,
+.dark .bg-slate-50 {
+  background-color: rgb(var(--card));
+}
+
+.dark .text-primary-600 {
+  color: rgb(52 211 153);
+}
+
+.dark .text-primary-700,
+.dark .text-primary-800,
+.dark .text-primary-900 {
+  color: rgb(110 231 183);
+}
+
+.dark .text-emerald-600 {
+  color: rgb(52 211 153);
+}
+
+.dark .text-emerald-700,
+.dark .text-emerald-800,
+.dark .text-emerald-900 {
+  color: rgb(110 231 183);
+}
+
+.dark .text-accent-600 {
+  color: rgb(45 212 191);
+}
+
+.dark .text-accent-700,
+.dark .text-accent-800,
+.dark .text-accent-900 {
+  color: rgb(94 234 212);
+}
+
+.dark .text-red-500,
+.dark .text-red-600 {
+  color: rgb(248 113 113);
+}
+
+.dark .text-red-700,
+.dark .text-red-800,
+.dark .text-red-900 {
+  color: rgb(252 165 165);
+}
+
+.dark .text-rose-500,
+.dark .text-rose-600 {
+  color: rgb(251 113 133);
+}
+
+.dark .text-rose-700,
+.dark .text-rose-800,
+.dark .text-rose-900 {
+  color: rgb(253 164 175);
+}
+
+.dark .text-amber-600 {
+  color: rgb(251 191 36);
+}
+
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900 {
+  color: rgb(252 211 77);
+}
+
+.dark .text-slate-500,
+.dark .text-slate-700 {
+  color: rgb(var(--muted));
+}
+
+html:not(.dark) .text-primary-500 {
+  color: rgb(4 120 87);
+}
+
+html:not(.dark) .text-primary-600 {
+  color: rgb(4 120 87);
+}
+
+html:not(.dark) .text-emerald-500 {
+  color: rgb(4 120 87);
+}
+
+html:not(.dark) .text-emerald-600 {
+  color: rgb(4 120 87);
+}
+
+html:not(.dark) .text-accent-500 {
+  color: rgb(15 118 110);
+}
+
+html:not(.dark) .text-accent-600 {
+  color: rgb(15 118 110);
+}
+
+html:not(.dark) .text-red-500 {
+  color: rgb(220 38 38);
+}
+
+html:not(.dark) .text-amber-500 {
+  color: rgb(180 83 9);
+}
+
+html:not(.dark) .text-amber-600 {
+  color: rgb(180 83 9);
+}
+
+/* Texto branco sobre verde-500 dava só 2.5:1. Selos/ícones/botões soltos
+   com essa combinação usam verde-700 (5.5:1). O <Button> já usa 700. */
+.bg-primary-500.text-white {
+  background-color: rgb(4 120 87);
+}
+.bg-primary-500.text-white:hover {
+  background-color: rgb(6 95 70);
+}
+/* "secondary" é emerald-800: quase invisível no card escuro. */
+.dark .text-secondary {
+  color: rgb(110 231 183);
+}
+.dark .border-secondary {
+  border-color: rgb(52 211 153);
+}
+/* Botões destrutivos (bg-red-500 + texto branco) davam 3.8:1 — vermelho-600
+   dá 4.8:1. */
+.bg-red-500.text-white {
+  background-color: rgb(220 38 38);
+}
+.bg-red-500.text-white:hover {
+  background-color: rgb(185 28 28);
+}
