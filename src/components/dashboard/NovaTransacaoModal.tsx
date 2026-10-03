@@ -489,11 +489,10 @@ export function NovaTransacaoModal({
             )}
 
             <div className="grid grid-cols-2 gap-4">
-              <Input
+              <DateMaskInput
                 label="Data"
-                type="date"
                 value={data}
-                onChange={(e) => setData(e.target.value)}
+                onChange={(v) => setData(v)}
               />
               <div className="flex flex-col gap-1.5">
                 <span className="text-small font-medium text-foreground">Forma de pagamento</span>
