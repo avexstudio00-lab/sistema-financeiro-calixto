@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, CheckCircle2, PiggyBank, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, PiggyBank, Trash2, Wand2 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -20,6 +20,19 @@ function limitesDoMesAtual() {
   return { inicio, fim };
 }
 
+/** Os 3 meses completos anteriores ao atual (base da sugestão 6.8). */
+function limitesTresMesesAnteriores() {
+  const agora = new Date();
+  const inicio = new Date(agora.getFullYear(), agora.getMonth() - 3, 1).toISOString().slice(0, 10);
+  const fim = new Date(agora.getFullYear(), agora.getMonth(), 0).toISOString().slice(0, 10);
+  return { inicio, fim };
+}
+
+/** Média + 5% de folga, arredondada pra cima em múltiplos de R$ 10. */
+function sugerirLimite(media: number): number {
+  return Math.max(10, Math.ceil((media * 1.05) / 10) * 10);
+}
+
 const INPUT_CLASSE =
   "h-11 w-32 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100";
 
@@ -31,15 +44,19 @@ export default function OrcamentoPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [rascunho, setRascunho] = React.useState<Record<string, string>>({});
   const [salvando, setSalvando] = React.useState<string | null>(null);
+  const [mediaPorCategoria, setMediaPorCategoria] = React.useState<Map<string, number>>(new Map());
+  const [aplicandoSugestoes, setAplicandoSugestoes] = React.useState(false);
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
     setCarregando(true);
     const { inicio, fim } = limitesDoMesAtual();
-    const [cats, lims, transacoesMes] = await Promise.all([
+    const anteriores = limitesTresMesesAnteriores();
+    const [cats, lims, transacoesMes, transacoesAnteriores] = await Promise.all([
       listarCategorias(user.id),
       listarLimites(user.id),
       listarTransacoes(user.id, { inicio, fim, tipo: "despesa" }),
+      listarTransacoes(user.id, { inicio: anteriores.inicio, fim: anteriores.fim, tipo: "despesa" }),
     ]);
     setCategorias(cats.filter((c) => c.tipo === "despesa"));
     setLimites(lims);
@@ -53,6 +70,15 @@ export default function OrcamentoPage() {
       mapa.set(t.categoria_id, (mapa.get(t.categoria_id) ?? 0) + Number(t.valor));
     }
     setGastoPorCategoria(mapa);
+
+    const somaAnterior = new Map<string, number>();
+    for (const t of transacoesAnteriores) {
+      if (t.tipo_negocio === "negocio" || !t.categoria_id) continue;
+      somaAnterior.set(t.categoria_id, (somaAnterior.get(t.categoria_id) ?? 0) + Number(t.valor));
+    }
+    const medias = new Map<string, number>();
+    somaAnterior.forEach((total, id) => medias.set(id, total / 3));
+    setMediaPorCategoria(medias);
     setCarregando(false);
   }, [user]);
 
@@ -101,6 +127,34 @@ export default function OrcamentoPage() {
     setSalvando(null);
   }
 
+  /** 6.8: preenche os campos das categorias sem limite com média dos 3
+   * últimos meses + 5% — a pessoa revisa e salva. */
+  function handleSugerirPorMedia() {
+    const novo: Record<string, string> = { ...rascunho };
+    for (const c of categorias) {
+      if (limitePorCategoria.has(c.id)) continue;
+      const media = mediaPorCategoria.get(c.id) ?? 0;
+      if (media > 0) novo[c.id] = String(sugerirLimite(media));
+    }
+    setRascunho(novo);
+  }
+
+  async function handleAplicarSugestoes() {
+    if (!user) return;
+    const pendentes = Object.entries(rascunho)
+      .map(([id, v]) => [id, Number(v.replace(",", "."))] as const)
+      .filter(([id, v]) => v > 0 && !limitePorCategoria.has(id));
+    if (pendentes.length === 0) return;
+    setAplicandoSugestoes(true);
+    for (const [id, v] of pendentes) await definirLimite(user.id, id, v);
+    setRascunho({});
+    await carregar();
+    setAplicandoSugestoes(false);
+  }
+
+  const temMedia = Array.from(mediaPorCategoria.values()).some((m) => m > 0);
+  const qtdRascunhos = Object.values(rascunho).filter((v) => Number(v.replace(",", ".")) > 0).length;
+
   async function handleRemoverLimite(categoriaId: string) {
     if (!user) return;
     setSalvando(categoriaId);
@@ -119,6 +173,18 @@ export default function OrcamentoPage() {
             do mês estiver perto de estourar.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        {temMedia && (
+          <Button size="sm" variant="secondary" onClick={handleSugerirPorMedia}>
+            <Wand2 size={16} />
+            Sugerir limites por média
+          </Button>
+        )}
+        {qtdRascunhos > 1 && (
+          <Button size="sm" onClick={handleAplicarSugestoes} disabled={aplicandoSugestoes}>
+            {aplicandoSugestoes ? "Salvando..." : `Salvar ${qtdRascunhos} limites`}
+          </Button>
+        )}
         {user && (
           <CriarCategoriaInline
             usuarioId={user.id}
@@ -128,6 +194,7 @@ export default function OrcamentoPage() {
             onCriada={(nova) => setCategorias((atual) => [...atual, nova])}
           />
         )}
+        </div>
       </div>
 
       {emAlerta.length > 0 && (
@@ -180,9 +247,16 @@ export default function OrcamentoPage() {
                       <AlertTriangle size={16} className={percentual >= 100 ? "text-red-500" : "text-amber-500"} />
                     )}
                   </div>
-                  <p className="text-small text-muted">
-                    Gasto este mês: <span className="font-medium text-foreground">{formatarMoeda(gasto)}</span>
-                  </p>
+                  <div className="text-right">
+                    <p className="text-small text-muted">
+                      Gasto este mês: <span className="font-medium text-foreground">{formatarMoeda(gasto)}</span>
+                    </p>
+                    {(mediaPorCategoria.get(categoria.id) ?? 0) > 0 && (
+                      <p className="text-xs text-muted">
+                        Média dos últimos 3 meses: {formatarMoeda(mediaPorCategoria.get(categoria.id) ?? 0)}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {limite ? (
