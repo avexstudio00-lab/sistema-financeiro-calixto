@@ -61,3 +61,13 @@ export function calcularMesesParaAtingirMeta(valorRestante: number, aporteMensal
   if (!Number.isFinite(aporteMensal) || aporteMensal <= 0) return null;
   return Math.ceil(valorRestante / aporteMensal);
 }
+
+/** Exclui a meta de vez (item 4.6 da especificação de 03/out/2026). Hoje os
+ * aportes/retiradas de uma meta só atualizam o próprio `valor_atual` — não
+ * geram lançamento em conta nenhuma —, então apagar a meta não mexe em saldo
+ * de carteira: o dinheiro continua exatamente onde está. Quando a meta passar
+ * a ter conta de origem/investimento vinculado (item 5.13), a opção de
+ * estornar esses lançamentos entra aqui. */
+export async function excluirMeta(metaId: string) {
+  return supabase.from("metas").delete().eq("id", metaId);
+}
