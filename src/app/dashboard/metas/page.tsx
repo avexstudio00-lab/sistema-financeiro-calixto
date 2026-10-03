@@ -176,7 +176,7 @@ export default function MetasPage() {
               <Input label="Valor da meta" inputMode="decimal" value={valorMeta} onChange={(e) => setValorMeta(e.target.value)} placeholder="0,00" />
             </div>
             <div className="flex-1">
-              <Input label="Prazo (opcional)" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+              <DateMaskInput label="Prazo (opcional)" value={dataFim} onChange={(v) => setDataFim(v)} />
             </div>
             <Button type="submit" disabled={salvando} className="sm:w-auto">
               {salvando ? "Salvando..." : "Criar"}
@@ -218,11 +218,10 @@ export default function MetasPage() {
                     value={edicao.valorMeta}
                     onChange={(e) => setEdicao((prev) => ({ ...prev, valorMeta: e.target.value }))}
                   />
-                  <Input
+                  <DateMaskInput
                     label="Prazo (opcional)"
-                    type="date"
                     value={edicao.dataFim}
-                    onChange={(e) => setEdicao((prev) => ({ ...prev, dataFim: e.target.value }))}
+                    onChange={(v) => setEdicao((prev) => ({ ...prev, dataFim: v }))}
                   />
                   <div className="flex gap-2">
                     <Button variant="tertiary" className="flex-1" onClick={() => setMetaEditandoId(null)}>
@@ -235,6 +234,45 @@ export default function MetasPage() {
                     >
                       {salvandoEdicao ? "Salvando..." : "Salvar"}
                     </Button>
+                  </div>
+                  <div className="border-t border-border pt-4">
+                    {!confirmandoExclusao ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoExclusao(true)}
+                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-small font-semibold text-rose-700 hover:bg-rose-50"
+                      >
+                        <Trash2 size={16} />
+                        Excluir meta
+                      </button>
+                    ) : (
+                      <div className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
+                        <p className="text-small font-semibold text-rose-800">Excluir &quot;{meta.nome}&quot;?</p>
+                        {Number(meta.valor_atual) > 0 ? (
+                          <p className="text-small text-rose-800">
+                            Essa meta tem <strong>{formatarMoeda(Number(meta.valor_atual))}</strong> guardados. Os
+                            aportes de meta não saem de nenhuma carteira, então ao excluir o dinheiro{" "}
+                            <strong>continua exatamente onde está</strong> (na conta ou investimento em que você
+                            guardou) — só o acompanhamento da meta é apagado. Não há lançamentos para estornar.
+                          </p>
+                        ) : (
+                          <p className="text-small text-rose-800">Essa ação não pode ser desfeita.</p>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="tertiary" onClick={() => setConfirmandoExclusao(false)}>
+                            Cancelar
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={excluindo}
+                            onClick={() => handleExcluirMeta(meta)}
+                            className="bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700"
+                          >
+                            {excluindo ? "Excluindo..." : "Sim, excluir meta"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </Card>
               );
