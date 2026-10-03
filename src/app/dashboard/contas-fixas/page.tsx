@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClock, CheckCircle2, Pause, Play, PlusCircle, Repeat, Trash2 } from "lucide-react";
+import { CalendarClock, CheckCircle2, Info, Pause, Play, PlusCircle, Repeat, Trash2 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
@@ -105,6 +106,21 @@ export default function ContasFixasPage() {
       await carregar();
     }
     setSalvando(false);
+  }
+
+  // Pausar pede confirmação antes (item 4.3 da especificação de 03/out/2026):
+  // a pessoa precisa entender que pausar NÃO apaga nem altera o que já foi
+  // lançado — só impede os lançamentos automáticos dos próximos meses.
+  // Reativar não precisa de confirmação (não tem efeito colateral).
+  const [confirmandoPausaId, setConfirmandoPausaId] = React.useState<string | null>(null);
+
+  function clicarPausarOuReativar(cf: ContaFixa) {
+    if (cf.ativa) {
+      setConfirmandoRemocaoId(null);
+      setConfirmandoPausaId((atual) => (atual === cf.id ? null : cf.id));
+      return;
+    }
+    void handleAlternarAtiva(cf);
   }
 
   async function handleAlternarAtiva(cf: ContaFixa) {
