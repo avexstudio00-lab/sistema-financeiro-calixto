@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { PLANOS } from "@/lib/planos";
+import { PLANOS, PLANOS_PAGOS } from "@/lib/planos";
 import { DIAS_TRIAL, PLANO_TRIAL } from "@/lib/data/assinaturas";
 
 function CadastroConteudo() {
@@ -68,7 +68,7 @@ function CadastroConteudo() {
       return;
     }
 
-    if (planoPretendido === "mensal" || planoPretendido === "clt" || planoPretendido === "avancado" || planoPretendido === "grupo") {
+    if (planoPretendido && (PLANOS_PAGOS as readonly string[]).includes(planoPretendido)) {
       try {
         window.localStorage.setItem("plano_pretendido", planoPretendido);
       } catch {
