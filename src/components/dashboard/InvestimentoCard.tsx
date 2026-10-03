@@ -101,6 +101,9 @@ export interface InvestimentoCardProps {
   ) => void | Promise<void>;
   /** "Só juros" numa parcela específica de um empréstimo parcelado. */
   onRegistrarJurosParcela?: (parcela: ParcelaInvestimento, dados: DadosJurosParcela) => void | Promise<void>;
+  /** Recarrega a tela depois de editar/excluir um evento do histórico de
+   * pagamentos (item 4.5, 03/out/2026). */
+  onPagamentosAlterados?: () => void | Promise<void>;
 }
 
 export function InvestimentoCard({
@@ -120,6 +123,7 @@ export function InvestimentoCard({
   onRegistrarQuitacao,
   onRegistrarQuitacaoAntecipada,
   onRegistrarJurosParcela,
+  onPagamentosAlterados,
 }: InvestimentoCardProps) {
   const [editandoTaxa, setEditandoTaxa] = React.useState(false);
   const [taxaEmEdicao, setTaxaEmEdicao] = React.useState("");
@@ -524,7 +528,7 @@ export function InvestimentoCard({
         onRegistrarJuros={onRegistrarJurosParcela}
       />
 
-      {inv.tipo === "emprestimo" && <HistoricoPagamentosEmprestimo pagamentos={pagamentos} />}
+      {inv.tipo === "emprestimo" && <HistoricoPagamentosEmprestimo pagamentos={pagamentos} onAlterado={onPagamentosAlterados} />}
 
       {dialogoPagamento && (
         <RegistrarPagamentoEmprestimoDialog
