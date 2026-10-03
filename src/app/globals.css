@@ -8,8 +8,10 @@
     --foreground: 15 23 42;
     --card: 255 255 255;
     --border: 241 245 249;
-    --muted: 100 116 139;
-    --muted-foreground: 148 163 184;
+    /* Contraste AA (4.1): muted = slate-600 (7.5:1), muted-foreground =
+       slate-500 (4.7:1) — antes slate-400, que dava só 2.5:1 no branco. */
+    --muted: 71 85 105;
+    --muted-foreground: 100 116 139;
   }
 
   .dark {
@@ -17,8 +19,10 @@
     --foreground: 241 245 249;
     --card: 17 22 35;
     --border: 32 39 55;
-    --muted: 148 163 184;
-    --muted-foreground: 100 116 139;
+    /* Contraste AA (4.1): muted = slate-300 (12:1), muted-foreground =
+       slate-400 (7:1) — antes slate-500, que dava 3.8:1 no card escuro. */
+    --muted: 203 213 225;
+    --muted-foreground: 148 163 184;
   }
 
   html {
