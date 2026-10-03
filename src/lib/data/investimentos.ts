@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { NOMES_MES } from "@/lib/format";
+import { lancarMovimentoInvestimento, estornarMovimento, ajustarMovimento } from "./movimentosInvestimento";
 import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, CotacoesMercado } from "./tipos";
 
 /** Taxa CDI de referência (% ao ano) sugerida ao cadastrar um investimento
@@ -242,10 +243,30 @@ export async function listarParcelas(usuarioId: string): Promise<ParcelaInvestim
   return (data as ParcelaInvestimento[]) ?? [];
 }
 
-export async function marcarParcelaPaga(id: string, pago: boolean) {
+/** Marca/desmarca uma parcela como recebida. Com `destino` (5.10), lança a
+ * entrada na carteira escolhida; ao desmarcar, estorna o lançamento ligado. */
+export async function marcarParcelaPaga(
+  id: string,
+  pago: boolean,
+  destino?: { usuarioId: string; contaId: string; valor: number; descricao: string } | null,
+  transacaoAnteriorId?: string | null
+) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  let transacaoId: string | null = null;
+  if (pago && destino?.contaId) {
+    transacaoId = await lancarMovimentoInvestimento({
+      usuarioId: destino.usuarioId,
+      contaId: destino.contaId,
+      sentido: "resgate",
+      valor: destino.valor,
+      data: hoje,
+      descricao: destino.descricao,
+    });
+  }
+  if (!pago) await estornarMovimento(transacaoAnteriorId);
   return supabase
     .from("investimento_parcelas")
-    .update({ pago, data_pagamento: pago ? new Date().toISOString().slice(0, 10) : null })
+    .update({ pago, data_pagamento: pago ? hoje : null, transacao_id: transacaoId })
     .eq("id", id);
 }
 
@@ -324,6 +345,9 @@ export interface DadosPagamentoJuros {
   /** Só relevante quando `parcelaId` não é nulo e existem parcelas depois
    * dela: também empurra 1 mês as parcelas seguintes, não só essa. */
   empurrarSeguintes?: boolean;
+  /** 5.10: carteira onde o dinheiro entrou (lança a receita). */
+  contaId?: string | null;
+  descricaoLancamento?: string;
 }
 
 /** Registra "só paguei o juros" — a dívida principal continua em aberto e
@@ -337,8 +361,20 @@ export async function registrarPagamentoJuros(dados: DadosPagamentoJuros) {
   const diasAtraso = calcularDiasAtraso(dados.vencimentoAtual, dados.dataPagamento);
   const proximoVencimento = adicionarMeses(dados.vencimentoAtual, 1);
   const valorPago = Number((dados.valorJuros + dados.valorDiaria).toFixed(2));
+  const transacaoJuros = dados.contaId
+    ? await lancarMovimentoInvestimento({
+        usuarioId: dados.usuarioId,
+        contaId: dados.contaId,
+        sentido: "resgate",
+        valor: valorPago,
+        data: dados.dataPagamento,
+        descricao: dados.descricaoLancamento ?? "Juros de empréstimo recebidos",
+      })
+    : null;
 
   const { error: erroEvento } = await supabase.from("investimento_pagamentos").insert({
+    conta_id: dados.contaId ?? null,
+    transacao_id: transacaoJuros,
     investimento_id: dados.investimentoId,
     usuario_id: dados.usuarioId,
     parcela_id: dados.parcelaId,
@@ -401,6 +437,8 @@ export interface DadosQuitacao {
   valorPago: number;
   valorDiaria: number;
   dataPagamento: string;
+  contaId?: string | null;
+  descricaoLancamento?: string;
 }
 
 /** Quita de vez um empréstimo à vista — fecha o empréstimo (nunca mais
@@ -409,8 +447,20 @@ export interface DadosQuitacao {
  * exemplo com diária de atraso somada ou por renegociação). */
 export async function registrarQuitacaoEmprestimo(dados: DadosQuitacao) {
   const diasAtraso = calcularDiasAtraso(dados.vencimentoAtual, dados.dataPagamento);
+  const transacaoQuitacao = dados.contaId
+    ? await lancarMovimentoInvestimento({
+        usuarioId: dados.usuarioId,
+        contaId: dados.contaId,
+        sentido: "resgate",
+        valor: dados.valorPago,
+        data: dados.dataPagamento,
+        descricao: dados.descricaoLancamento ?? "Quitação de empréstimo recebida",
+      })
+    : null;
 
   const { error: erroEvento } = await supabase.from("investimento_pagamentos").insert({
+    conta_id: dados.contaId ?? null,
+    transacao_id: transacaoQuitacao,
     investimento_id: dados.investimentoId,
     usuario_id: dados.usuarioId,
     parcela_id: null,
@@ -442,7 +492,9 @@ export async function registrarQuitacaoAntecipadaParcelado(
   parcelasEmAberto: ParcelaInvestimento[],
   valorPago: number,
   valorDiaria: number,
-  dataPagamento: string
+  dataPagamento: string,
+  contaId: string | null = null,
+  descricaoLancamento = "Quitação antecipada recebida"
 ) {
   if (parcelasEmAberto.length === 0) return { data: null, error: null };
   const vencimentoMaisAntigo = parcelasEmAberto.reduce(
@@ -450,8 +502,20 @@ export async function registrarQuitacaoAntecipadaParcelado(
     parcelasEmAberto[0].data_vencimento
   );
   const diasAtraso = calcularDiasAtraso(vencimentoMaisAntigo, dataPagamento);
+  const transacaoAntecipada = contaId
+    ? await lancarMovimentoInvestimento({
+        usuarioId,
+        contaId,
+        sentido: "resgate",
+        valor: valorPago,
+        data: dataPagamento,
+        descricao: descricaoLancamento,
+      })
+    : null;
 
   const { error: erroEvento } = await supabase.from("investimento_pagamentos").insert({
+    conta_id: contaId,
+    transacao_id: transacaoAntecipada,
     investimento_id: investimentoId,
     usuario_id: usuarioId,
     parcela_id: null,
@@ -545,6 +609,7 @@ export async function editarPagamentoInvestimento(pagamento: PagamentoInvestimen
     })
     .eq("id", pagamento.id);
   if (error) return { data: null, error };
+  await ajustarMovimento(pagamento.transacao_id, valorPago, dados.dataPagamento);
 
   if (pagamento.tipo === "quitacao") {
     return supabase
@@ -569,8 +634,7 @@ export async function editarPagamentoInvestimento(pagamento: PagamentoInvestimen
  *
  * O saldo devedor e o ganho do card são recalculados sozinhos na tela a
  * partir de parcelas/quitado — nada disso é guardado como número solto.
- * (Ainda não existe lançamento em conta bancária pra esses eventos — isso
- * chega com o item 5.10; quando chegar, a reversão entra aqui.) */
+ * Se o evento lançou dinheiro numa carteira (5.10), o lançamento é estornado. */
 export async function excluirPagamentoInvestimento(pagamento: PagamentoInvestimento) {
   if (pagamento.tipo === "juros") {
     const base = supabase
@@ -618,6 +682,8 @@ export async function excluirPagamentoInvestimento(pagamento: PagamentoInvestime
 
   const { error: erroDelete } = await supabase.from("investimento_pagamentos").delete().eq("id", pagamento.id);
   if (erroDelete) return { data: null, error: erroDelete };
+  // 5.10: devolve o dinheiro que tinha entrado na carteira por esse evento.
+  await estornarMovimento(pagamento.transacao_id);
 
   if (pagamento.parcela_id) return recalcularVencimentoFinalDoInvestimento(pagamento.investimento_id);
   return { data: null, error: null };
@@ -641,8 +707,22 @@ export async function atualizarEmprestimoInvestimento(
     .eq("id", id);
 }
 
+/** Exclui o investimento e desfaz os lançamentos que ele gerou nas
+ * carteiras (aplicação, parcelas e pagamentos recebidos — item 5.10). */
 export async function deletarInvestimento(id: string) {
-  return supabase.from("investimentos").delete().eq("id", id);
+  const [{ data: inv }, { data: parcelas }, { data: pagamentos }] = await Promise.all([
+    supabase.from("investimentos").select("transacao_origem_id").eq("id", id).maybeSingle(),
+    supabase.from("investimento_parcelas").select("transacao_id").eq("investimento_id", id),
+    supabase.from("investimento_pagamentos").select("transacao_id").eq("investimento_id", id),
+  ]);
+  const ids = [
+    (inv as { transacao_origem_id?: string | null } | null)?.transacao_origem_id,
+    ...((parcelas as { transacao_id: string | null }[] | null) ?? []).map((p) => p.transacao_id),
+    ...((pagamentos as { transacao_id: string | null }[] | null) ?? []).map((p) => p.transacao_id),
+  ].filter(Boolean) as string[];
+  const resultado = await supabase.from("investimentos").delete().eq("id", id);
+  if (!resultado.error) for (const t of ids) await estornarMovimento(t);
+  return resultado;
 }
 
 function diasEntre(dataInicio: string, referencia: Date): number {
