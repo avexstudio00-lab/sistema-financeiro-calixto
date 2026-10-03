@@ -29,7 +29,10 @@ import {
   PERCENTUAL_CDI_SUGERIDO,
 } from "@/lib/data/investimentos";
 import { obterCotacoesMercado } from "@/lib/data/mercado";
-import type { CotacoesMercado } from "@/lib/data/tipos";
+import { listarContas } from "@/lib/data/contas";
+import { lancarMovimentoInvestimento } from "@/lib/data/movimentosInvestimento";
+import { supabase } from "@/lib/supabase/client";
+import type { Conta, CotacoesMercado } from "@/lib/data/tipos";
 
 const TIPOS_INVESTIMENTO = [
   {
@@ -89,7 +92,7 @@ const TIPOS_INVESTIMENTO = [
   },
 ] as const;
 
-type TipoInvestimento = (typeof TIPOS_INVESTIMENTO)[number]["id"];
+export type TipoInvestimento = (typeof TIPOS_INVESTIMENTO)[number]["id"];
 
 const PERIODICIDADES = [
   { id: "mensal", label: "Mensal" },
@@ -129,10 +132,28 @@ export interface NovoInvestimentoModalProps {
   aberto: boolean;
   onFechar: () => void;
   onSalvo: () => void;
+  /** Item 5.12: "+" contextual de uma aba de tipo — já abre com o tipo
+   * escolhido e esconde o seletor. */
+  tipoInicial?: TipoInvestimento | null;
 }
 
-export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvestimentoModalProps) {
+export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial = null }: NovoInvestimentoModalProps) {
   const { user } = useAuth();
+  // Item 5.10: carteira de onde sai o dinheiro aplicado (obrigatória).
+  const [contas, setContas] = React.useState<Conta[]>([]);
+  const [contaOrigemId, setContaOrigemId] = React.useState("");
+
+  React.useEffect(() => {
+    if (!aberto || !user) return;
+    listarContas(user.id).then((lista) => {
+      setContas(lista);
+      setContaOrigemId((atual) => atual || (lista.find((c) => c.tipo !== "cartao_credito")?.id ?? ""));
+    });
+  }, [aberto, user]);
+
+  React.useEffect(() => {
+    if (aberto && tipoInicial) setTipo(tipoInicial);
+  }, [aberto, tipoInicial]);
 
   const [tipo, setTipo] = React.useState<TipoInvestimento>("cdi");
   const [nome, setNome] = React.useState("");
@@ -189,6 +210,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setTituloTesouroSelecionado("");
       setQuantidadeCotas("");
       setCotacoes(undefined);
+      setContaOrigemId("");
     }
   }, [aberto]);
 
@@ -342,6 +364,10 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       setErro(ehEmprestimo ? "Digite um valor emprestado válido." : "Digite um valor investido válido.");
       return;
     }
+    if (!contaOrigemId) {
+      setErro(contas.length === 0 ? "Cadastre uma carteira antes (menu Carteiras) pra saber de onde saiu o dinheiro." : "Escolha de qual carteira saiu o dinheiro.");
+      return;
+    }
     if (nome.trim().length < 2) {
       setErro(ehEmprestimo ? "Digite o nome da pessoa." : "Dê um nome para esse investimento.");
       return;
@@ -453,6 +479,20 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
       return;
     }
 
+    // 5.10: tira o valor aplicado da carteira de origem e liga o lançamento.
+    const transacaoOrigemId = await lancarMovimentoInvestimento({
+      usuarioId: user.id,
+      contaId: contaOrigemId,
+      sentido: "aplicacao",
+      valor: valorNumero,
+      data: dataInicio,
+      descricao: `${ehEmprestimo ? "Empréstimo para" : tipo === "revenda" ? "Compra" : "Aplicação"}: ${nome.trim()}`,
+    });
+    await supabase
+      .from("investimentos")
+      .update({ conta_origem_id: contaOrigemId, transacao_origem_id: transacaoOrigemId })
+      .eq("id", data.id);
+
     if (parcelando && valorParcelaCalculado) {
       const { error: erroParcelas } = await criarParcelasDoInvestimento(
         data.id,
@@ -477,7 +517,9 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center">
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-card p-6 shadow-card-hover sm:rounded-3xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-h3 text-foreground">Novo investimento</h2>
+          <h2 className="text-h3 text-foreground">
+            {tipoInicial ? `Novo: ${TIPOS_INVESTIMENTO.find((t) => t.id === tipoInicial)?.nome ?? "investimento"}` : "Novo investimento"}
+          </h2>
           <button
             type="button"
             onClick={onFechar}
@@ -489,6 +531,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {!tipoInicial && (
           <div className="flex flex-col gap-1.5">
             <span className="text-small font-medium text-foreground">Tipo de investimento</span>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -521,6 +564,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               ))}
             </div>
           </div>
+          )}
 
           <Input
             label={ehEmprestimo ? "Nome da pessoa" : tipo === "revenda" ? "O que você comprou" : "Nome do investimento"}
@@ -630,6 +674,26 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               value={dataInicio}
               onChange={(v) => setDataInicio(v)}
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="conta-origem-investimento" className="text-small font-medium text-foreground">
+              Saiu de qual carteira?
+            </label>
+            <select
+              id="conta-origem-investimento"
+              value={contaOrigemId}
+              onChange={(e) => setContaOrigemId(e.target.value)}
+              className="h-11 rounded-xl border border-border bg-card px-4 text-small text-foreground"
+            >
+              <option value="">Selecione a carteira...</option>
+              {contas.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted">O valor sai dessa carteira como gasto na categoria &quot;Investimentos&quot;.</span>
           </div>
 
           {ehEmprestimo && (
