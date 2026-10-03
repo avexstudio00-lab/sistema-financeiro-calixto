@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarTransacoes } from "@/lib/data/transacoes";
+import { empresaAtivaId } from "@/lib/empresa/empresaAtiva";
 import { listarCategorias } from "@/lib/data/categorias";
 import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
 import { formatarMoeda } from "@/lib/format";
@@ -99,9 +100,13 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
 
   const transacoesDoMundo = React.useMemo(
     () =>
-      transacoes.filter((t) =>
-        mundo === "negocio" ? t.tipo_negocio === "negocio" : t.tipo_negocio !== "negocio"
-      ),
+      transacoes.filter((t) => {
+        if (mundo !== "negocio") return t.tipo_negocio !== "negocio";
+        if (t.tipo_negocio !== "negocio") return false;
+        // Multi-empresa: só a empresa escolhida (null = visão consolidada).
+        const empresaId = empresaAtivaId();
+        return !empresaId || !t.empresa_id || t.empresa_id === empresaId;
+      }),
     [transacoes, mundo]
   );
 
