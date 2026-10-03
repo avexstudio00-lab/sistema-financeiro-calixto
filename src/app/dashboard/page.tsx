@@ -49,7 +49,14 @@ import { GraficoDonutCategorias } from "@/components/dashboard/graficos/GraficoD
 import { GraficoRankingGastos } from "@/components/dashboard/graficos/GraficoRankingGastos";
 import { GraficoColunasComparativo } from "@/components/dashboard/graficos/GraficoColunasComparativo";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
-import type { Categoria, Transacao, Meta, LimiteCategoria, ContaFixa } from "@/lib/data/tipos";
+import { EVENTO_LANCAMENTO_SALVO } from "@/components/dashboard/BotaoLancamentoGlobal";
+import { AtalhosLancamento } from "@/components/dashboard/AtalhosLancamento";
+import { VisaoHoje } from "@/components/dashboard/VisaoHoje";
+import { ProjecaoLiquidez } from "@/components/dashboard/ProjecaoLiquidez";
+import { ResumoInvestimentosPainel } from "@/components/dashboard/ResumoInvestimentosPainel";
+import { listarCompromissosPessoais, type Compromisso } from "@/lib/data/compromissos";
+import { hojeIso } from "@/lib/util/texto";
+import type { Categoria, Transacao, Meta, LimiteCategoria, ContaFixa, Investimento, CotacoesMercado } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO_FILTRO = [
   { id: "pix", label: "Pix" },
@@ -98,6 +105,8 @@ interface PatrimonioResumo {
   totalInvestimentos: number;
   totalDividas: number;
   totalFaturaAberta: number;
+  /** Só contas que não são cartão — base da projeção de liquidez (6.5). */
+  saldoDisponivel: number;
   liquido: number;
 }
 
@@ -121,6 +130,11 @@ export default function DashboardPage() {
   const [patrimonioExpandido, setPatrimonioExpandido] = React.useState(false);
   const [contasFixasLista, setContasFixasLista] = React.useState<ContaFixa[]>([]);
   const [custoExpandido, setCustoExpandido] = React.useState(false);
+  // Itens 5.11, 6.4 e 6.5 da especificação de 03/out/2026.
+  const [investimentosLista, setInvestimentosLista] = React.useState<Investimento[]>([]);
+  const [cotacoesMercado, setCotacoesMercado] = React.useState<CotacoesMercado | undefined>(undefined);
+  const [compromissos, setCompromissos] = React.useState<Compromisso[]>([]);
+  const [recarga, setRecarga] = React.useState(0);
 
   // Modo offline: quando não dá pra buscar do servidor, mostra o último
   // "retrato" bom que a gente tinha salvo. `offlineDesde` guarda a hora
@@ -201,6 +215,22 @@ export default function DashboardPage() {
     carregar();
   }, [carregar]);
 
+  // Lançamentos feitos pelo botão flutuante global (6.3) ou pelos atalhos
+  // rápidos (6.1) recarregam o painel sozinhos.
+  React.useEffect(() => {
+    const aoSalvar = () => {
+      void carregar();
+      setRecarga((n) => n + 1);
+    };
+    window.addEventListener(EVENTO_LANCAMENTO_SALVO, aoSalvar);
+    return () => window.removeEventListener(EVENTO_LANCAMENTO_SALVO, aoSalvar);
+  }, [carregar]);
+
+  React.useEffect(() => {
+    if (!user) return;
+    listarCompromissosPessoais(user.id).then(setCompromissos);
+  }, [user, recarga]);
+
   // Quando a internet volta depois de ter caído, primeiro tenta enviar as
   // anotações que ficaram guardadas na fila offline (ver
   // src/lib/offline/fila.ts) e só depois busca os dados de verdade de novo
@@ -261,6 +291,8 @@ export default function DashboardPage() {
         obterCotacoesMercado(),
       ]);
       if (cancelado) return;
+      setInvestimentosLista(investimentos);
+      setCotacoesMercado(cotacoes);
 
       const contasCartao = contas.filter((c) => c.tipo === "cartao_credito");
       let totalFaturaAberta = 0;
@@ -293,13 +325,14 @@ export default function DashboardPage() {
         totalInvestimentos,
         totalDividas,
         totalFaturaAberta,
+        saldoDisponivel: contas.filter((c) => c.tipo !== "cartao_credito").reduce((acc, c) => acc + Number(c.saldo_atual), 0),
         liquido: totalContas + totalInvestimentos - totalDividas - totalFaturaAberta,
       });
     })();
     return () => {
       cancelado = true;
     };
-  }, [user]);
+  }, [user, recarga]);
 
   // Contas fixas (usadas só pra estimar o "custo médio mensal" abaixo, ver
   // `custoMedioMensal`) -- lista completa, independente do `carregar()`.
@@ -487,6 +520,15 @@ export default function DashboardPage() {
   }, [evolucaoMensal, contasFixasLista]);
 
   const agora = new Date();
+  const hojeStr = hojeIso();
+  const itensHoje = compromissos.filter((c) => c.data <= hojeStr);
+  const proximosRecebimentos = compromissos.filter((c) => c.id.startsWith("iv-"));
+  const movimentosPrevistos = [
+    ...compromissos.map((c) => ({ data: c.data, valor: c.sentido === "entrada" ? c.valor : -c.valor })),
+    // Fatura de cartão em aberto sai das contas no próximo vencimento — entra
+    // como saída já no primeiro dia pra não superestimar a sobra.
+    ...(patrimonio && patrimonio.totalFaturaAberta > 0 ? [{ data: hojeStr, valor: -patrimonio.totalFaturaAberta }] : []),
+  ];
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
@@ -505,6 +547,10 @@ export default function DashboardPage() {
 
       {offlineDesde && <BannerOffline salvoEm={offlineDesde} />}
       <FilaPendenteBanner aoSincronizar={carregar} />
+
+      {user && <AtalhosLancamento usuarioId={user.id} mundo="pessoal" />}
+
+      <VisaoHoje itens={itensHoje} />
 
       {alertasOrcamento.length > 0 && (
         <Link href="/dashboard/orcamento">
@@ -659,6 +705,10 @@ export default function DashboardPage() {
           )}
         </Card>
       </div>
+
+      {patrimonio && <ProjecaoLiquidez saldoAtual={patrimonio.saldoDisponivel} movimentos={movimentosPrevistos} />}
+
+      <ResumoInvestimentosPainel investimentos={investimentosLista} cotacoes={cotacoesMercado} proximos={proximosRecebimentos} />
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -892,21 +942,6 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-
-      {/* "bottom-24" em vez de "bottom-6": esse botão flutuante é anterior à
-          barra fixa de navegação do rodapé (MobileTabBar, ver seção 22 do
-          contexto do projeto) -- com "bottom-6" ele ficava embaixo demais e
-          acabava sobrepondo o botão "Mais" da barra nova. 24 (96px) sobra
-          espaço mesmo em aparelhos com área segura maior (notch/indicador
-          home do iPhone). */}
-      <button
-        type="button"
-        onClick={handleAbrirModal}
-        aria-label="Anotar gasto ou receita"
-        className="fixed bottom-24 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-primary-500 text-white shadow-card-hover transition-transform hover:scale-105 sm:hidden"
-      >
-        <Plus size={26} />
-      </button>
 
       <NovaTransacaoModal
         aberto={modalAberto}
