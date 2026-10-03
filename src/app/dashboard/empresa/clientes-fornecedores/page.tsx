@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Plus, Users, Trash2, Pencil, Phone, Mail } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -49,6 +50,7 @@ export default function ClientesFornecedoresPage() {
   const [nome, setNome] = React.useState("");
   const [telefone, setTelefone] = React.useState("");
   const [email, setEmail] = React.useState("");
+  const [prazoEntrega, setPrazoEntrega] = React.useState("");
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
@@ -82,6 +84,7 @@ export default function ClientesFornecedoresPage() {
     setNome("");
     setTelefone("");
     setEmail("");
+    setPrazoEntrega("");
     setErro(null);
     setFormAberto(true);
   }
@@ -91,6 +94,7 @@ export default function ClientesFornecedoresPage() {
     setNome(item.nome);
     setTelefone(item.telefone ?? "");
     setEmail(item.email ?? "");
+    setPrazoEntrega((item as Fornecedor).prazo_entrega_dias != null ? String((item as Fornecedor).prazo_entrega_dias) : "");
     setErro(null);
     setFormAberto(true);
   }
@@ -111,8 +115,8 @@ export default function ClientesFornecedoresPage() {
           ? await atualizarCliente(editandoId, nome.trim(), telefone.trim() || null, email.trim() || null)
           : await criarCliente(negocio.usuarioId, nome.trim(), telefone.trim() || null, email.trim() || null)
         : editandoId
-        ? await atualizarFornecedor(editandoId, nome.trim(), telefone.trim() || null, email.trim() || null)
-        : await criarFornecedor(negocio.usuarioId, nome.trim(), telefone.trim() || null, email.trim() || null);
+        ? await atualizarFornecedor(editandoId, nome.trim(), telefone.trim() || null, email.trim() || null, prazoEntrega ? Number(prazoEntrega) : null)
+        : await criarFornecedor(negocio.usuarioId, nome.trim(), telefone.trim() || null, email.trim() || null, prazoEntrega ? Number(prazoEntrega) : null);
     setSalvando(false);
 
     if (error) {
@@ -181,6 +185,17 @@ export default function ClientesFornecedoresPage() {
             <div className="flex-1 min-w-[160px]">
               <Input label="E-mail (opcional)" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
+            {aba === "fornecedores" && (
+              <div className="flex-1 min-w-[140px]">
+                <Input
+                  label="Prazo de entrega (dias)"
+                  inputMode="numeric"
+                  value={prazoEntrega}
+                  onChange={(e) => setPrazoEntrega(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Ex: 7"
+                />
+              </div>
+            )}
             <div className="flex gap-2">
               <Button type="submit" disabled={salvando}>
                 {salvando ? "Salvando..." : "Salvar"}
@@ -229,7 +244,16 @@ export default function ClientesFornecedoresPage() {
                       <Users size={18} />
                     </span>
                     <div className="min-w-0">
-                      <p className="text-body font-semibold text-foreground">{item.nome}</p>
+                      {aba === "clientes" ? (
+                        <Link
+                          href={`/dashboard/empresa/clientes/${item.id}`}
+                          className="text-body font-semibold text-foreground underline-offset-2 hover:underline"
+                        >
+                          {item.nome}
+                        </Link>
+                      ) : (
+                        <p className="text-body font-semibold text-foreground">{item.nome}</p>
+                      )}
                       <div className="flex flex-col text-xs text-muted">
                         {item.telefone && (
                           <span className="flex items-center gap-1">
@@ -260,6 +284,14 @@ export default function ClientesFornecedoresPage() {
                 </div>
 
                 <div className="flex items-center gap-2 border-t border-border pt-3">
+                  {aba === "clientes" && (
+                    <Link
+                      href={`/dashboard/empresa/clientes/${item.id}`}
+                      className="flex items-center gap-1.5 rounded-full bg-accent-50 px-3 py-1.5 text-xs font-semibold text-accent-700 hover:bg-accent-100"
+                    >
+                      Ver dossiê
+                    </Link>
+                  )}
                   <button
                     type="button"
                     onClick={() => abrirEdicao(item)}
