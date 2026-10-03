@@ -6,6 +6,7 @@ import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarProdutos } from "@/lib/data/produtos";
 import { listarClientes } from "@/lib/data/clientes";
@@ -234,7 +235,7 @@ export default function VendasPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Data" type="date" value={data} onChange={(e) => setData(e.target.value)} />
+              <DateMaskInput label="Data" value={data} onChange={(v) => setData(v)} />
               <div className="flex flex-col gap-1.5">
                 <span className="text-small font-medium text-foreground">Forma de pagamento</span>
                 <select
