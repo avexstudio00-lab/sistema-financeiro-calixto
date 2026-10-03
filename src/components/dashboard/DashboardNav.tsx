@@ -25,6 +25,12 @@ import {
   User,
   UserPlus,
   ScrollText,
+  Boxes,
+  Wrench,
+  ClipboardList,
+  FileSpreadsheet,
+  FileDown,
+  Settings2,
   type LucideIcon,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -32,6 +38,8 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { MobileTabBar } from "@/components/dashboard/MobileTabBar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
+import { BuscaGlobal } from "@/components/dashboard/BuscaGlobal";
 
 interface LinkNav {
   href: string;
@@ -53,7 +61,8 @@ const HREFS_PRINCIPAIS_MOBILE_PESSOAL = [
 const HREFS_PRINCIPAIS_MOBILE_EMPRESA = [
   "/dashboard/empresa",
   "/dashboard/empresa/vendas",
-  "/dashboard/empresa/produtos",
+  "/dashboard/empresa/estoque",
+  "/dashboard/empresa/servicos",
   "/dashboard/empresa/clientes-fornecedores",
 ];
 
@@ -61,6 +70,7 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard", label: "Painel", icon: LayoutDashboard },
   { href: "/dashboard/extrato", label: "Extrato", icon: ScrollText },
   { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
+  { href: "/dashboard/relatorio", label: "Relatório PDF", icon: FileDown },
   { href: "/dashboard/investimentos", label: "Investimentos", icon: TrendingUp },
   { href: "/dashboard/metas", label: "Metas", icon: PiggyBank },
   { href: "/dashboard/orcamento", label: "Orçamento", icon: Target },
@@ -83,7 +93,16 @@ const LINKS_EMPRESA_FINANCEIRO = new Set([
   "/dashboard/empresa/das",
   "/dashboard/empresa/fluxo-caixa",
   "/dashboard/empresa/extrato",
+  "/dashboard/empresa/orcamentos",
+  "/dashboard/empresa/notas-fiscais",
+  "/dashboard/empresa/configuracoes",
 ]);
+
+// Itens que dependem do ramo de atividade da empresa (item 5.5): quem só
+// presta serviço não vê estoque/produtos; quem só vende produto não vê o
+// catálogo de serviços.
+const LINKS_SO_PRODUTO = new Set(["/dashboard/empresa/produtos", "/dashboard/empresa/estoque"]);
+const LINKS_SO_SERVICO = new Set(["/dashboard/empresa/servicos"]);
 
 const LINKS_EMPRESA: LinkNav[] = [
   // Rótulo curto de propósito ("Empresa", não "Painel da empresa"): esse
@@ -97,18 +116,24 @@ const LINKS_EMPRESA: LinkNav[] = [
   // do menu/barra mudou.
   { href: "/dashboard/empresa", label: "Empresa", icon: LayoutDashboard },
   { href: "/dashboard/empresa/vendas", label: "Vendas", icon: ShoppingCart },
-  { href: "/dashboard/empresa/produtos", label: "Estoque", icon: Package },
-  { href: "/dashboard/empresa/extrato", label: "Extrato", icon: ScrollText },
-  { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
+  { href: "/dashboard/empresa/orcamentos", label: "Orçamentos", icon: ClipboardList },
+  { href: "/dashboard/empresa/servicos", label: "Serviços", icon: Wrench },
+  { href: "/dashboard/empresa/produtos", label: "Produtos", icon: Package },
+  { href: "/dashboard/empresa/estoque", label: "Estoque", icon: Boxes },
   { href: "/dashboard/empresa/clientes-fornecedores", label: "Clientes", icon: Users },
+  { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
+  { href: "/dashboard/empresa/extrato", label: "Extrato", icon: ScrollText },
+  { href: "/dashboard/empresa/notas-fiscais", label: "Notas fiscais", icon: FileSpreadsheet },
   { href: "/dashboard/empresa/das", label: "DAS / Impostos", icon: FileText },
   { href: "/dashboard/empresa/fluxo-caixa", label: "Fluxo de caixa", icon: ArrowLeftRight },
+  { href: "/dashboard/empresa/configuracoes", label: "Minhas empresas", icon: Settings2 },
 ];
 
 export function DashboardNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { perfil, papel, signOut } = useAuth();
+  const { empresas, empresaAtivaId, selecionarEmpresa, ramo } = useEmpresa();
   const navRef = React.useRef<HTMLElement>(null);
   const [scrollInfo, setScrollInfo] = React.useState({ podeEsquerda: false, podeDireita: false });
 
@@ -125,8 +150,11 @@ export function DashboardNav() {
     [papel]
   );
   const linksEmpresa = React.useMemo(
-    () => (papel === "funcionario" ? LINKS_EMPRESA.filter((l) => !LINKS_EMPRESA_FINANCEIRO.has(l.href)) : LINKS_EMPRESA),
-    [papel]
+    () =>
+      LINKS_EMPRESA.filter((l) => !(papel === "funcionario" && LINKS_EMPRESA_FINANCEIRO.has(l.href)))
+        .filter((l) => !(ramo === "servicos" && LINKS_SO_PRODUTO.has(l.href)))
+        .filter((l) => !(ramo === "produtos" && LINKS_SO_SERVICO.has(l.href))),
+    [papel, ramo]
   );
   const links = mundo === "negocio" ? linksEmpresa : linksPessoal;
   const corAtiva = mundo === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700";
@@ -140,8 +168,9 @@ export function DashboardNav() {
     mundo === "negocio" ? HREFS_PRINCIPAIS_MOBILE_EMPRESA : HREFS_PRINCIPAIS_MOBILE_PESSOAL;
   const principaisMobile = hrefsPrincipaisMobile
     .map((href) => links.find((link) => link.href === href))
-    .filter((link): link is LinkNav => Boolean(link));
-  const maisMobile = links.filter((link) => !hrefsPrincipaisMobile.includes(link.href));
+    .filter((link): link is LinkNav => Boolean(link))
+    .slice(0, 4);
+  const maisMobile = links.filter((link) => !principaisMobile.some((p) => p.href === link.href));
   const iniciais = perfil?.nome
     .split(" ")
     .filter(Boolean)
@@ -266,7 +295,26 @@ export function DashboardNav() {
           )}
         </div>
 
+        {/* Seletor de empresa (planos Bi-Empresa, item 5.4) — só aparece na
+            área "Minha empresa" e só pra quem tem mais de uma empresa. */}
+        {mundo === "negocio" && empresas.length > 1 && (
+          <select
+            aria-label="Empresa"
+            value={empresaAtivaId ?? "todas"}
+            onChange={(e) => selecionarEmpresa(e.target.value === "todas" ? null : e.target.value)}
+            className="h-9 max-w-[150px] shrink rounded-full border border-border bg-card px-3 text-small font-medium text-foreground focus:border-primary-500 focus:outline-none"
+          >
+            {empresas.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.nome_fantasia}
+              </option>
+            ))}
+            <option value="todas">Todas (consolidado)</option>
+          </select>
+        )}
+
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          <BuscaGlobal />
           <ThemeToggle />
           <Link
             href="/dashboard/perfil"
