@@ -16,8 +16,9 @@ import {
   calcularMargem,
   estoqueBaixo,
 } from "@/lib/data/produtos";
+import { listarFornecedores } from "@/lib/data/fornecedores";
 import { formatarMoeda } from "@/lib/format";
-import type { Produto } from "@/lib/data/tipos";
+import type { Fornecedor, Produto } from "@/lib/data/tipos";
 
 interface FormularioProduto {
   nome: string;
@@ -25,13 +26,15 @@ interface FormularioProduto {
   precoVenda: string;
   quantidade: string;
   estoqueMinimo: string;
+  fornecedorId: string;
 }
 
-const FORM_VAZIO: FormularioProduto = { nome: "", custo: "", precoVenda: "", quantidade: "", estoqueMinimo: "" };
+const FORM_VAZIO: FormularioProduto = { nome: "", custo: "", precoVenda: "", quantidade: "", estoqueMinimo: "", fornecedorId: "" };
 
 export default function ProdutosPage() {
   const { negocio } = useAuth();
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
+  const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [formAberto, setFormAberto] = React.useState(false);
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
@@ -43,7 +46,9 @@ export default function ProdutosPage() {
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
     setCarregando(true);
-    setProdutos(await listarProdutos(negocio.usuarioId));
+    const [lista, forn] = await Promise.all([listarProdutos(negocio.usuarioId), listarFornecedores(negocio.usuarioId)]);
+    setProdutos(lista);
+    setFornecedores(forn);
     setCarregando(false);
   }, [negocio]);
 
@@ -66,6 +71,7 @@ export default function ProdutosPage() {
       precoVenda: String(produto.preco_venda).replace(".", ","),
       quantidade: String(produto.quantidade_estoque),
       estoqueMinimo: String(produto.estoque_minimo),
+      fornecedorId: produto.fornecedor_id ?? "",
     });
     setErro(null);
     setFormAberto(true);
@@ -97,6 +103,7 @@ export default function ProdutosPage() {
       preco_venda: precoVenda,
       quantidade_estoque: quantidade,
       estoque_minimo: estoqueMinimo,
+      fornecedor_id: form.fornecedorId || null,
     };
     const { error } = editandoId
       ? await atualizarProduto(editandoId, dados)
@@ -125,8 +132,10 @@ export default function ProdutosPage() {
     <Container full className="flex flex-col gap-8 py-8">
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-h2 text-foreground">Estoque e produtos</h1>
-          <p className="text-body text-muted">Cadastre o que você vende, com custo, preço e quantidade.</p>
+          <h1 className="text-h2 text-foreground">Catálogo de produtos</h1>
+          <p className="text-body text-muted">
+            O que você vende, com custo, preço e margem. Entradas, saídas e reposição ficam em Gestão de estoque.
+          </p>
         </div>
         <Button onClick={abrirNovo}>
           <Plus size={18} />
@@ -177,6 +186,24 @@ export default function ProdutosPage() {
                 placeholder="0"
               />
             </div>
+            {fornecedores.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Fornecedor principal (opcional)</span>
+                <select
+                  value={form.fornecedorId}
+                  onChange={(e) => setForm((f) => ({ ...f, fornecedorId: e.target.value }))}
+                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                >
+                  <option value="">Nenhum</option>
+                  {fornecedores.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.nome}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-muted">Usado na sugestão de reposição (prazo de entrega do fornecedor).</span>
+              </div>
+            )}
             {erro && <p className="text-small text-rose-600">{erro}</p>}
             <div className="flex gap-2">
               <Button type="submit" disabled={salvando} className="flex-1">
@@ -233,9 +260,9 @@ export default function ProdutosPage() {
                     <p className="font-semibold text-foreground">{formatarMoeda(Number(p.preco_venda))}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted">Margem</p>
+                    <p className="text-xs text-muted">Margem / lucro por unidade</p>
                     <p className={`font-semibold ${margem >= 0 ? "text-accent-600" : "text-red-500"}`}>
-                      {margem.toFixed(0)}%
+                      {margem.toFixed(0)}% · {formatarMoeda(Number(p.preco_venda) - Number(p.custo))}
                     </p>
                   </div>
                   <div>
