@@ -1,12 +1,13 @@
 import { supabase } from "@/lib/supabase/client";
+import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import type { Produto } from "./tipos";
 
 export async function listarProdutos(usuarioId: string): Promise<Produto[]> {
-  const { data } = await supabase
+  const { data } = await filtrarPorEmpresa(supabase
     .from("produtos")
     .select("*")
     .eq("usuario_id", usuarioId)
-    .order("nome", { ascending: true });
+    .order("nome", { ascending: true }));
   return (data as Produto[]) ?? [];
 }
 
@@ -17,10 +18,11 @@ export interface NovoProduto {
   preco_venda: number;
   quantidade_estoque: number;
   estoque_minimo: number;
+  fornecedor_id?: string | null;
 }
 
 export async function criarProduto(produto: NovoProduto) {
-  return supabase.from("produtos").insert(produto).select().single();
+  return supabase.from("produtos").insert({ ...campoEmpresa(), ...produto }).select().single();
 }
 
 export async function atualizarProduto(id: string, dados: Omit<NovoProduto, "usuario_id">) {
