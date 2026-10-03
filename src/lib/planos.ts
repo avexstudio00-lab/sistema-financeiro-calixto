@@ -1,4 +1,4 @@
-export type Plano = "gratis" | "mensal" | "clt" | "avancado" | "grupo";
+export type Plano = "gratis" | "mensal" | "clt" | "avancado" | "avancado_multi" | "grupo" | "grupo_multi";
 
 export const PLANOS: Record<
   Plano,
@@ -49,6 +49,16 @@ export const PLANOS: Record<
       "Ideal pra quem tem negócio — MEI, ME ou CLT investindo por conta própria",
     ],
   },
+  avancado_multi: {
+    nome: "Negócio Bi-Empresa",
+    preco: 45,
+    precoLabel: "R$ 45/mês",
+    recursos: [
+      "Módulo pessoal completo",
+      "Gestão de até 2 empresas independentes (cada uma com vendas, estoque, serviços, contas e fluxo de caixa)",
+      "Troque de empresa num clique, no topo da área Minha empresa",
+    ],
+  },
   grupo: {
     nome: "Grupo",
     preco: 50,
@@ -61,6 +71,17 @@ export const PLANOS: Record<
       "Ideal pra negócio em dupla ou com casal, ou pra quem já tem funcionário",
     ],
   },
+  grupo_multi: {
+    nome: "Negócio Bi-Empresa + Grupo",
+    preco: 55,
+    precoLabel: "R$ 55/mês",
+    recursos: [
+      "Tudo do Negócio Bi-Empresa (2 empresas)",
+      "Acesso multiusuário: até 2 convidados (sócio ou funcionário), cada um vinculado a uma empresa",
+      "Visão consolidada do grupo econômico (as 2 empresas somadas)",
+      "A vida pessoal de cada um continua 100% privada",
+    ],
+  },
 };
 
 export const LIMITE_TRANSACOES_GRATIS = 30;
@@ -71,11 +92,14 @@ export const LIMITE_TRANSACOES_GRATIS = 30;
  * (ex: desabilitar o botão de convidar quando já bateu o limite). */
 export const LIMITE_CONVIDADOS_GRUPO = 2;
 
+/** Planos que incluem a área "Minha empresa" (qualquer variante). */
+const PLANOS_NEGOCIO: readonly Plano[] = ["avancado", "avancado_multi", "grupo", "grupo_multi"];
+
 export function podeUsarRecurso(plano: Plano, recurso: "analiseIA" | "metas" | "dashboardAvancado" | "graficos") {
   if (recurso === "dashboardAvancado" || recurso === "graficos") {
-    return plano === "clt" || plano === "avancado" || plano === "grupo";
+    return plano === "clt" || PLANOS_NEGOCIO.includes(plano);
   }
-  return plano === "mensal" || plano === "clt" || plano === "avancado" || plano === "grupo";
+  return plano === "mensal" || plano === "clt" || PLANOS_NEGOCIO.includes(plano);
 }
 
 /**
@@ -86,7 +110,7 @@ export function podeUsarRecurso(plano: Plano, recurso: "analiseIA" | "metas" | "
  * compartilhamento, ver `podeAcessarNegocio`/`podeConvidarMembros` abaixo).
  */
 export function nivelPlano(plano: Plano): number {
-  if (plano === "avancado" || plano === "clt" || plano === "grupo") return 2;
+  if (plano === "clt" || PLANOS_NEGOCIO.includes(plano)) return 2;
   if (plano === "mensal") return 1;
   return 0;
 }
@@ -101,11 +125,22 @@ export function nivelPlano(plano: Plano): number {
  * área, independente do tipo de perfil.
  */
 export function podeAcessarNegocio(plano: Plano): boolean {
-  return plano === "avancado" || plano === "grupo";
+  return PLANOS_NEGOCIO.includes(plano);
 }
 
 /** Só o plano Grupo libera convidar sócio/funcionário pro painel
  * compartilhado — Avançado continua sendo uso individual. */
 export function podeConvidarMembros(plano: Plano): boolean {
-  return plano === "grupo";
+  return plano === "grupo" || plano === "grupo_multi";
 }
+
+/** Quantas empresas (CNPJs/negócios independentes) o plano permite —
+ * item 5.4 da especificação de 03/out/2026: os planos "Bi-Empresa"
+ * (`avancado_multi` R$45, `grupo_multi` R$55) liberam 2; os demais, 1. */
+export function limiteEmpresas(plano: Plano): number {
+  if (plano === "avancado_multi" || plano === "grupo_multi") return 2;
+  return podeAcessarNegocio(plano) ? 1 : 0;
+}
+
+/** Lista de planos pagos válidos (usada na validação do checkout). */
+export const PLANOS_PAGOS = ["mensal", "clt", "avancado", "avancado_multi", "grupo", "grupo_multi"] as const;
