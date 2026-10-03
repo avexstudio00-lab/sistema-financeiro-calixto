@@ -2,11 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Plus, Lock, Trophy, PiggyBank, Pencil, Calculator } from "lucide-react";
+import { Plus, Lock, Trophy, PiggyBank, Pencil, Calculator, Trash2 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import {
@@ -15,6 +16,7 @@ import {
   atualizarProgressoMeta,
   atualizarMeta,
   calcularMesesParaAtingirMeta,
+  excluirMeta
 } from "@/lib/data/metas";
 import { adicionarMeses } from "@/lib/data/investimentos";
 import { podeUsarRecurso } from "@/lib/planos";
@@ -118,8 +120,26 @@ export default function MetasPage() {
   }
 
   function abrirEdicao(meta: Meta) {
+    setConfirmandoExclusao(false);
     setMetaEditandoId(meta.id);
     setEdicao({ nome: meta.nome, valorMeta: String(meta.valor_meta), dataFim: meta.data_fim ?? "" });
+  }
+
+  // Exclusão (item 4.6): confirmação dentro do próprio card de edição.
+  const [confirmandoExclusao, setConfirmandoExclusao] = React.useState(false);
+  const [excluindo, setExcluindo] = React.useState(false);
+
+  async function handleExcluirMeta(meta: Meta) {
+    setExcluindo(true);
+    const { error } = await excluirMeta(meta.id);
+    setExcluindo(false);
+    if (error) {
+      console.error("Erro ao excluir meta:", error.message);
+      return;
+    }
+    setConfirmandoExclusao(false);
+    setMetaEditandoId(null);
+    carregar();
   }
 
   async function handleSalvarEdicao(meta: Meta) {
