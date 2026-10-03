@@ -17,13 +17,15 @@ import {
   atualizarTransacao,
   deletarTransacao,
   listarDescricoesUsadas,
+  buscarPossivelDuplicata,
   type DescricaoUsada,
 } from "@/lib/data/transacoes";
+import { criarModelo, atualizarUltimoValorModelo } from "@/lib/data/modelosLancamento";
 import { adicionarNaFila } from "@/lib/offline/fila";
 import { salvarDadosFormOffline, lerDadosFormOffline } from "@/lib/offline/dadosFormOffline";
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
 import { formatarMoeda } from "@/lib/format";
-import type { Categoria, Conta, DividaComProgresso, Transacao } from "@/lib/data/tipos";
+import type { Categoria, Conta, DividaComProgresso, ModeloLancamento, Transacao } from "@/lib/data/tipos";
 // `NOME_CATEGORIA_DIVIDA` (nome exato da categoria padrão "Dívida", ver
 // seção do contexto do projeto sobre dívidas, 17/set/2026) agora mora em
 // src/lib/data/dividas.ts, reaproveitado aqui pra nunca dessincronizar do
@@ -55,6 +57,9 @@ export interface NovaTransacaoModalProps {
    * atalho de "Registrar retirada de pró-labore" já abre com a categoria
    * certa escolhida). Ignorado ao editar uma anotação existente. */
   categoriaIdInicial?: string;
+  /** Lançamento rápido (item 6.1): abre com tudo do modelo já preenchido,
+   * só o valor fica em branco (em foco), com o último valor como dica. */
+  modelo?: ModeloLancamento | null;
 }
 
 export function NovaTransacaoModal({
@@ -65,6 +70,7 @@ export function NovaTransacaoModal({
   transacaoEditando,
   mundo = "pessoal",
   categoriaIdInicial,
+  modelo,
 }: NovaTransacaoModalProps) {
   const { user, negocio } = useAuth();
   const online = useOnlineStatus();
@@ -109,6 +115,23 @@ export function NovaTransacaoModal({
   const [excluindo, setExcluindo] = React.useState(false);
   const [confirmandoExclusao, setConfirmandoExclusao] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
+  // Lançamento rápido (6.1): salvar este lançamento como modelo reutilizável.
+  const [salvarComoModelo, setSalvarComoModelo] = React.useState(false);
+  // Anti-duplicidade (6.7): lançamento parecido encontrado; segundo envio
+  // com a confirmação marcada grava mesmo assim.
+  const [duplicata, setDuplicata] = React.useState<Transacao | null>(null);
+  const duplicataConfirmadaRef = React.useRef(false);
+
+  // Aplica o modelo de lançamento rápido quando o modal abre com um.
+  React.useEffect(() => {
+    if (!aberto || !modelo || transacaoEditando) return;
+    setTipo(modelo.tipo);
+    setDescricao(modelo.nome);
+    setCategoriaId(modelo.categoria_id ?? "");
+    if (modelo.conta_id) setContaId(modelo.conta_id);
+    if (modelo.forma_pagamento) setFormaPagamento(modelo.forma_pagamento);
+    setValor("");
+  }, [aberto, modelo, transacaoEditando]);
 
   React.useEffect(() => {
     if (!aberto || !usuarioEfetivoId) return;
@@ -131,7 +154,7 @@ export function NovaTransacaoModal({
       ([listaCategorias, listaContas]) => {
         setCategorias(listaCategorias);
         setContas(listaContas);
-        if (!transacaoEditando && listaContas[0]) setContaId(listaContas[0].id);
+        if (!transacaoEditando && listaContas[0]) setContaId((atual) => atual || modelo?.conta_id || listaContas[0].id);
         // Guarda o retrato mais recente pra próxima vez que o modal precisar
         // abrir sem internet.
         salvarDadosFormOffline(usuarioEfetivoId, listaCategorias, listaContas);
@@ -215,6 +238,9 @@ export function NovaTransacaoModal({
       setFormaPagamento("pix");
       setTipoNegocio(mundo);
       setConfirmandoExclusao(false);
+      setSalvarComoModelo(false);
+      setDuplicata(null);
+      duplicataConfirmadaRef.current = false;
     }
   }, [aberto, mundo, categoriaIdInicial]);
 
@@ -259,6 +285,22 @@ export function NovaTransacaoModal({
     }
 
     setErro(null);
+
+    // Anti-duplicidade (6.7) — só pra anotação nova avulsa, com internet.
+    if (!editando && !parcelando && !semInternet && !duplicataConfirmadaRef.current && usuarioEfetivoId) {
+      const parecida = await buscarPossivelDuplicata({
+        usuario_id: usuarioEfetivoId,
+        tipo,
+        valor: valorNumero,
+        descricao: descricao.trim(),
+        data,
+      });
+      if (parecida) {
+        setDuplicata(parecida);
+        return;
+      }
+    }
+
     setSalvando(true);
     const dados = {
       usuario_id: usuarioEfetivoId,
@@ -300,6 +342,22 @@ export function NovaTransacaoModal({
           : "Não foi possível salvar. Tente novamente."
       );
       return;
+    }
+    // Lançamento rápido (6.1): lembra o último valor do modelo usado, ou
+    // cria um modelo novo se a pessoa pediu.
+    if (!editando && modelo) {
+      void atualizarUltimoValorModelo(modelo.id, valorNumero);
+    } else if (!editando && salvarComoModelo) {
+      void criarModelo({
+        usuario_id: usuarioEfetivoId,
+        nome: descricao.trim(),
+        tipo,
+        tipo_negocio: dados.tipo_negocio === "negocio" ? "negocio" : "pessoal",
+        categoria_id: categoriaId || null,
+        conta_id: contaId || null,
+        forma_pagamento: formaPagamento,
+        ultimo_valor: valorNumero,
+      });
     }
     onSalvo();
     onFechar();
@@ -411,8 +469,17 @@ export function NovaTransacaoModal({
               inputMode="decimal"
               autoFocus
               value={valor}
-              onChange={(e) => setValor(e.target.value)}
+              onChange={(e) => {
+                setValor(e.target.value);
+                setDuplicata(null);
+                duplicataConfirmadaRef.current = false;
+              }}
               placeholder="0,00"
+              helperText={
+                modelo && modelo.ultimo_valor != null && !editando
+                  ? `Último valor registrado: ${formatarMoeda(Number(modelo.ultimo_valor))}`
+                  : undefined
+              }
             />
             <Input
               label="Descrição"
@@ -606,6 +673,43 @@ export function NovaTransacaoModal({
                 Sem internet agora — sua anotação fica guardada no aparelho e é enviada sozinha assim que a
                 conexão voltar.
               </p>
+            )}
+
+            {!editando && !modelo && online && (
+              <label className="flex items-center gap-2 text-small text-foreground">
+                <input
+                  type="checkbox"
+                  checked={salvarComoModelo}
+                  onChange={(e) => setSalvarComoModelo(e.target.checked)}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                Salvar como lançamento rápido (próxima vez é só digitar o valor)
+              </label>
+            )}
+
+            {duplicata && (
+              <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-small text-amber-900">
+                  <strong>Atenção:</strong> já existe um lançamento registrado com este mesmo valor e descrição
+                  nesta semana (&ldquo;{duplicata.descricao}&rdquo; em{" "}
+                  {new Date(duplicata.data + "T00:00:00").toLocaleDateString("pt-BR")}). Deseja registrar este
+                  duplicado mesmo assim?
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="submit"
+                    size="sm"
+                    onClick={() => {
+                      duplicataConfirmadaRef.current = true;
+                    }}
+                  >
+                    Registrar mesmo assim
+                  </Button>
+                  <Button type="button" size="sm" variant="tertiary" onClick={onFechar}>
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
             )}
 
             {erro && <p className="text-small text-rose-600">{erro}</p>}
