@@ -8,6 +8,7 @@ import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { cn } from "@/lib/utils";
 import { calcularDiasAtraso, calcularValorDiaria } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
+import { SeletorCarteira } from "@/components/dashboard/SeletorCarteira";
 import type { Investimento, ParcelaInvestimento } from "@/lib/data/tipos";
 
 function parsearValor(texto: string): number {
@@ -38,11 +39,13 @@ export interface RegistrarPagamentoEmprestimoDialogProps {
     valorJuros: number;
     valorDiaria: number;
     dataPagamento: string;
+    contaId?: string | null;
   }) => void | Promise<void>;
   onRegistrarQuitacao: (dados: {
     valorPago: number;
     valorDiaria: number;
     dataPagamento: string;
+    contaId?: string | null;
   }) => void | Promise<void>;
 }
 
@@ -64,6 +67,7 @@ export function RegistrarPagamentoEmprestimoDialog({
   const [valorPagoTexto, setValorPagoTexto] = React.useState("");
   const [valorPagoEditadoManualmente, setValorPagoEditadoManualmente] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
+  const [contaId, setContaId] = React.useState("");
 
   const parcelasEmAberto = contexto.modo === "quitacaoAntecipada" ? contexto.parcelasEmAberto : [];
 
@@ -118,13 +122,17 @@ export function RegistrarPagamentoEmprestimoDialog({
       setErro("Escolha a data do pagamento.");
       return;
     }
+    if (!contaId) {
+      setErro("Escolha em qual carteira o dinheiro entrou.");
+      return;
+    }
     if (ehAvista && acao === "juros") {
       if (!jurosNumero || jurosNumero <= 0) {
         setErro("Digite o valor do juros pago.");
         return;
       }
       setErro(null);
-      await onRegistrarJuros({ valorJuros: jurosNumero, valorDiaria: diariaNumero, dataPagamento });
+      await onRegistrarJuros({ valorJuros: jurosNumero, valorDiaria: diariaNumero, dataPagamento, contaId });
       return;
     }
     const valorPagoNumero = parsearValor(valorPagoTexto || "0");
@@ -133,7 +141,7 @@ export function RegistrarPagamentoEmprestimoDialog({
       return;
     }
     setErro(null);
-    await onRegistrarQuitacao({ valorPago: valorPagoNumero, valorDiaria: diariaNumero, dataPagamento });
+    await onRegistrarQuitacao({ valorPago: valorPagoNumero, valorDiaria: diariaNumero, dataPagamento, contaId });
   }
 
   const mostrarQuitacao = !ehAvista || acao === "quitacao";
@@ -240,6 +248,8 @@ export function RegistrarPagamentoEmprestimoDialog({
               helperText="Fecha o empréstimo — pode ser igual ao combinado ou outro valor renegociado."
             />
           )}
+
+          <SeletorCarteira valor={contaId} onChange={setContaId} />
 
           {erro && <p className="text-small text-rose-600">{erro}</p>}
 
