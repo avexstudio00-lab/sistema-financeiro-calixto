@@ -13,7 +13,9 @@ import {
   atualizarTaxaInvestimento,
   atualizarValorAtualInvestimento,
   atualizarEmprestimoInvestimento,
-  atualizarDataVencimentoParcela,
+  editarParcelaInvestimento,
+  marcarEmprestimoQuitadoPorParcelas,
+  reabrirEmprestimoParcelado,
   atualizarDiariaInvestimento,
   calcularValorAtualEstimado,
   calcularGanhoNoPeriodo,
@@ -29,7 +31,7 @@ import { formatarMoeda } from "@/lib/format";
 import { obterCotacoesMercado } from "@/lib/data/mercado";
 import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
 import { InvestimentoCard, TIPO_META } from "@/components/dashboard/InvestimentoCard";
-import type { DadosJurosParcela } from "@/components/dashboard/ParcelasInvestimento";
+import type { DadosJurosParcela, DadosEdicaoParcela } from "@/components/dashboard/ParcelasInvestimento";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
 import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, CotacoesMercado } from "@/lib/data/tipos";
 
@@ -190,20 +192,45 @@ export default function InvestimentosPage() {
 
   async function handleAlternarParcela(parcela: ParcelaInvestimento) {
     setSalvandoAcao(true);
-    await marcarParcelaPaga(parcela.id, !parcela.pago);
+    const novoPago = !parcela.pago;
+    const { error } = await marcarParcelaPaga(parcela.id, novoPago);
+    if (!error) {
+      // Mantém `quitado` do empréstimo em sincronia com as parcelas (ver
+      // `marcarEmprestimoQuitadoPorParcelas`/`reabrirEmprestimoParcelado`):
+      // pagou a última em aberto -> quitado; desmarcou uma -> reabre.
+      const inv = investimentos.find((i) => i.id === parcela.investimento_id);
+      const doInvestimento = parcelasPorInvestimento.get(parcela.investimento_id) ?? [];
+      const todasPagas = doInvestimento.every((p) => (p.id === parcela.id ? novoPago : p.pago));
+      if (inv?.tipo === "emprestimo") {
+        if (novoPago && todasPagas && doInvestimento.length > 0 && !inv.quitado) {
+          const soma = doInvestimento.reduce((acc, p) => acc + Number(p.valor), 0);
+          await marcarEmprestimoQuitadoPorParcelas(inv.id, soma);
+        } else if (!novoPago && inv.quitado) {
+          await reabrirEmprestimoParcelado(inv.id);
+        }
+      }
+    } else {
+      console.error("Erro ao marcar parcela:", error);
+    }
     setSalvandoAcao(false);
     carregar();
   }
 
-  async function handleEditarDataParcela(parcela: ParcelaInvestimento, novaDataIso: string) {
+  async function handleEditarParcela(parcela: ParcelaInvestimento, dados: DadosEdicaoParcela) {
     setSalvandoAcao(true);
-    const { error } = await atualizarDataVencimentoParcela(parcela.id, parcela.investimento_id, novaDataIso);
+    const { error } = await editarParcelaInvestimento(
+      parcela.id,
+      parcela.investimento_id,
+      dados.novaData,
+      dados.novoValor,
+      dados.aplicarSeguintes
+    );
     if (error) {
       // Não bloqueia o usuário (a UI já otimisticamente fecha o campo de
       // edição), mas garante que uma falha nessa escrita em duas etapas
       // (parcela + recálculo do vencimento final do investimento) fique
       // registrada em vez de silenciosamente inconsistente.
-      console.error("Erro ao editar data da parcela:", error);
+      console.error("Erro ao editar parcela:", error);
     }
     setSalvandoAcao(false);
     carregar();
@@ -334,7 +361,8 @@ export default function InvestimentosPage() {
             onEditarEmprestimo={handleEditarEmprestimo}
             onExcluir={handleExcluir}
             onAlternarParcela={handleAlternarParcela}
-            onEditarDataParcela={handleEditarDataParcela}
+            onEditarParcela={handleEditarParcela}
+            onPagamentosAlterados={carregar}
             onAtualizarDiaria={handleAtualizarDiaria}
             onRegistrarJurosAvista={handleRegistrarJurosAvista}
             onRegistrarQuitacao={handleRegistrarQuitacao}
