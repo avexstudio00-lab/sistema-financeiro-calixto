@@ -10,7 +10,7 @@ import { registrarEventoSeguranca } from "@/lib/auditoria";
 
 export const runtime = "nodejs";
 
-const PLANOS_PAGOS = ["mensal", "clt", "avancado", "grupo"] as const satisfies readonly Exclude<
+const PLANOS_PAGOS = ["mensal", "clt", "avancado", "avancado_multi", "grupo", "grupo_multi"] as const satisfies readonly Exclude<
   Plano,
   "gratis"
 >[];
