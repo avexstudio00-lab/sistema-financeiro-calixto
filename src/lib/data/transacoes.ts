@@ -1,5 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import { adicionarMeses } from "./investimentos";
+import { campoEmpresa } from "@/lib/empresa/empresaAtiva";
+import { similaridade } from "@/lib/util/texto";
 import type { Transacao } from "./tipos";
 
 export interface NovaTransacao {
@@ -33,6 +35,9 @@ export interface NovaTransacao {
   grupo_parcela_id?: string | null;
   parcela_numero?: number | null;
   parcela_total?: number | null;
+  /** Empresa (só lançamentos do negócio) — preenchida sozinha a partir da
+   * empresa escolhida na área "Minha empresa" (ver empresaAtiva.ts). */
+  empresa_id?: string | null;
 }
 
 export async function listarTransacoes(
@@ -116,7 +121,9 @@ async function ajustarSaldoConta(contaId: string, delta: number) {
 }
 
 export async function criarTransacao(transacao: NovaTransacao) {
-  const { data, error } = await supabase.from("transacoes").insert(transacao).select().single();
+  const linha =
+    transacao.tipo_negocio === "negocio" && !transacao.empresa_id ? { ...transacao, ...campoEmpresa() } : transacao;
+  const { data, error } = await supabase.from("transacoes").insert(linha).select().single();
 
   if (!error && transacao.conta_id) {
     await ajustarSaldoConta(transacao.conta_id, deltaDe(transacao.tipo, transacao.valor));
@@ -206,4 +213,28 @@ export async function deletarTransacao(transacao: Transacao) {
   }
 
   return { error };
+}
+
+/** Aviso de lançamento duplicado (item 6.7 da especificação de 03/out/2026):
+ * procura outro lançamento do mesmo usuário, do mesmo tipo e valor, com data
+ * até 3 dias de diferença e descrição parecida (similaridade de Levenshtein
+ * >= 0,8). Só avisa — quem decide se grava mesmo assim é a pessoa. */
+export async function buscarPossivelDuplicata(dados: Pick<NovaTransacao, "usuario_id" | "tipo" | "valor" | "descricao" | "data">): Promise<Transacao | null> {
+  const base = new Date(dados.data + "T00:00:00");
+  const inicio = new Date(base);
+  inicio.setDate(inicio.getDate() - 3);
+  const fim = new Date(base);
+  fim.setDate(fim.getDate() + 3);
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const { data } = await supabase
+    .from("transacoes")
+    .select("*")
+    .eq("usuario_id", dados.usuario_id)
+    .eq("tipo", dados.tipo)
+    .eq("valor", dados.valor)
+    .gte("data", iso(inicio))
+    .lte("data", iso(fim))
+    .limit(20);
+  const candidatas = (data as Transacao[]) ?? [];
+  return candidatas.find((t) => similaridade(t.descricao ?? "", dados.descricao) >= 0.8) ?? null;
 }
