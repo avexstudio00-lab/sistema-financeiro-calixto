@@ -7,6 +7,7 @@ import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import {
@@ -168,7 +169,7 @@ export default function DasPage() {
             <Input label="Descrição" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
             <div className="grid grid-cols-2 gap-4">
               <Input label="Valor" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" />
-              <Input label="Vencimento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+              <DateMaskInput label="Vencimento" value={vencimento} onChange={(v) => setVencimento(v)} />
             </div>
             {erro && <p className="text-small text-rose-600">{erro}</p>}
             <div className="flex gap-2">
