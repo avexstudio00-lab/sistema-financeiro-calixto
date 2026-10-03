@@ -16,12 +16,20 @@ import {
   atualizarProgressoMeta,
   atualizarMeta,
   calcularMesesParaAtingirMeta,
-  excluirMeta
+  excluirMeta,
+  definirCustodiaMeta,
+  movimentarMeta,
+  sincronizarMetaComEspelho,
+  custodiaRende,
+  ROTULO_CUSTODIA,
+  type CustodiaMeta,
 } from "@/lib/data/metas";
-import { adicionarMeses } from "@/lib/data/investimentos";
+import { adicionarMeses, listarInvestimentos, calcularValorAtualEstimado } from "@/lib/data/investimentos";
+import { obterCotacoesMercado } from "@/lib/data/mercado";
+import { SeletorCarteira } from "@/components/dashboard/SeletorCarteira";
 import { podeUsarRecurso } from "@/lib/planos";
 import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
-import type { Meta } from "@/lib/data/tipos";
+import type { Investimento, Meta } from "@/lib/data/tipos";
 
 function formatarMoeda(valor: number) {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -65,11 +73,33 @@ export default function MetasPage() {
   const [edicao, setEdicao] = React.useState({ nome: "", valorMeta: "", dataFim: "" });
   const [salvandoEdicao, setSalvandoEdicao] = React.useState(false);
   const [simulacaoEmEdicao, setSimulacaoEmEdicao] = React.useState<Record<string, string>>({});
+  // 5.13: onde o dinheiro da meta fica e de qual carteira sai/entra.
+  const [custodiaNova, setCustodiaNova] = React.useState<CustodiaMeta | "">("");
+  const [carteiraPorMeta, setCarteiraPorMeta] = React.useState<Record<string, string>>({});
+  const [espelhos, setEspelhos] = React.useState<Map<string, number>>(new Map());
+  const [erroMeta, setErroMeta] = React.useState<Record<string, string>>({});
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
     setCarregando(true);
-    setMetas(await listarMetas(user.id));
+    const [lista, investimentos, cotacoes] = await Promise.all([
+      listarMetas(user.id),
+      listarInvestimentos(user.id),
+      obterCotacoesMercado(),
+    ]);
+    // O rendimento do investimento espelho entra sozinho na meta.
+    const porId = new Map<string, Investimento>(investimentos.map((i) => [i.id, i]));
+    const valores = new Map<string, number>();
+    let mudou = false;
+    for (const m of lista) {
+      const inv = m.investimento_id ? porId.get(m.investimento_id) : undefined;
+      if (!inv) continue;
+      const valor = calcularValorAtualEstimado(inv, undefined, cotacoes);
+      valores.set(m.id, valor);
+      if (await sincronizarMetaComEspelho(m, valor)) mudou = true;
+    }
+    setEspelhos(valores);
+    setMetas(mudou ? await listarMetas(user.id) : lista);
     setCarregando(false);
   }, [user]);
 
@@ -88,7 +118,9 @@ export default function MetasPage() {
     }
     setErro(null);
     setSalvando(true);
-    await criarMeta(user.id, nome.trim(), valor, dataFim || null);
+    const { data: nova } = await criarMeta(user.id, nome.trim(), valor, dataFim || null);
+    if (nova && custodiaNova) await definirCustodiaMeta(nova as Meta, custodiaNova, user.id);
+    setCustodiaNova("");
     setSalvando(false);
     setNome("");
     setValorMeta("");
@@ -97,25 +129,35 @@ export default function MetasPage() {
     carregar();
   }
 
-  async function handleAporte(meta: Meta) {
+  async function movimentar(meta: Meta, sentido: "aporte" | "retirada") {
+    if (!user) return;
     const valorTexto = aporteEmEdicao[meta.id];
     const valor = Number((valorTexto ?? "").replace(",", "."));
     if (!valor || valor <= 0) return;
-    const novoValor = Number(meta.valor_atual) + valor;
-    const status = novoValor >= Number(meta.valor_meta) ? "concluida" : "em_andamento";
-    await atualizarProgressoMeta(meta.id, novoValor, status);
+    const contaId = carteiraPorMeta[meta.id] || null;
+    // Meta com custódia definida: o dinheiro sempre passa por uma carteira.
+    if (meta.custodia && !contaId) {
+      setErroMeta((prev) => ({ ...prev, [meta.id]: "Escolha a carteira." }));
+      return;
+    }
+    setErroMeta((prev) => ({ ...prev, [meta.id]: "" }));
+    if (!meta.custodia && !contaId) {
+      const base = Number(meta.valor_atual);
+      const novoValor = sentido === "aporte" ? base + valor : Math.max(0, base - valor);
+      await atualizarProgressoMeta(meta.id, novoValor, novoValor >= Number(meta.valor_meta) ? "concluida" : "em_andamento");
+    } else {
+      await movimentarMeta({ meta, usuarioId: user.id, valor, sentido, contaId, valorAtualEspelho: espelhos.get(meta.id) ?? null });
+    }
     setAporteEmEdicao((prev) => ({ ...prev, [meta.id]: "" }));
     carregar();
   }
 
-  async function handleRetirada(meta: Meta) {
-    const valorTexto = aporteEmEdicao[meta.id];
-    const valor = Number((valorTexto ?? "").replace(",", "."));
-    if (!valor || valor <= 0) return;
-    const novoValor = Math.max(0, Number(meta.valor_atual) - valor);
-    const status = novoValor >= Number(meta.valor_meta) ? "concluida" : "em_andamento";
-    await atualizarProgressoMeta(meta.id, novoValor, status);
-    setAporteEmEdicao((prev) => ({ ...prev, [meta.id]: "" }));
+  const handleAporte = (meta: Meta) => movimentar(meta, "aporte");
+  const handleRetirada = (meta: Meta) => movimentar(meta, "retirada");
+
+  async function handleMudarCustodia(meta: Meta, valor: string) {
+    if (!user) return;
+    await definirCustodiaMeta(meta, (valor || null) as CustodiaMeta | null, user.id);
     carregar();
   }
 
@@ -198,6 +240,20 @@ export default function MetasPage() {
             <div className="flex-1">
               <DateMaskInput label="Prazo (opcional)" value={dataFim} onChange={(v) => setDataFim(v)} />
             </div>
+            <div className="flex flex-1 flex-col gap-1.5">
+              <label htmlFor="custodia-nova" className="text-small font-medium text-foreground">Onde fica guardado?</label>
+              <select
+                id="custodia-nova"
+                value={custodiaNova}
+                onChange={(e) => setCustodiaNova(e.target.value as CustodiaMeta | "")}
+                className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
+              >
+                <option value="">Só acompanhar</option>
+                {(Object.keys(ROTULO_CUSTODIA) as CustodiaMeta[]).map((c) => (
+                  <option key={c} value={c}>{ROTULO_CUSTODIA[c]}</option>
+                ))}
+              </select>
+            </div>
             <Button type="submit" disabled={salvando} className="sm:w-auto">
               {salvando ? "Salvando..." : "Criar"}
             </Button>
@@ -270,10 +326,9 @@ export default function MetasPage() {
                         <p className="text-small font-semibold text-rose-800">Excluir &quot;{meta.nome}&quot;?</p>
                         {Number(meta.valor_atual) > 0 ? (
                           <p className="text-small text-rose-800">
-                            Essa meta tem <strong>{formatarMoeda(Number(meta.valor_atual))}</strong> guardados. Os
-                            aportes de meta não saem de nenhuma carteira, então ao excluir o dinheiro{" "}
-                            <strong>continua exatamente onde está</strong> (na conta ou investimento em que você
-                            guardou) — só o acompanhamento da meta é apagado. Não há lançamentos para estornar.
+                            Essa meta tem <strong>{formatarMoeda(Number(meta.valor_atual))}</strong> guardados. Ao
+                            excluir, o dinheiro <strong>continua exatamente onde está</strong> (nas carteiras e no
+                            investimento espelho, se houver) — só o acompanhamento da meta é apagado.
                           </p>
                         ) : (
                           <p className="text-small text-rose-800">Essa ação não pode ser desfeita.</p>
@@ -337,6 +392,32 @@ export default function MetasPage() {
                     </span>
                   </div>
                 </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                  <label htmlFor={`custodia-${meta.id}`}>Guardado em</label>
+                  <select
+                    id={`custodia-${meta.id}`}
+                    value={meta.custodia ?? ""}
+                    onChange={(e) => handleMudarCustodia(meta, e.target.value)}
+                    className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                  >
+                    <option value="">Só acompanhar</option>
+                    {(Object.keys(ROTULO_CUSTODIA) as CustodiaMeta[]).map((c) => (
+                      <option key={c} value={c}>{ROTULO_CUSTODIA[c]}</option>
+                    ))}
+                  </select>
+                  {custodiaRende(meta.custodia) && meta.investimento_id && (
+                    <Link href="/dashboard/investimentos" className="font-semibold text-primary-700 hover:underline">
+                      Rende sozinho — ver investimento
+                    </Link>
+                  )}
+                </div>
+                <SeletorCarteira
+                  valor={carteiraPorMeta[meta.id] ?? ""}
+                  onChange={(id) => setCarteiraPorMeta((prev) => ({ ...prev, [meta.id]: id }))}
+                  rotulo="Carteira do aporte/retirada"
+                  ajuda={meta.custodia ? "O aporte sai dessa carteira e a retirada volta pra ela." : "Opcional: escolha uma carteira pra movimentar o saldo de verdade."}
+                />
+                {erroMeta[meta.id] && <p className="text-xs text-rose-600">{erroMeta[meta.id]}</p>}
                 <div className="flex flex-wrap gap-2">
                   <div className="min-w-[120px] flex-1">
                     <Input
