@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Check, AlertCircle, Wallet } from "lucide-react";
+import { ChevronDown, ChevronUp, Check, AlertCircle, Wallet, Pencil } from "lucide-react";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
+import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
 import { formatarMoeda } from "@/lib/format";
 import { resumirParcelasDivida } from "@/lib/data/dividas";
@@ -17,6 +19,8 @@ export interface ParcelasDividaProps {
   podeRegistrarPagamento: boolean;
   salvando: boolean;
   onRegistrarPagamento: (parcela: ParcelaDividaComStatus, contaId: string | null) => void | Promise<void>;
+  /** Item 5.1: editar valor e vencimento de uma parcela ainda não paga. */
+  onEditarParcela?: (parcela: ParcelaDividaComStatus, dados: { valor: number; dataVencimento: string }) => void | Promise<void>;
 }
 
 /**
@@ -37,7 +41,34 @@ export function ParcelasDivida({
   podeRegistrarPagamento,
   salvando,
   onRegistrarPagamento,
+  onEditarParcela,
 }: ParcelasDividaProps) {
+  const [editandoId, setEditandoId] = React.useState<string | null>(null);
+  const [valorEdicao, setValorEdicao] = React.useState("");
+  const [dataEdicao, setDataEdicao] = React.useState("");
+  const [erroEdicao, setErroEdicao] = React.useState<string | null>(null);
+
+  function abrirEdicao(p: ParcelaDividaComStatus) {
+    setPagandoId(null);
+    setEditandoId(p.id);
+    setValorEdicao(Number(p.valor).toFixed(2).replace(".", ","));
+    setDataEdicao(p.data_vencimento);
+    setErroEdicao(null);
+  }
+
+  async function salvarEdicao(p: ParcelaDividaComStatus) {
+    const valor = Number(valorEdicao.trim().replace(/\./g, "").replace(",", "."));
+    if (!valor || valor <= 0) {
+      setErroEdicao("Digite um valor válido.");
+      return;
+    }
+    if (!dataEdicao) {
+      setErroEdicao("Escolha o vencimento.");
+      return;
+    }
+    await onEditarParcela?.(p, { valor, dataVencimento: dataEdicao });
+    setEditandoId(null);
+  }
   const [expandido, setExpandido] = React.useState(false);
   const [pagandoId, setPagandoId] = React.useState<string | null>(null);
   const [contaSelecionadaId, setContaSelecionadaId] = React.useState<string>(contas[0]?.id ?? "");
@@ -93,7 +124,7 @@ export function ParcelasDivida({
         <div className="flex flex-col gap-1.5">
           {parcelas.map((parcela) => {
             const ehProximaPendente = resumo.proxima?.id === parcela.id;
-            const emPagamento = pagandoId === parcela.id;
+            const emPagamento = pagandoId === parcela.id || editandoId === parcela.id;
             return (
               <div
                 key={parcela.id}
@@ -116,6 +147,16 @@ export function ParcelasDivida({
                   </div>
                   {!emPagamento && (
                     <div className="flex shrink-0 items-center gap-1.5">
+                      {!parcela.paga && onEditarParcela && (
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicao(parcela)}
+                          aria-label={`Editar parcela ${parcela.numero}`}
+                          className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-muted/10 hover:text-foreground"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      )}
                       {parcela.paga ? (
                         <span className="flex items-center gap-1 rounded-full bg-primary-500 px-2.5 py-1 text-xs font-medium text-white">
                           <Check size={11} />
@@ -139,7 +180,32 @@ export function ParcelasDivida({
                     </div>
                   )}
                 </div>
-                {emPagamento && (
+                {editandoId === parcela.id && (
+                  <div className="flex flex-col gap-2 rounded-lg bg-card p-2.5 ring-1 ring-inset ring-border">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="w-32">
+                        <Input label="Valor" inputMode="decimal" value={valorEdicao} onChange={(e) => setValorEdicao(e.target.value)} />
+                      </div>
+                      <DateMaskInput label="Vencimento" value={dataEdicao} onChange={setDataEdicao} />
+                    </div>
+                    {erroEdicao && <p className="text-xs text-rose-700">{erroEdicao}</p>}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={salvando}
+                        onClick={() => salvarEdicao(parcela)}
+                        className="flex h-9 items-center rounded-xl bg-primary-700 px-3 text-xs font-medium text-white hover:bg-primary-800 disabled:opacity-60"
+                      >
+                        Salvar parcela
+                      </button>
+                      <button type="button" onClick={() => setEditandoId(null)} className="h-9 rounded-xl px-3 text-xs font-medium text-muted hover:bg-muted/10">
+                        Cancelar
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted">O total da dívida é recalculado pela soma das parcelas.</p>
+                  </div>
+                )}
+                {pagandoId === parcela.id && (
                   <div className="flex flex-col gap-2 rounded-lg bg-white p-2.5 ring-1 ring-inset ring-border">
                     {contas.length > 0 ? (
                       <div className="flex flex-col gap-1">
