@@ -2,13 +2,14 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, ArrowLeftRight, HandCoins, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowLeftRight } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { gerarFluxoCaixa, type ResumoFluxoCaixa } from "@/lib/data/empresa";
 import { buscarCategoriaPadraoPorNome } from "@/lib/data/categorias";
+import { buscarConfigNegocio, type ConfigNegocio } from "@/lib/data/configNegocio";
+import { ConfigProLabore } from "@/components/dashboard/ConfigProLabore";
 import { formatarMoeda } from "@/lib/format";
 import { salvarCache, lerCache } from "@/lib/offline/cache";
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
@@ -24,6 +25,8 @@ import type { Categoria } from "@/lib/data/tipos";
 interface DadosCacheFluxoCaixa {
   fluxo: ResumoFluxoCaixa;
   categoriaProLabore: Categoria | null;
+  /** Opcional: retratos salvos antes do item 4.4 (03/out/2026) não têm. */
+  config?: ConfigNegocio;
 }
 
 const MESES = [
@@ -39,6 +42,7 @@ export default function FluxoCaixaPage() {
   const [ano, setAno] = React.useState(hoje.getFullYear());
   const [fluxo, setFluxo] = React.useState<ResumoFluxoCaixa | null>(null);
   const [categoriaProLabore, setCategoriaProLabore] = React.useState<Categoria | null>(null);
+  const [config, setConfig] = React.useState<ConfigNegocio | null>(null);
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
 
@@ -58,6 +62,7 @@ export default function FluxoCaixaPage() {
     if (!cache) return false;
     setFluxo(cache.dados.fluxo);
     setCategoriaProLabore(cache.dados.categoriaProLabore);
+    if (cache.dados.config) setConfig(cache.dados.config);
     setOfflineDesde(cache.salvoEm);
     return true;
   }, []);
@@ -73,9 +78,10 @@ export default function FluxoCaixaPage() {
     }
 
     setCarregando(true);
-    const [res, cat] = await Promise.all([
+    const [res, cat, cfg] = await Promise.all([
       gerarFluxoCaixa(negocio.usuarioId, ano, mes),
       buscarCategoriaPadraoPorNome("Pró-labore", "despesa"),
+      buscarConfigNegocio(negocio.usuarioId),
     ]);
 
     if (!navigator.onLine) {
@@ -86,8 +92,9 @@ export default function FluxoCaixaPage() {
 
     setFluxo(res);
     setCategoriaProLabore(cat);
+    setConfig(cfg);
     setOfflineDesde(null);
-    salvarCache<DadosCacheFluxoCaixa>(chaveCache, { fluxo: res, categoriaProLabore: cat });
+    salvarCache<DadosCacheFluxoCaixa>(chaveCache, { fluxo: res, categoriaProLabore: cat, config: cfg });
     setCarregando(false);
   }, [negocio, ano, mes, aplicarCache]);
 
@@ -162,8 +169,18 @@ export default function FluxoCaixaPage() {
               <strong className={fluxo.sobrou >= 0 ? "text-primary-600" : "text-red-500"}>
                 {formatarMoeda(fluxo.sobrou)}
               </strong>
-              . Você retirou <strong className="text-secondary">{formatarMoeda(fluxo.retiradaProLabore)}</strong> de
-              pró-labore.
+              .{" "}
+              {config && !config.retira_pro_labore ? (
+                <>
+                  Os sócios retiraram <strong className="text-secondary">{formatarMoeda(fluxo.retiradaProLabore)}</strong>{" "}
+                  (sem pró-labore fixo).
+                </>
+              ) : (
+                <>
+                  Você retirou <strong className="text-secondary">{formatarMoeda(fluxo.retiradaProLabore)}</strong> de
+                  pró-labore.
+                </>
+              )}
             </p>
           </Card>
 
@@ -177,7 +194,9 @@ export default function FluxoCaixaPage() {
               <p className="text-h3 text-red-500">{formatarMoeda(fluxo.gastosOperacionais)}</p>
             </Card>
             <Card className="flex flex-col gap-2">
-              <p className="text-small text-muted">Pró-labore retirado</p>
+              <p className="text-small text-muted">
+                {config && !config.retira_pro_labore ? "Retiradas dos sócios" : "Pró-labore retirado"}
+              </p>
               <p className="text-h3 text-secondary">{formatarMoeda(fluxo.retiradaProLabore)}</p>
             </Card>
             <Card className="flex flex-col gap-2">
@@ -188,21 +207,16 @@ export default function FluxoCaixaPage() {
             </Card>
           </div>
 
-          <Card className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
-                <HandCoins size={20} />
-              </span>
-              <div>
-                <p className="text-body font-medium text-foreground">Vai retirar pró-labore esse mês?</p>
-                <p className="text-small text-muted">Registre como um gasto do negócio na categoria Pró-labore.</p>
-              </div>
-            </div>
-            <Button variant="secondary" onClick={() => setModalAberto(true)}>
-              <Plus size={18} />
-              Registrar retirada
-            </Button>
-          </Card>
+          {config && (
+            <ConfigProLabore
+              config={config}
+              retiradoNoMes={fluxo.retiradaProLabore}
+              sobrou={fluxo.sobrou}
+              podeEditar={online && papel !== "funcionario"}
+              onSalvo={setConfig}
+              onRegistrarRetirada={() => setModalAberto(true)}
+            />
+          )}
         </>
       )}
 
