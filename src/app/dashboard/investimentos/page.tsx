@@ -29,7 +29,11 @@ import {
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
 import { obterCotacoesMercado } from "@/lib/data/mercado";
-import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
+import { NovoInvestimentoModal, type TipoInvestimento } from "@/components/dashboard/NovoInvestimentoModal";
+import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
+import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } from "@/components/dashboard/FiltrosLista";
+import { Badge } from "@/components/ui/Badge";
+import { supabase } from "@/lib/supabase/client";
 import { InvestimentoCard, TIPO_META } from "@/components/dashboard/InvestimentoCard";
 import type { DadosJurosParcela, DadosEdicaoParcela } from "@/components/dashboard/ParcelasInvestimento";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
@@ -46,6 +50,18 @@ const ORDEM_TIPOS: Investimento["tipo"][] = [
   "emprestimo",
   "revenda",
 ];
+
+/** Situação de uma operação de compra e revenda (item 5.3). */
+type StatusRevenda = "em_estoque" | "em_andamento" | "parcial" | "quitado";
+const ROTULO_STATUS_REVENDA: Record<StatusRevenda, string> = {
+  em_estoque: "Em estoque",
+  em_andamento: "Em andamento",
+  parcial: "Parcialmente liquidado",
+  quitado: "Quitado",
+};
+
+/** Tipos com operação "à vista x parcelada" e histórico de quitadas (5.2). */
+const TIPOS_OPERACAO: Investimento["tipo"][] = ["emprestimo", "revenda"];
 
 const OPCOES_PERIODO: { id: number | null; label: string }[] = [
   { id: 3, label: "3 meses" },
@@ -82,6 +98,14 @@ export default function InvestimentosPage() {
   // afeta o modo "Por tipo" -- o modo "Todos juntos" já mistura tudo por
   // desenho e continua igual, como o próprio usuário pediu pra manter.
   const [filtroTipo, setFiltroTipo] = React.useState<Investimento["tipo"] | "todos">("todos");
+  // 5.12: "+" contextual por aba de tipo.
+  const [tipoNovo, setTipoNovo] = React.useState<TipoInvestimento | null>(null);
+  // 5.2: filtros das operações (empréstimo e compra e revenda).
+  const [abaOperacao, setAbaOperacao] = React.useState<"vista" | "parcelado">("vista");
+  const [periodoOperacao, setPeriodoOperacao] = React.useState<PeriodoMeses>(null);
+  const [verQuitadas, setVerQuitadas] = React.useState(false);
+  // 5.10: parcela aguardando a escolha da carteira de destino.
+  const [parcelaParaReceber, setParcelaParaReceber] = React.useState<ParcelaInvestimento | null>(null);
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
@@ -190,10 +214,34 @@ export default function InvestimentosPage() {
     carregar();
   }
 
-  async function handleAlternarParcela(parcela: ParcelaInvestimento) {
+  /** Marcar como recebida pede a carteira de destino (5.10); desmarcar
+   * estorna o lançamento ligado direto. */
+  function handleAlternarParcela(parcela: ParcelaInvestimento) {
+    if (!parcela.pago) {
+      setParcelaParaReceber(parcela);
+      return;
+    }
+    void alternarParcela(parcela, null);
+  }
+
+  async function alternarParcela(parcela: ParcelaInvestimento, contaId: string | null) {
+    if (!user) return;
     setSalvandoAcao(true);
     const novoPago = !parcela.pago;
-    const { error } = await marcarParcelaPaga(parcela.id, novoPago);
+    const inv0 = investimentos.find((i) => i.id === parcela.investimento_id);
+    const { error } = await marcarParcelaPaga(
+      parcela.id,
+      novoPago,
+      novoPago && contaId
+        ? {
+            usuarioId: user.id,
+            contaId,
+            valor: Number(parcela.valor),
+            descricao: `${inv0?.nome ?? "Investimento"} — parcela ${parcela.numero} recebida`,
+          }
+        : null,
+      parcela.transacao_id ?? null
+    );
     if (!error) {
       // Mantém `quitado` do empréstimo em sincronia com as parcelas (ver
       // `marcarEmprestimoQuitadoPorParcelas`/`reabrirEmprestimoParcelado`):
@@ -201,7 +249,9 @@ export default function InvestimentosPage() {
       const inv = investimentos.find((i) => i.id === parcela.investimento_id);
       const doInvestimento = parcelasPorInvestimento.get(parcela.investimento_id) ?? [];
       const todasPagas = doInvestimento.every((p) => (p.id === parcela.id ? novoPago : p.pago));
-      if (inv?.tipo === "emprestimo") {
+      // Compra e revenda também fecha sozinha quando todas as parcelas
+      // entram (5.3) — a menos que a pessoa tenha fixado o status à mão.
+      if (inv && (inv.tipo === "emprestimo" || (inv.tipo === "revenda" && !inv.status_revenda))) {
         if (novoPago && todasPagas && doInvestimento.length > 0 && !inv.quitado) {
           const soma = doInvestimento.reduce((acc, p) => acc + Number(p.valor), 0);
           await marcarEmprestimoQuitadoPorParcelas(inv.id, soma);
@@ -245,7 +295,7 @@ export default function InvestimentosPage() {
 
   async function handleRegistrarJurosAvista(
     inv: Investimento,
-    dados: { valorJuros: number; valorDiaria: number; dataPagamento: string }
+    dados: { valorJuros: number; valorDiaria: number; dataPagamento: string; contaId?: string | null }
   ) {
     if (!user || !inv.data_vencimento_final) return;
     setSalvandoAcao(true);
@@ -257,6 +307,8 @@ export default function InvestimentosPage() {
       valorJuros: dados.valorJuros,
       valorDiaria: dados.valorDiaria,
       dataPagamento: dados.dataPagamento,
+      contaId: dados.contaId ?? null,
+      descricaoLancamento: `Juros recebidos — ${inv.nome}`,
     });
     setSalvandoAcao(false);
     carregar();
@@ -264,7 +316,7 @@ export default function InvestimentosPage() {
 
   async function handleRegistrarQuitacao(
     inv: Investimento,
-    dados: { valorPago: number; valorDiaria: number; dataPagamento: string }
+    dados: { valorPago: number; valorDiaria: number; dataPagamento: string; contaId?: string | null }
   ) {
     if (!user || !inv.data_vencimento_final) return;
     setSalvandoAcao(true);
@@ -275,6 +327,8 @@ export default function InvestimentosPage() {
       valorPago: dados.valorPago,
       valorDiaria: dados.valorDiaria,
       dataPagamento: dados.dataPagamento,
+      contaId: dados.contaId ?? null,
+      descricaoLancamento: `Quitação recebida — ${inv.nome}`,
     });
     setSalvandoAcao(false);
     carregar();
@@ -283,7 +337,7 @@ export default function InvestimentosPage() {
   async function handleRegistrarQuitacaoAntecipada(
     inv: Investimento,
     parcelasEmAberto: ParcelaInvestimento[],
-    dados: { valorPago: number; valorDiaria: number; dataPagamento: string }
+    dados: { valorPago: number; valorDiaria: number; dataPagamento: string; contaId?: string | null }
   ) {
     if (!user) return;
     setSalvandoAcao(true);
@@ -293,7 +347,9 @@ export default function InvestimentosPage() {
       parcelasEmAberto,
       dados.valorPago,
       dados.valorDiaria,
-      dados.dataPagamento
+      dados.dataPagamento,
+      dados.contaId ?? null,
+      `Quitação antecipada recebida — ${inv.nome}`
     );
     setSalvandoAcao(false);
     carregar();
@@ -311,6 +367,8 @@ export default function InvestimentosPage() {
       valorDiaria: dados.valorDiaria,
       dataPagamento: dados.dataPagamento,
       empurrarSeguintes: dados.empurrarSeguintes,
+      contaId: dados.contaId ?? null,
+      descricaoLancamento: `Juros recebidos — ${investimentos.find((i) => i.id === parcela.investimento_id)?.nome ?? "empréstimo"}`,
     });
     setSalvandoAcao(false);
     carregar();
@@ -345,10 +403,84 @@ export default function InvestimentosPage() {
     );
   }
 
+  /** Quitado = marcado como quitado, ou parcelado com todas as parcelas
+   * recebidas, ou status de revenda fixado como "Quitado". */
+  function estaQuitado(inv: Investimento): boolean {
+    if (inv.tipo === "revenda" && inv.status_revenda) return inv.status_revenda === "quitado";
+    if (inv.quitado) return true;
+    const ps = parcelasPorInvestimento.get(inv.id) ?? [];
+    return ps.length > 0 && ps.every((p) => p.pago);
+  }
+
+  /** 5.3: status automático da compra e revenda (ou o fixado à mão). */
+  function statusRevenda(inv: Investimento): StatusRevenda {
+    if (inv.status_revenda) return inv.status_revenda;
+    if (estaQuitado(inv)) return "quitado";
+    const ps = parcelasPorInvestimento.get(inv.id) ?? [];
+    if (ps.some((p) => p.pago)) return "parcial";
+    return inv.forma_pagamento === "parcelado" ? "em_andamento" : "em_estoque";
+  }
+
+  async function handleMudarStatusRevenda(inv: Investimento, valor: StatusRevenda | "auto") {
+    setSalvandoAcao(true);
+    if (valor === "auto") {
+      const ps = parcelasPorInvestimento.get(inv.id) ?? [];
+      const todasPagas = ps.length > 0 && ps.every((p) => p.pago);
+      await supabase.from("investimentos").update({ status_revenda: null, quitado: todasPagas }).eq("id", inv.id);
+    } else {
+      await supabase
+        .from("investimentos")
+        .update({
+          status_revenda: valor,
+          quitado: valor === "quitado",
+          data_quitacao: valor === "quitado" ? new Date().toISOString().slice(0, 10) : null,
+        })
+        .eq("id", inv.id);
+    }
+    setSalvandoAcao(false);
+    carregar();
+  }
+
+  /** 5.2: aplica abas À vista/Parceladas, período e "Quitadas" nas
+   * operações (empréstimo e compra e revenda). */
+  function filtrarOperacoes(itens: Investimento[]): Investimento[] {
+    return itens.filter(
+      (inv) =>
+        (inv.forma_pagamento ?? "vista") === abaOperacao &&
+        dentroDoPeriodo(inv.data_inicio, periodoOperacao) &&
+        estaQuitado(inv) === verQuitadas
+    );
+  }
+
   function renderGradeCartoes(itens: Investimento[]) {
     return (
       <div className="grid gap-4 sm:grid-cols-2">
         {itens.map((inv) => (
+          <div key={inv.id} className="flex flex-col gap-2">
+          {inv.tipo === "revenda" && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2">
+              <Badge variant={statusRevenda(inv) === "quitado" ? "primary" : statusRevenda(inv) === "parcial" ? "warning" : "neutral"} size="sm">
+                {ROTULO_STATUS_REVENDA[statusRevenda(inv)]}
+                {inv.status_revenda ? " (manual)" : ""}
+              </Badge>
+              <label className="flex items-center gap-2 text-xs text-muted">
+                Situação
+                <select
+                  value={inv.status_revenda ?? "auto"}
+                  disabled={salvandoAcao}
+                  onChange={(e) => handleMudarStatusRevenda(inv, e.target.value as StatusRevenda | "auto")}
+                  className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                >
+                  <option value="auto">Automática</option>
+                  {(Object.keys(ROTULO_STATUS_REVENDA) as StatusRevenda[]).map((s) => (
+                    <option key={s} value={s}>
+                      {ROTULO_STATUS_REVENDA[s]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
           <InvestimentoCard
             key={inv.id}
             inv={inv}
@@ -369,6 +501,7 @@ export default function InvestimentosPage() {
             onRegistrarQuitacaoAntecipada={handleRegistrarQuitacaoAntecipada}
             onRegistrarJurosParcela={handleRegistrarJurosParcela}
           />
+          </div>
         ))}
       </div>
     );
@@ -495,10 +628,13 @@ export default function InvestimentosPage() {
               )}
               {gruposFiltrados.map(({ tipo, itens }) => {
                 const Icone = TIPO_META[tipo].icone;
-                const resumo = calcularResumo(itens);
+                const ehOperacao = TIPOS_OPERACAO.includes(tipo);
+                const visiveis = ehOperacao ? filtrarOperacoes(itens) : itens;
+                const resumo = calcularResumo(ehOperacao ? itens.filter((i) => !estaQuitado(i)) : itens);
+                const totalQuitadas = itens.filter((i) => estaQuitado(i)).length;
                 return (
                   <div key={tipo} className="flex flex-col gap-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-600">
                         <Icone size={16} />
                       </span>
@@ -506,9 +642,45 @@ export default function InvestimentosPage() {
                       <span className="text-small text-muted">
                         {itens.length === 1 ? "1 investimento" : `${itens.length} investimentos`}
                       </span>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="ml-auto"
+                        onClick={() => {
+                          setTipoNovo(tipo as TipoInvestimento);
+                          setModalAberto(true);
+                        }}
+                        aria-label={`Adicionar ${TIPO_META[tipo].label}`}
+                      >
+                        <Plus size={16} />
+                        Adicionar
+                      </Button>
                     </div>
                     {renderCartoesStats(resumo)}
-                    {renderGradeCartoes(itens)}
+                    {ehOperacao && (
+                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                        <AbasVistaParcelado
+                          valor={abaOperacao}
+                          onChange={setAbaOperacao}
+                          totalVista={itens.filter((i) => (i.forma_pagamento ?? "vista") === "vista" && estaQuitado(i) === verQuitadas).length}
+                          totalParcelado={itens.filter((i) => i.forma_pagamento === "parcelado" && estaQuitado(i) === verQuitadas).length}
+                        />
+                        <FiltrosLista
+                          periodo={periodoOperacao}
+                          onPeriodo={setPeriodoOperacao}
+                          quitadas={verQuitadas}
+                          onQuitadas={setVerQuitadas}
+                          totalQuitadas={totalQuitadas}
+                        />
+                      </div>
+                    )}
+                    {visiveis.length === 0 ? (
+                      <p className="rounded-xl border border-dashed border-border py-6 text-center text-small text-muted">
+                        {verQuitadas && ehOperacao ? "Nenhuma operação quitada nesse filtro." : "Nada nesse filtro."}
+                      </p>
+                    ) : (
+                      renderGradeCartoes(visiveis)
+                    )}
                   </div>
                 );
               })}
@@ -517,7 +689,29 @@ export default function InvestimentosPage() {
         </>
       )}
 
-      <NovoInvestimentoModal aberto={modalAberto} onFechar={() => setModalAberto(false)} onSalvo={carregar} />
+      <NovoInvestimentoModal
+        aberto={modalAberto}
+        tipoInicial={tipoNovo}
+        onFechar={() => {
+          setModalAberto(false);
+          setTipoNovo(null);
+        }}
+        onSalvo={carregar}
+      />
+
+      {parcelaParaReceber && (
+        <EscolherCarteiraDialog
+          titulo={`Receber parcela ${parcelaParaReceber.numero}`}
+          descricao={`${formatarMoeda(Number(parcelaParaReceber.valor))} — escolha a carteira onde o dinheiro entrou.`}
+          salvando={salvandoAcao}
+          onFechar={() => setParcelaParaReceber(null)}
+          onConfirmar={async (contaId) => {
+            const parcela = parcelaParaReceber;
+            setParcelaParaReceber(null);
+            await alternarParcela(parcela, contaId);
+          }}
+        />
+      )}
     </Container>
   );
 }
