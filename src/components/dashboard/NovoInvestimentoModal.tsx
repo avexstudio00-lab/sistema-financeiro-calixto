@@ -625,11 +625,10 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo }: NovoInvesti
               onChange={(e) => setValorInvestido(e.target.value)}
               placeholder="0,00"
             />
-            <Input
+            <DateMaskInput
               label={tipo === "revenda" ? "Data da compra" : "Data de início"}
-              type="date"
               value={dataInicio}
-              onChange={(e) => setDataInicio(e.target.value)}
+              onChange={(v) => setDataInicio(v)}
             />
           </div>
 
