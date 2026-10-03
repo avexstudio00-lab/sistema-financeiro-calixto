@@ -1,8 +1,10 @@
 import { supabase } from "@/lib/supabase/client";
+import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import { criarTransacao, deletarTransacao } from "./transacoes";
 import { ajustarEstoque } from "./produtos";
+import { criarContaReceberParcelada } from "./contasEmpresa";
 import { NOMES_MES } from "@/lib/format";
-import type { Venda, Produto, Transacao } from "./tipos";
+import type { Venda, Produto, Servico, Transacao } from "./tipos";
 
 export async function listarVendas(
   usuarioId: string,
@@ -18,7 +20,7 @@ export async function listarVendas(
   if (filtros?.inicio) query = query.gte("data", filtros.inicio);
   if (filtros?.fim) query = query.lte("data", filtros.fim);
 
-  const { data } = await query;
+  const { data } = await filtrarPorEmpresa(query);
   return (data as Venda[]) ?? [];
 }
 
@@ -35,13 +37,18 @@ async function idCategoriaVendas(): Promise<string | null> {
 
 export interface DadosVenda {
   usuarioId: string;
-  produto: Produto;
+  /** Um dos dois: produto do estoque OU serviço do catálogo (item 5.6). */
+  produto?: Produto | null;
+  servico?: Servico | null;
   quantidade: number;
   valorUnitario: number;
   formaPagamento: Transacao["forma_pagamento"];
   data: string;
   clienteId: string | null;
   contaId: string | null;
+  /** Venda fiada (a prazo, item 5.2): em vez de entrar no caixa agora, vira
+   * conta a receber parcelada no nome do cliente. */
+  fiado?: { parcelas: number; primeiroVencimento: string } | null;
 }
 
 /**
@@ -52,38 +59,49 @@ export interface DadosVenda {
  * não é bloqueada por isso, só o produto fica com estoque zerado.
  */
 export async function registrarVenda(dados: DadosVenda) {
+  const item = dados.produto ?? dados.servico;
+  if (!item) return { data: null, error: new Error("Escolha um produto ou serviço.") };
+  const nomeItem = item.nome;
   const valorTotal = Number((dados.quantidade * dados.valorUnitario).toFixed(2));
   const categoriaId = await idCategoriaVendas();
+  const fiado = dados.fiado && dados.clienteId ? dados.fiado : null;
 
-  const { data: transacao, error: erroTransacao } = await criarTransacao({
-    usuario_id: dados.usuarioId,
-    conta_id: dados.contaId,
-    categoria_id: categoriaId,
-    tipo: "receita",
-    valor: valorTotal,
-    descricao: dados.produto.nome,
-    data: dados.data,
-    forma_pagamento: dados.formaPagamento,
-    tipo_negocio: "negocio",
-  });
-  if (erroTransacao || !transacao) {
-    return { data: null, error: erroTransacao };
+  let transacao: Transacao | null = null;
+  if (!fiado) {
+    const { data: t, error: erroTransacao } = await criarTransacao({
+      usuario_id: dados.usuarioId,
+      conta_id: dados.contaId,
+      categoria_id: categoriaId,
+      tipo: "receita",
+      valor: valorTotal,
+      descricao: nomeItem,
+      data: dados.data,
+      forma_pagamento: dados.formaPagamento,
+      tipo_negocio: "negocio",
+    });
+    if (erroTransacao || !t) {
+      return { data: null, error: erroTransacao };
+    }
+    transacao = t as Transacao;
   }
 
+  const custoUnitario = dados.produto ? Number(dados.produto.custo) : Number(dados.servico?.custo ?? 0);
   const { data: venda, error: erroVenda } = await supabase
     .from("vendas")
     .insert({
+      ...campoEmpresa(),
       usuario_id: dados.usuarioId,
-      produto_id: dados.produto.id,
-      produto_nome: dados.produto.nome,
+      produto_id: dados.produto?.id ?? null,
+      servico_id: dados.produto ? null : dados.servico?.id ?? null,
+      produto_nome: nomeItem,
       quantidade: dados.quantidade,
       valor_unitario: dados.valorUnitario,
-      custo_unitario: dados.produto.custo,
+      custo_unitario: custoUnitario,
       valor_total: valorTotal,
       forma_pagamento: dados.formaPagamento,
       cliente_id: dados.clienteId,
       data: dados.data,
-      transacao_id: (transacao as { id: string }).id,
+      transacao_id: transacao?.id ?? null,
     })
     .select()
     .single();
@@ -92,8 +110,26 @@ export async function registrarVenda(dados: DadosVenda) {
     // A transação de receita já foi criada — desfaz pra não deixar um
     // lançamento órfão (e seu efeito no saldo da conta) caso a venda em si
     // não possa ser salva.
-    await deletarTransacao(transacao as Transacao);
+    if (transacao) await deletarTransacao(transacao);
     return { data: null, error: erroVenda };
+  }
+
+  if (fiado) {
+    await criarContaReceberParcelada(
+      {
+        usuario_id: dados.usuarioId,
+        cliente_id: dados.clienteId,
+        descricao: `Fiado: ${nomeItem}`,
+        valor: valorTotal,
+        vencimento: fiado.primeiroVencimento,
+        origem: "fiado",
+      },
+      Math.max(1, fiado.parcelas)
+    );
+  }
+
+  if (!dados.produto) {
+    return { data: venda, error: null, novoEstoque: null, estoqueInsuficiente: false };
   }
 
   // Lê o estoque atual direto do banco (em vez de confiar no valor que veio
@@ -235,4 +271,99 @@ export function agruparVendasPorMes(vendas: Venda[], meses = 6): PontoVendasPeri
     pontos.push({ rotulo: NOMES_MES[mesNumero - 1], valor: total });
   }
   return pontos;
+}
+
+// ---------------------------------------------------------------------------
+// Inteligência comercial (itens 5.14, 5.16 e 7.2 da especificação de 03/out)
+// ---------------------------------------------------------------------------
+
+export interface ResumoVendasHoje {
+  totalHoje: number;
+  quantidade24h: number;
+  ultimos: Venda[];
+}
+
+/** Painel "vendas do dia": total vendido hoje, nº de vendas nas últimas 24h
+ * (pela hora de registro) e as 3 últimas vendas registradas. */
+export function resumirVendasHoje(vendas: Venda[], hojeIso: string): ResumoVendasHoje {
+  const limite24h = Date.now() - 24 * 60 * 60 * 1000;
+  const totalHoje = vendas.filter((v) => v.data === hojeIso).reduce((acc, v) => acc + Number(v.valor_total), 0);
+  const quantidade24h = vendas.filter((v) => new Date(v.criado_em).getTime() >= limite24h).length;
+  const ultimos = [...vendas].sort((a, b) => (a.criado_em < b.criado_em ? 1 : -1)).slice(0, 3);
+  return { totalHoje, quantidade24h, ultimos };
+}
+
+export interface ItemRankingABC {
+  nome: string;
+  quantidade: number;
+  faturamento: number;
+  lucro: number;
+  margem: number;
+  participacao: number;
+  classe: "A" | "B" | "C";
+}
+
+/** Ranking ABC por lucro real (7.2): lucro = (preço praticado − custo) ×
+ * quantidade, somado por produto/serviço. Classe A = itens que somam os
+ * primeiros 80% do lucro; B = até 95%; C = o resto. */
+export function rankingABC(vendas: Venda[]): ItemRankingABC[] {
+  const mapa = new Map<string, { nome: string; quantidade: number; faturamento: number; lucro: number }>();
+  for (const v of vendas) {
+    const chave = v.produto_id ?? v.servico_id ?? v.produto_nome;
+    const atual = mapa.get(chave) ?? { nome: v.produto_nome, quantidade: 0, faturamento: 0, lucro: 0 };
+    atual.quantidade += v.quantidade;
+    atual.faturamento += Number(v.valor_total);
+    atual.lucro += (Number(v.valor_unitario) - Number(v.custo_unitario)) * v.quantidade;
+    mapa.set(chave, atual);
+  }
+  const itens = Array.from(mapa.values()).sort((a, b) => b.lucro - a.lucro);
+  const lucroTotal = itens.reduce((acc, i) => acc + Math.max(0, i.lucro), 0);
+  let acumulado = 0;
+  return itens.map((i) => {
+    const participacao = lucroTotal > 0 ? Math.max(0, i.lucro) / lucroTotal : 0;
+    acumulado += participacao;
+    const classe: "A" | "B" | "C" = acumulado <= 0.8 || (participacao > 0 && acumulado - participacao < 0.8) ? "A" : acumulado <= 0.95 ? "B" : "C";
+    return {
+      ...i,
+      margem: i.faturamento > 0 ? (i.lucro / i.faturamento) * 100 : 0,
+      participacao: participacao * 100,
+      classe: i.lucro <= 0 ? "C" : classe,
+    };
+  });
+}
+
+export interface PontoTicketMedio {
+  rotulo: string;
+  ticketMedio: number;
+  vendas: number;
+}
+
+/** Ticket médio mês a mês nos últimos `meses` meses (5.16). */
+export function ticketMedioPorMes(vendas: Venda[], meses = 6): PontoTicketMedio[] {
+  const agora = new Date();
+  const pontos: PontoTicketMedio[] = [];
+  for (let i = meses - 1; i >= 0; i--) {
+    const d = new Date(agora.getFullYear(), agora.getMonth() - i, 1);
+    const prefixo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const doMes = vendas.filter((v) => v.data.startsWith(prefixo));
+    const total = doMes.reduce((acc, v) => acc + Number(v.valor_total), 0);
+    pontos.push({ rotulo: NOMES_MES[d.getMonth()], ticketMedio: doMes.length ? total / doMes.length : 0, vendas: doMes.length });
+  }
+  return pontos;
+}
+
+export interface PontoRitmoDiario {
+  dia: number;
+  valor: number;
+  mediaMovel: number;
+}
+
+/** Vendas dia a dia no mês com média móvel de 7 dias (5.16). */
+export function ritmoDiarioComMediaMovel(vendas: Venda[], ano: number, mesNumero: number, janela = 7): PontoRitmoDiario[] {
+  const pontos = agruparVendasPorDia(vendas, ano, mesNumero);
+  return pontos.map((p, i) => {
+    const inicio = Math.max(0, i - janela + 1);
+    const fatia = pontos.slice(inicio, i + 1);
+    return { dia: p.dia, valor: p.valor, mediaMovel: fatia.reduce((acc, x) => acc + x.valor, 0) / fatia.length };
+  });
 }
