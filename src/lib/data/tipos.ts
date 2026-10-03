@@ -65,6 +65,8 @@ export interface Transacao {
   parcela_numero: number | null;
   parcela_total: number | null;
   categorias?: Categoria | null;
+  /** Só lançamentos do negócio: a empresa a que pertencem (multi-empresa). */
+  empresa_id?: string | null;
 }
 
 /** Limite mensal opcional que o usuário define pra uma categoria de despesa
@@ -111,6 +113,11 @@ export interface Meta {
   data_inicio: string;
   data_fim: string | null;
   status: "em_andamento" | "concluida";
+  /** Item 5.13: investimento espelho ("CDB — [Meta]") quando o dinheiro da
+   * meta está aplicado; a meta passa a refletir o saldo dele. */
+  investimento_id?: string | null;
+  custodia?: "caixinha_mp" | "conta_secundaria" | "poupanca" | "cdb_liquidez" | null;
+  conta_origem_id?: string | null;
 }
 
 /** Dívida pessoal que o usuário quer quitar (ex: "Dívida com meu pai") —
@@ -182,7 +189,7 @@ export interface AnaliseIA {
 export interface Assinatura {
   id: string;
   usuario_id: string;
-  plano: "gratis" | "mensal" | "clt" | "avancado" | "grupo";
+  plano: "gratis" | "mensal" | "clt" | "avancado" | "avancado_multi" | "grupo" | "grupo_multi";
   status: "ativa" | "cancelada" | "atrasada";
   data_inicio: string;
   data_proximo_pagamento: string | null;
@@ -245,6 +252,11 @@ export interface Investimento {
    * (podem ser fracionadas, ex: 0,53) desse título foram compradas -- valor
    * atual = quantidade_cotas × PU de venda ao vivo do título. */
   quantidade_cotas: number | null;
+  /** Item 5.10: carteira de onde saiu o dinheiro e o lançamento de saída. */
+  conta_origem_id?: string | null;
+  transacao_origem_id?: string | null;
+  /** Item 5.3: status da compra e revenda fixado à mão (nulo = automático). */
+  status_revenda?: "em_estoque" | "em_andamento" | "parcial" | "quitado" | null;
 }
 
 /** Um título do Tesouro Direto disponível hoje, com preço/taxa de venda
@@ -293,6 +305,8 @@ export interface ParcelaInvestimento {
   pago: boolean;
   data_pagamento: string | null;
   data_criacao: string;
+  /** Lançamento de entrada gerado ao receber essa parcela (item 5.10). */
+  transacao_id?: string | null;
 }
 
 /** Um evento de pagamento registrado num empréstimo — "só paguei o juros"
@@ -315,12 +329,24 @@ export interface PagamentoInvestimento {
   vencimento_referencia: string | null;
   proximo_vencimento: string | null;
   criado_em: string;
+  conta_id?: string | null;
+  transacao_id?: string | null;
 }
 
 // ---------------------------------------------------------------------------
 // Área "Minha empresa" (negócio) — liberada pra qualquer perfil no plano
 // Avançado, ver `podeAcessarNegocio` em src/lib/planos.ts.
 // ---------------------------------------------------------------------------
+
+export interface Empresa {
+  id: string;
+  usuario_id: string;
+  nome_fantasia: string;
+  vende_produto: boolean;
+  vende_servico: boolean;
+  ativa: boolean;
+  criado_em: string;
+}
 
 export interface Cliente {
   id: string;
@@ -329,6 +355,7 @@ export interface Cliente {
   telefone: string | null;
   email: string | null;
   criado_em: string;
+  empresa_id?: string;
 }
 
 export interface Fornecedor {
@@ -338,6 +365,9 @@ export interface Fornecedor {
   telefone: string | null;
   email: string | null;
   criado_em: string;
+  empresa_id?: string;
+  /** Tempo médio de entrega, em dias (item 7.3 — sugestão de reposição). */
+  prazo_entrega_dias?: number | null;
 }
 
 export interface Produto {
@@ -349,6 +379,90 @@ export interface Produto {
   quantidade_estoque: number;
   estoque_minimo: number;
   ativo: boolean;
+  criado_em: string;
+  empresa_id?: string;
+  fornecedor_id?: string | null;
+}
+
+/** Catálogo de serviços (itens 5.6/5.7) — sem nenhum dado de estoque. */
+export interface Servico {
+  id: string;
+  usuario_id: string;
+  empresa_id: string;
+  nome: string;
+  descricao: string | null;
+  codigo: string | null;
+  tempo_estimado: string | null;
+  /** false = sem preço fixo (base de orçamento / sob consulta). */
+  preco_fixo: boolean;
+  preco: number | null;
+  custo: number | null;
+  /** Texto livre: "A partir de R$ 500", "R$ 500 a R$ 900", "Sob consulta". */
+  referencia_preco: string | null;
+  ativo: boolean;
+  criado_em: string;
+}
+
+export interface ItemOrcamento {
+  tipo: "servico" | "produto" | "livre";
+  ref_id: string | null;
+  descricao: string;
+  quantidade: number;
+  valor_unitario: number;
+}
+
+export type StatusOrcamento = "orcado" | "negociacao" | "fechado" | "perdido";
+
+export interface Orcamento {
+  id: string;
+  usuario_id: string;
+  empresa_id: string | null;
+  cliente_id: string | null;
+  titulo: string;
+  itens: ItemOrcamento[];
+  valor_total: number;
+  validade: string | null;
+  status: StatusOrcamento;
+  observacoes: string | null;
+  status_alterado_em: string;
+  criado_em: string;
+  clientes?: Cliente | null;
+}
+
+export type StatusNotaFiscal = "pendente" | "autorizada" | "rejeitada" | "cancelada";
+
+export interface NotaFiscal {
+  id: string;
+  usuario_id: string;
+  empresa_id: string | null;
+  cliente_id: string | null;
+  tipo: "servico" | "produto";
+  tomador_nome: string;
+  tomador_documento: string | null;
+  discriminacao: string;
+  codigo_atividade: string | null;
+  aliquota: number | null;
+  imposto_retido: boolean;
+  valor: number;
+  status: StatusNotaFiscal;
+  numero: string | null;
+  mensagem_status: string | null;
+  provedor: string | null;
+  data_emissao: string;
+  criado_em: string;
+}
+
+/** Lançamento rápido (item 6.1): tudo pré-preenchido, menos o valor. */
+export interface ModeloLancamento {
+  id: string;
+  usuario_id: string;
+  nome: string;
+  tipo: "receita" | "despesa";
+  tipo_negocio: "pessoal" | "negocio";
+  categoria_id: string | null;
+  conta_id: string | null;
+  forma_pagamento: "pix" | "debito" | "credito" | "dinheiro" | "boleto" | null;
+  ultimo_valor: number | null;
   criado_em: string;
 }
 
@@ -367,6 +481,8 @@ export interface Venda {
   transacao_id: string | null;
   criado_em: string;
   clientes?: Cliente | null;
+  empresa_id?: string;
+  servico_id?: string | null;
 }
 
 export interface ContaPagar {
@@ -381,6 +497,11 @@ export interface ContaPagar {
   data_pagamento: string | null;
   criado_em: string;
   fornecedores?: Fornecedor | null;
+  empresa_id?: string;
+  grupo_parcela_id?: string | null;
+  parcela_numero?: number | null;
+  parcela_total?: number | null;
+  transacao_id?: string | null;
 }
 
 export interface ContaReceber {
@@ -394,6 +515,14 @@ export interface ContaReceber {
   data_recebimento: string | null;
   criado_em: string;
   clientes?: Cliente | null;
+  empresa_id?: string;
+  grupo_parcela_id?: string | null;
+  parcela_numero?: number | null;
+  parcela_total?: number | null;
+  /** "fiado" = venda a prazo; "orcamento" = gerada ao fechar um orçamento. */
+  origem?: "manual" | "fiado" | "orcamento";
+  orcamento_id?: string | null;
+  transacao_id?: string | null;
 }
 
 // ---------------------------------------------------------------------------
