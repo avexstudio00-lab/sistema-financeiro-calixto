@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { PLANOS, type Plano } from "@/lib/planos";
+import { PLANOS, PLANOS_PAGOS, type Plano } from "@/lib/planos";
 import {
   iniciarCheckoutAssinatura,
   cancelarAssinaturaReal,
@@ -18,14 +18,16 @@ import {
   PLANO_TRIAL,
 } from "@/lib/data/assinaturas";
 
-const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado", "grupo"];
+const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado", "avancado_multi", "grupo", "grupo_multi"];
 
 const BADGE_PLANO: Record<Plano, string> = {
   gratis: "Para começar",
   mensal: "Básico",
   clt: "Popular",
   avancado: "Para negócio e investimento",
+  avancado_multi: "Duas empresas",
   grupo: "Empresa em grupo",
+  grupo_multi: "Duas empresas em grupo",
 };
 
 const DESCRICAO_PLANO: Record<Plano, string> = {
@@ -33,6 +35,8 @@ const DESCRICAO_PLANO: Record<Plano, string> = {
   mensal: "Uso pessoal completo, com análise de IA no fim de cada mês.",
   clt: "O plano completo pro seu dia a dia — CLT, MEI ou ME: acompanha o dinheiro em tempo real, com dashboard ao vivo e sugestões de corte. Sem controle de estoque/negócio, esse é o diferencial do Avançado.",
   avancado: "Pra quem tem ou está começando um negócio — MEI, ME, ou até quem é CLT e compra e revende por conta própria: tudo do plano Completo, mais o controle do negócio — vendas, estoque, contas a pagar/receber e fluxo de caixa.",
+  avancado_multi: "Pra quem tem dois negócios: o módulo pessoal completo mais a gestão de até 2 empresas independentes, cada uma com suas vendas, estoque, serviços, contas e fluxo de caixa.",
+  grupo_multi: "Duas empresas e acesso compartilhado: tudo do Bi-Empresa, mais até 2 convidados (sócio ou funcionário, cada um ligado a uma empresa) e a visão consolidada do grupo econômico.",
   grupo: "Pra empresa em dupla, com sócio ou com funcionário: tudo do Avançado, mais até 2 convites com login próprio — cada um vê e mexe só no que pode, e a vida pessoal de cada um continua 100% privada.",
 };
 
@@ -58,8 +62,8 @@ export default function PlanoPage() {
     // Verifica se o usuário veio do cadastro com um plano pretendido (?plano=...).
     try {
       const pretendido = window.localStorage.getItem("plano_pretendido");
-      if (pretendido === "mensal" || pretendido === "clt" || pretendido === "avancado" || pretendido === "grupo") {
-        setPlanoSelecionado(pretendido);
+      if (pretendido && (PLANOS_PAGOS as readonly string[]).includes(pretendido)) {
+        setPlanoSelecionado(pretendido as Plano);
         window.localStorage.removeItem("plano_pretendido");
       }
     } catch {
@@ -288,7 +292,7 @@ export default function PlanoPage() {
         </Card>
       )}
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {ORDEM.map((planoId) => {
           const dados = PLANOS[planoId];
           const ehAtual = perfil.plano === planoId;
