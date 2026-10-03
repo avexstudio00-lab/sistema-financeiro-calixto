@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   PackageX,
   Receipt,
+  ShoppingBag,
+  Landmark,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -23,7 +25,15 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { gerarResumoEmpresa, type ResumoEmpresa } from "@/lib/data/empresa";
 import { listarTransacoes } from "@/lib/data/transacoes";
 import { listarProdutos, estoqueBaixo } from "@/lib/data/produtos";
-import { listarContasPagar, listarContasReceber } from "@/lib/data/contasEmpresa";
+import { listarContasPagar, listarContasReceber, estaAtrasada } from "@/lib/data/contasEmpresa";
+import { listarVendas, resumirVendasHoje, ticketMedioPorMes, ritmoDiarioComMediaMovel } from "@/lib/data/vendas";
+import { valorDoEstoque } from "@/lib/data/estoque";
+import { hojeIso } from "@/lib/util/texto";
+import { EVENTO_LANCAMENTO_SALVO } from "@/components/dashboard/BotaoLancamentoGlobal";
+import { AtalhosLancamento } from "@/components/dashboard/AtalhosLancamento";
+import { VisaoHoje, type ItemHoje } from "@/components/dashboard/VisaoHoje";
+import { ProjecaoLiquidez, type MovimentoPrevisto } from "@/components/dashboard/ProjecaoLiquidez";
+import { KpisEmpresa } from "@/components/dashboard/KpisEmpresa";
 import { formatarMoeda } from "@/lib/format";
 import { salvarCache, lerCache } from "@/lib/offline/cache";
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
@@ -33,7 +43,7 @@ import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
 import { BannerOffline } from "@/components/dashboard/BannerOffline";
 import { FilaPendenteBanner } from "@/components/dashboard/FilaPendenteBanner";
 import { CambioConversor } from "@/components/dashboard/CambioConversor";
-import type { Transacao, Produto, ContaPagar, ContaReceber } from "@/lib/data/tipos";
+import type { Transacao, Produto, ContaPagar, ContaReceber, Venda } from "@/lib/data/tipos";
 
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -50,6 +60,7 @@ interface DadosCacheEmpresa {
   produtos: Produto[];
   contasPagar: ContaPagar[];
   contasReceber: ContaReceber[];
+  vendas?: Venda[];
 }
 
 /** Um lançamento de verdade (já veio do servidor) ou o retrato de uma
@@ -77,6 +88,7 @@ export default function PainelEmpresaPage() {
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
   const [contasPagar, setContasPagar] = React.useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = React.useState<ContaReceber[]>([]);
+  const [vendas, setVendas] = React.useState<Venda[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
@@ -97,6 +109,7 @@ export default function PainelEmpresaPage() {
     setProdutos(cache.dados.produtos);
     setContasPagar(cache.dados.contasPagar);
     setContasReceber(cache.dados.contasReceber);
+    setVendas(cache.dados.vendas ?? []);
     setOfflineDesde(cache.salvoEm);
     return true;
   }, []);
@@ -131,12 +144,17 @@ export default function PainelEmpresaPage() {
     setCarregando(true);
     const inicio = new Date(ano, mes - 1, 1).toISOString().slice(0, 10);
     const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
-    const [res, lista, listaProdutos, listaPagar, listaReceber] = await Promise.all([
+    // Vendas dos últimos 6 meses: alimentam "vendas de hoje", ticket médio
+    // e ritmo diário (5.14 e 5.16 da especificação de 03/out/2026).
+    const agora = new Date();
+    const inicioVendas = new Date(agora.getFullYear(), agora.getMonth() - 5, 1).toISOString().slice(0, 10);
+    const [res, lista, listaProdutos, listaPagar, listaReceber, listaVendas] = await Promise.all([
       gerarResumoEmpresa(negocio.usuarioId, ano, mes),
       listarTransacoes(negocio.usuarioId, { inicio, fim }),
       listarProdutos(negocio.usuarioId),
       listarContasPagar(negocio.usuarioId),
       listarContasReceber(negocio.usuarioId),
+      listarVendas(negocio.usuarioId, { inicio: inicioVendas }),
     ]);
 
     if (!navigator.onLine) {
@@ -151,6 +169,7 @@ export default function PainelEmpresaPage() {
     setProdutos(listaProdutos);
     setContasPagar(listaPagar);
     setContasReceber(listaReceber);
+    setVendas(listaVendas);
     setOfflineDesde(null);
     salvarCache<DadosCacheEmpresa>(chaveCache, {
       resumo: res,
@@ -158,12 +177,20 @@ export default function PainelEmpresaPage() {
       produtos: listaProdutos,
       contasPagar: listaPagar,
       contasReceber: listaReceber,
+      vendas: listaVendas,
     });
     setCarregando(false);
   }, [negocio, ehFuncionario, ano, mes, aplicarCache]);
 
   React.useEffect(() => {
     carregar();
+  }, [carregar]);
+
+  // Lançamentos feitos pelo botão flutuante global (6.3) recarregam o painel.
+  React.useEffect(() => {
+    const aoSalvar = () => void carregar();
+    window.addEventListener(EVENTO_LANCAMENTO_SALVO, aoSalvar);
+    return () => window.removeEventListener(EVENTO_LANCAMENTO_SALVO, aoSalvar);
   }, [carregar]);
 
   // Mesmo padrão do painel pessoal (ver seção 19 do contexto do projeto):
@@ -263,6 +290,31 @@ export default function PainelEmpresaPage() {
     : [];
   const lancamentosExibidos: TransacaoExibida[] = [...lancamentosPendentesExibicao, ...lancamentos];
 
+  // ---- Indicadores novos (5.14, 5.15, 5.16, 6.4 e 6.5) ----
+  const hojeStr = hojeIso();
+  const vendasHoje = resumirVendasHoje(vendas, hojeStr);
+  const pagarPendente = contasPagar.filter((c) => c.status === "pendente");
+  const receberPendente = contasReceber.filter((c) => c.status === "pendente");
+  const totalAReceber = receberPendente.reduce((a, c) => a + Number(c.valor), 0);
+  const totalAPagar = pagarPendente.reduce((a, c) => a + Number(c.valor), 0);
+  const estoqueValor = valorDoEstoque(produtos.filter((p) => p.ativo));
+  const saldoCaixa = resumo?.saldoAcumulado ?? 0;
+  const patrimonioLiquido = saldoCaixa + estoqueValor + totalAReceber - totalAPagar;
+  const ticket = ticketMedioPorMes(vendas, 6);
+  const ritmo = ritmoDiarioComMediaMovel(vendas, hoje.getFullYear(), hoje.getMonth() + 1);
+  const itensHoje: ItemHoje[] = [
+    ...receberPendente
+      .filter((c) => c.vencimento <= hojeStr)
+      .map((c) => ({ id: `r-${c.id}`, titulo: c.descricao, valor: Number(c.valor), sentido: "entrada" as const, atrasado: estaAtrasada(c), href: "/dashboard/empresa/contas" })),
+    ...pagarPendente
+      .filter((c) => c.vencimento <= hojeStr)
+      .map((c) => ({ id: `p-${c.id}`, titulo: c.descricao, valor: Number(c.valor), sentido: "saida" as const, atrasado: c.vencimento < hojeStr, href: "/dashboard/empresa/contas" })),
+  ];
+  const movimentosPrevistos: MovimentoPrevisto[] = [
+    ...receberPendente.map((c) => ({ data: c.vencimento, valor: Number(c.valor) })),
+    ...pagarPendente.map((c) => ({ data: c.vencimento, valor: -Number(c.valor) })),
+  ];
+
   // Funcionário não vê o financeiro do negócio (faturamento, custos, contas
   // a pagar/receber) — só estoque e vendas, então essa página mostra uma
   // versão bem mais enxuta, focada nisso, em vez do painel financeiro
@@ -355,29 +407,43 @@ export default function PainelEmpresaPage() {
 
       <CambioConversor />
 
-      <Card className="flex items-start gap-3 border-primary-200 bg-primary-50/60">
-        <Receipt size={20} className="mt-0.5 shrink-0 text-primary-600" />
-        <div className="flex flex-col gap-1">
-          <p className="text-body font-medium text-foreground">Precisa emitir nota fiscal?</p>
-          <p className="text-small text-muted">
-            A gente ainda não emite nota fiscal por aqui. Pra serviços, use o Emissor Nacional gratuito do
-            governo; pra produtos, a nota é emitida pela Sefaz do seu estado.
-          </p>
-          <a
-            href="https://www.nfse.gov.br/EmissorNacional"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-small font-medium text-accent-700 hover:underline"
-          >
-            Abrir o Emissor Nacional de NFS-e ↗
-          </a>
-        </div>
-      </Card>
+      {negocio && <AtalhosLancamento usuarioId={negocio.usuarioId} mundo="negocio" />}
 
       {carregando || !resumo ? (
         <p className="py-8 text-center text-body text-muted">Carregando...</p>
       ) : (
         <>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="flex flex-col gap-3 border-accent-200 bg-accent-50/50">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-2 text-small font-semibold text-foreground">
+                  <ShoppingBag size={16} className="text-accent-700" />
+                  Vendas de hoje
+                </p>
+                <Link href="/dashboard/empresa/vendas" className="text-xs font-semibold text-accent-700 hover:underline">
+                  Ver vendas
+                </Link>
+              </div>
+              <p className="text-h2 text-accent-800">{formatarMoeda(vendasHoje.totalHoje)}</p>
+              <p className="text-xs text-muted">
+                {vendasHoje.quantidade24h} venda{vendasHoje.quantidade24h === 1 ? "" : "s"} registrada{vendasHoje.quantidade24h === 1 ? "" : "s"} nas últimas 24h
+              </p>
+              {vendasHoje.ultimos.length > 0 && (
+                <div className="flex flex-col gap-1 border-t border-accent-200 pt-2">
+                  {vendasHoje.ultimos.map((v) => (
+                    <div key={v.id} className="flex items-center justify-between gap-2 text-small">
+                      <span className="truncate text-foreground">
+                        {v.produto_nome} · {v.quantidade}x
+                      </span>
+                      <span className="shrink-0 font-semibold text-foreground">{formatarMoeda(Number(v.valor_total))}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+            <VisaoHoje itens={itensHoje} cor="accent" />
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="flex flex-col gap-2">
               <p className="text-small text-muted">Faturamento</p>
@@ -398,6 +464,22 @@ export default function PainelEmpresaPage() {
               <p className="text-h2 text-secondary">{formatarMoeda(resumo.saldoAcumulado)}</p>
             </Card>
           </div>
+
+          <Card className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-2 text-body font-semibold text-foreground">
+                <Landmark size={18} className="text-accent-700" />
+                Patrimônio líquido do negócio
+              </p>
+              <p className={`text-h2 ${patrimonioLiquido >= 0 ? "text-foreground" : "text-rose-700"}`}>{formatarMoeda(patrimonioLiquido)}</p>
+            </div>
+            <div className="grid gap-2 text-small sm:grid-cols-4">
+              <p className="text-muted">Caixa: <strong className="text-foreground">{formatarMoeda(saldoCaixa)}</strong></p>
+              <p className="text-muted">+ Estoque (custo): <strong className="text-foreground">{formatarMoeda(estoqueValor)}</strong></p>
+              <p className="text-muted">+ A receber: <strong className="text-foreground">{formatarMoeda(totalAReceber)}</strong></p>
+              <p className="text-muted">− A pagar: <strong className="text-foreground">{formatarMoeda(totalAPagar)}</strong></p>
+            </div>
+          </Card>
 
           {(resumo.variacaoFaturamento !== null || resumo.variacaoCustos !== null) && (
             <Card className="flex flex-col gap-2">
@@ -455,6 +537,10 @@ export default function PainelEmpresaPage() {
               )}
             </div>
           )}
+
+          <ProjecaoLiquidez saldoAtual={saldoCaixa} movimentos={movimentosPrevistos} />
+
+          <KpisEmpresa ticket={ticket} ritmo={ritmo} />
 
           <div className="flex flex-col gap-4">
             <h2 className="text-h3 text-foreground">Lançamentos do negócio</h2>
@@ -524,21 +610,6 @@ export default function PainelEmpresaPage() {
           </div>
         </>
       )}
-
-      {/* "bottom-24" em vez de "bottom-6": esse botão flutuante é anterior à
-          barra fixa de navegação do rodapé (MobileTabBar, ver seção 22 do
-          contexto do projeto) -- com "bottom-6" ele ficava embaixo demais e
-          acabava sobrepondo o botão "Mais" da barra nova. 24 (96px) sobra
-          espaço mesmo em aparelhos com área segura maior (notch/indicador
-          home do iPhone). */}
-      <button
-        type="button"
-        onClick={handleAbrirModalNova}
-        aria-label="Anotar gasto ou receita do negócio"
-        className="fixed bottom-24 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-card-hover transition-transform hover:scale-105 sm:hidden"
-      >
-        <Plus size={26} />
-      </button>
 
       <NovaTransacaoModal
         aberto={modalAberto}
