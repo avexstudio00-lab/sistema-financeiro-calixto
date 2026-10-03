@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
+import { EmpresaProvider, useEmpresa } from "@/lib/empresa/EmpresaProvider";
+import { BotaoLancamentoGlobal } from "@/components/dashboard/BotaoLancamentoGlobal";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -39,12 +41,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
+    <EmpresaProvider>
+      <ConteudoDashboard>{children}</ConteudoDashboard>
+    </EmpresaProvider>
+  );
+}
+
+/** Separado só pra poder usar `useEmpresa()` (precisa estar dentro do
+ * provider). Na área "Minha empresa", as telas são remontadas quando a
+ * empresa escolhida muda (`key`), assim cada uma recarrega os dados certos
+ * sem precisar saber disso. */
+function ConteudoDashboard({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const { empresaAtivaId, carregado } = useEmpresa();
+  const naEmpresa = pathname?.startsWith("/dashboard/empresa") ?? false;
+
+  return (
     <div className="min-h-screen bg-background">
       <DashboardNav />
       {/* pb maior no celular pra sobrar espaço acima da barra fixa do
           rodapé (MobileTabBar) + área segura do iPhone com notch/indicador
           home; no computador não tem essa barra, então volta ao normal. */}
-      <main className="pb-32 md:pb-24">{children}</main>
+      {naEmpresa && !carregado ? (
+        <main className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="animate-spin text-primary-500" size={28} />
+        </main>
+      ) : (
+        <main key={naEmpresa ? empresaAtivaId ?? "todas" : "pessoal"} className="pb-32 md:pb-24">
+          {children}
+        </main>
+      )}
+      <BotaoLancamentoGlobal />
     </div>
   );
 }
