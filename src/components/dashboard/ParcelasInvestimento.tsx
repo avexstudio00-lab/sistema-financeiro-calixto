@@ -8,6 +8,7 @@ import { parcelaEstaAtrasada, resumirParcelas, calcularDiasAtraso, calcularValor
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { SeletorCarteira } from "@/components/dashboard/SeletorCarteira";
 import type { ParcelaInvestimento } from "@/lib/data/tipos";
 
 export interface DadosJurosParcela {
@@ -15,6 +16,8 @@ export interface DadosJurosParcela {
   valorDiaria: number;
   dataPagamento: string;
   empurrarSeguintes: boolean;
+  /** 5.10: carteira onde o juros entrou. */
+  contaId?: string | null;
 }
 
 export interface DadosEdicaoParcela {
@@ -85,6 +88,7 @@ export function ParcelasInvestimento({
   const [diariaEditadaManualmente, setDiariaEditadaManualmente] = React.useState(false);
   const [empurrarSeguintes, setEmpurrarSeguintes] = React.useState(false);
   const [erroJuros, setErroJuros] = React.useState<string | null>(null);
+  const [contaJuros, setContaJuros] = React.useState("");
   const resumo = React.useMemo(() => resumirParcelas(parcelas), [parcelas]);
   const sufixoPeriodicidade =
     periodicidade === "quinzenal" || periodicidade === "semanal" ? ` ${LABEL_PERIODICIDADE[periodicidade]}` : "";
@@ -164,12 +168,17 @@ export function ParcelasInvestimento({
       return;
     }
     const valorDiaria = parsearValor(diariaTexto || "0") || 0;
+    if (!contaJuros) {
+      setErroJuros("Escolha em qual carteira o dinheiro entrou.");
+      return;
+    }
     setErroJuros(null);
     await onRegistrarJuros(parcelaEmJuros, {
       valorJuros,
       valorDiaria,
       dataPagamento: dataPagamentoJuros,
       empurrarSeguintes,
+      contaId: contaJuros,
     });
     setJurosId(null);
   }
@@ -396,6 +405,7 @@ export function ParcelasInvestimento({
                         </div>
                       </div>
                     )}
+                    <SeletorCarteira valor={contaJuros} onChange={setContaJuros} ajuda="" />
                     {erroJuros && <p className="text-xs text-rose-600">{erroJuros}</p>}
                     <div className="flex items-center gap-2 pt-1">
                       <Button type="button" size="sm" variant="secondary" disabled={salvando} onClick={confirmarJuros}>
