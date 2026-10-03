@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ShoppingCart, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +9,10 @@ import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarProdutos } from "@/lib/data/produtos";
+import { listarServicos, rotuloPrecoServico } from "@/lib/data/servicos";
+import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
+import { Badge } from "@/components/ui/Badge";
+
 import { listarClientes } from "@/lib/data/clientes";
 import { listarContas } from "@/lib/data/contas";
 import {
@@ -19,10 +23,11 @@ import {
   agruparVendasPorDia,
   agruparVendasPorSemana,
   agruparVendasPorMes,
+  rankingABC,
   type PontoVendasPeriodo,
 } from "@/lib/data/vendas";
 import { formatarMoeda } from "@/lib/format";
-import type { Produto, Cliente, Conta, Venda } from "@/lib/data/tipos";
+import type { Produto, Cliente, Conta, Venda, Servico } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO = [
   { id: "pix", label: "Pix" },
@@ -41,9 +46,20 @@ function limitesDosUltimosMeses(meses: number) {
 
 export default function VendasPage() {
   const { negocio } = useAuth();
+  const { ramo } = useEmpresa();
   const hoje = new Date();
 
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
+  const [servicos, setServicos] = React.useState<Servico[]>([]);
+  const [tipoItem, setTipoItem] = React.useState<"produto" | "servico">(ramo === "servicos" ? "servico" : "produto");
+  const [servicoId, setServicoId] = React.useState("");
+  const [fiado, setFiado] = React.useState(false);
+  const [parcelasFiado, setParcelasFiado] = React.useState("1");
+  const [vencimentoFiado, setVencimentoFiado] = React.useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  });
   const [clientes, setClientes] = React.useState<Cliente[]>([]);
   const [contas, setContas] = React.useState<Conta[]>([]);
   const [vendas, setVendas] = React.useState<Venda[]>([]);
@@ -68,13 +84,15 @@ export default function VendasPage() {
     if (!negocio) return;
     setCarregando(true);
     const { inicio, fim } = limitesDosUltimosMeses(6);
-    const [listaProdutos, listaClientes, listaContas, listaVendas] = await Promise.all([
+    const [listaProdutos, listaClientes, listaContas, listaVendas, listaServicos] = await Promise.all([
       listarProdutos(negocio.usuarioId),
       listarClientes(negocio.usuarioId),
       listarContas(negocio.usuarioId),
       listarVendas(negocio.usuarioId, { inicio, fim }),
+      listarServicos(negocio.usuarioId),
     ]);
     setProdutos(listaProdutos);
+    setServicos(listaServicos);
     setClientes(listaClientes);
     setContas(listaContas);
     setVendas(listaVendas);
@@ -87,7 +105,15 @@ export default function VendasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [negocio]);
 
-  const produtoSelecionado = produtos.find((p) => p.id === produtoId) ?? null;
+  const produtoSelecionado = tipoItem === "produto" ? produtos.find((p) => p.id === produtoId) ?? null : null;
+  const servicoSelecionado = tipoItem === "servico" ? servicos.find((sv) => sv.id === servicoId) ?? null : null;
+  const temItens = produtos.length > 0 || servicos.length > 0;
+
+  function handleSelecionarServico(id: string) {
+    setServicoId(id);
+    const sv = servicos.find((x) => x.id === id);
+    setValorUnitario(sv && sv.preco_fixo && sv.preco != null ? String(sv.preco).replace(".", ",") : "");
+  }
 
   function handleSelecionarProduto(id: string) {
     setProdutoId(id);
@@ -97,7 +123,11 @@ export default function VendasPage() {
 
   async function handleRegistrarVenda(e: React.FormEvent) {
     e.preventDefault();
-    if (!negocio || !produtoSelecionado) return;
+    if (!negocio || (!produtoSelecionado && !servicoSelecionado)) return;
+    if (fiado && !clienteId) {
+      setErro("Venda fiada precisa de um cliente identificado.");
+      return;
+    }
     const qtd = Number(quantidade.replace(",", "."));
     const valorUnit = Number(valorUnitario.replace(",", "."));
     if (!qtd || qtd <= 0) {
@@ -114,6 +144,8 @@ export default function VendasPage() {
     const resultado = await registrarVenda({
       usuarioId: negocio.usuarioId,
       produto: produtoSelecionado,
+      servico: servicoSelecionado,
+      fiado: fiado ? { parcelas: Math.max(1, Number(parcelasFiado) || 1), primeiroVencimento: vencimentoFiado } : null,
       quantidade: qtd,
       valorUnitario: valorUnit,
       formaPagamento,
@@ -127,12 +159,17 @@ export default function VendasPage() {
       setErro("Não foi possível registrar a venda. Tente novamente.");
       return;
     }
-    if (resultado.estoqueInsuficiente) {
+    if (resultado.estoqueInsuficiente && produtoSelecionado) {
       setAviso(
         `Atenção: você vendeu mais unidades de "${produtoSelecionado.nome}" do que tinha em estoque. O estoque desse produto ficou zerado.`
       );
+    } else if (fiado) {
+      setAviso("Venda fiada registrada: as parcelas estão em Contas → A receber (o valor entra no caixa quando você marcar como recebido).");
     }
     setProdutoId("");
+    setServicoId("");
+    setFiado(false);
+    setParcelasFiado("1");
     setQuantidade("1");
     setValorUnitario("");
     setClienteId("");
@@ -164,6 +201,8 @@ export default function VendasPage() {
   );
 
   const resumo = React.useMemo(() => resumirVendas(vendasDoMes), [vendasDoMes]);
+  // Ranking ABC de margem real (7.2) — últimos 6 meses carregados.
+  const ranking = React.useMemo(() => rankingABC(vendas), [vendas]);
 
   const pontosGrafico: PontoVendasPeriodo[] = React.useMemo(() => {
     if (periodo === "mes") return agruparVendasPorMes(vendas, 6);
@@ -183,17 +222,17 @@ export default function VendasPage() {
           <h1 className="text-h2 text-foreground">Vendas</h1>
           <p className="text-body text-muted">Registre suas vendas e acompanhe como o negócio está indo.</p>
         </div>
-        <Button onClick={() => setFormAberto((v) => !v)} disabled={produtos.length === 0}>
+        <Button onClick={() => setFormAberto((v) => !v)} disabled={!temItens}>
           <Plus size={18} />
           Registrar venda
         </Button>
       </div>
 
-      {produtos.length === 0 && !carregando && (
+      {!temItens && !carregando && (
         <Card className="flex items-center gap-3 border-amber-200 bg-amber-50/60">
           <AlertTriangle size={20} className="text-amber-600" />
           <p className="text-body text-foreground">
-            Cadastre um produto no Estoque antes de registrar sua primeira venda.
+            Cadastre um produto (Catálogo de produtos) ou um serviço (Catálogo de serviços) antes de registrar sua primeira venda.
           </p>
         </Card>
       )}
@@ -202,21 +241,64 @@ export default function VendasPage() {
         <Card padding="lg" className="flex flex-col gap-4">
           <h2 className="text-h3 text-foreground">Nova venda</h2>
           <form onSubmit={handleRegistrarVenda} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-small font-medium text-foreground">Produto</span>
-              <select
-                value={produtoId}
-                onChange={(e) => handleSelecionarProduto(e.target.value)}
-                className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
-              >
-                <option value="">Selecione um produto</option>
-                {produtos.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nome} · {formatarMoeda(Number(p.preco_venda))} · {p.quantidade_estoque} em estoque
-                  </option>
+            {produtos.length > 0 && servicos.length > 0 && (
+              <div className="flex gap-1 self-start rounded-full bg-muted/10 p-1">
+                {(["produto", "servico"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => {
+                      setTipoItem(t);
+                      setValorUnitario("");
+                    }}
+                    className={`rounded-full px-4 py-1.5 text-small font-medium ${
+                      tipoItem === t ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {t === "produto" ? "Produto" : "Serviço"}
+                  </button>
                 ))}
-              </select>
-            </div>
+              </div>
+            )}
+            {(tipoItem === "produto" && produtos.length > 0) || servicos.length === 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Produto</span>
+                <select
+                  value={produtoId}
+                  onChange={(e) => {
+                    setTipoItem("produto");
+                    handleSelecionarProduto(e.target.value);
+                  }}
+                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                >
+                  <option value="">Selecione um produto</option>
+                  {produtos.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome} · {formatarMoeda(Number(p.preco_venda))} · {p.quantidade_estoque} em estoque
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Serviço</span>
+                <select
+                  value={servicoId}
+                  onChange={(e) => {
+                    setTipoItem("servico");
+                    handleSelecionarServico(e.target.value);
+                  }}
+                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                >
+                  <option value="">Selecione um serviço</option>
+                  {servicos.map((sv) => (
+                    <option key={sv.id} value={sv.id}>
+                      {sv.nome} · {rotuloPrecoServico(sv)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <Input
@@ -270,6 +352,25 @@ export default function VendasPage() {
               </div>
             )}
 
+            <label className="flex items-center gap-2 text-small text-foreground">
+              <input type="checkbox" checked={fiado} onChange={(e) => setFiado(e.target.checked)} className="h-4 w-4 accent-emerald-600" />
+              Venda fiada (o cliente paga depois, em parcelas)
+            </label>
+            {fiado && (
+              <div className="grid grid-cols-2 gap-4 rounded-xl border border-border p-3">
+                <Input
+                  label="Parcelas"
+                  inputMode="numeric"
+                  value={parcelasFiado}
+                  onChange={(e) => setParcelasFiado(e.target.value.replace(/\D/g, ""))}
+                />
+                <DateMaskInput label="1º vencimento" value={vencimentoFiado} onChange={setVencimentoFiado} />
+                <p className="col-span-2 text-xs text-muted">
+                  Vira conta a receber no nome do cliente, com alerta quando estiver perto de vencer ou vencida.
+                </p>
+              </div>
+            )}
+
             {quantidade && valorUnitario && (
               <p className="text-small text-muted">
                 Total da venda:{" "}
@@ -284,7 +385,7 @@ export default function VendasPage() {
             {erro && <p className="text-small text-rose-600">{erro}</p>}
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={salvando || !produtoId} className="flex-1">
+              <Button type="submit" disabled={salvando || (!produtoSelecionado && !servicoSelecionado)} className="flex-1">
                 {salvando ? "Salvando..." : "Registrar venda"}
               </Button>
               <Button type="button" variant="tertiary" onClick={() => setFormAberto(false)}>
@@ -373,6 +474,48 @@ export default function VendasPage() {
               </div>
             )}
           </Card>
+
+          {ranking.length > 0 && (
+            <Card padding="lg" className="flex flex-col gap-4">
+              <div className="flex items-center gap-2">
+                <Trophy size={20} className="text-accent-700" />
+                <h2 className="text-h3 text-foreground">Ranking de lucratividade (curva ABC)</h2>
+              </div>
+              <p className="text-small text-muted">
+                Últimos 6 meses. Classe A = itens que somam 80% do lucro; C = muito movimento e pouco retorno.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px] text-small">
+                  <thead>
+                    <tr className="border-b border-border text-left text-muted">
+                      <th className="py-2 pr-2 font-medium">Item</th>
+                      <th className="py-2 pr-2 text-right font-medium">Qtd</th>
+                      <th className="py-2 pr-2 text-right font-medium">Faturado</th>
+                      <th className="py-2 pr-2 text-right font-medium">Lucro</th>
+                      <th className="py-2 pr-2 text-right font-medium">Margem</th>
+                      <th className="py-2 text-right font-medium">Classe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ranking.slice(0, 15).map((item) => (
+                      <tr key={item.nome} className="border-b border-border/60 text-foreground">
+                        <td className="py-2 pr-2">{item.nome}</td>
+                        <td className="py-2 pr-2 text-right">{item.quantidade}</td>
+                        <td className="py-2 pr-2 text-right">{formatarMoeda(item.faturamento)}</td>
+                        <td className="py-2 pr-2 text-right font-semibold">{formatarMoeda(item.lucro)}</td>
+                        <td className="py-2 pr-2 text-right">{item.margem.toFixed(0)}%</td>
+                        <td className="py-2 text-right">
+                          <Badge variant={item.classe === "A" ? "primary" : item.classe === "B" ? "warning" : "neutral"} size="sm">
+                            {item.classe}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
 
           <div className="flex flex-col gap-4">
             <h2 className="text-h3 text-foreground">Últimas vendas</h2>
