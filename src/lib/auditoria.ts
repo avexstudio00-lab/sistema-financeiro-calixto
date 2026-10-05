@@ -31,7 +31,9 @@ export type TipoEventoSeguranca =
   | "trial_rate_limitado"
   | "push_inscrito"
   | "push_cancelado"
-  | "push_falha_cobranca_notificada";
+  | "push_falha_cobranca_notificada"
+  | "biometria_cadastrada"
+  | "biometria_recusada";
 
 export async function registrarEventoSeguranca(
   usuarioId: string | null,

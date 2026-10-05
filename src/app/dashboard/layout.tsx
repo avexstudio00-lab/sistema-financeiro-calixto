@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { EmpresaProvider, useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { BotaoLancamentoGlobal } from "@/components/dashboard/BotaoLancamentoGlobal";
+import { PinGate } from "@/components/auth/PinGate";
+import { SincronizarPush } from "@/components/dashboard/SincronizarPush";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -40,10 +42,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
+  // Fase 1: PIN/biometria. Enquanto bloqueado, nada do painel é montado.
   return (
-    <EmpresaProvider>
-      <ConteudoDashboard>{children}</ConteudoDashboard>
-    </EmpresaProvider>
+    <PinGate>
+      <EmpresaProvider>
+        <ConteudoDashboard>{children}</ConteudoDashboard>
+      </EmpresaProvider>
+      <SincronizarPush />
+    </PinGate>
   );
 }
 

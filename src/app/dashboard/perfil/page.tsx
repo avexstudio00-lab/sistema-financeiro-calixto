@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { atualizarNome, atualizarTipoPerfil, deletarFotoPerfil, enviarFotoPerfil } from "@/lib/data/usuarios";
 import { supabase } from "@/lib/supabase/client";
-import { NotificacoesPush } from "@/components/dashboard/NotificacoesPush";
+import Link from "next/link";
 
 type TipoPerfil = "clt" | "mei" | "me";
 
@@ -406,7 +406,17 @@ export default function PerfilPage() {
         </form>
       </Card>
 
-      <NotificacoesPush />
+      <Link href="/dashboard/seguranca" className="block">
+        <Card padding="lg" className="flex items-center gap-3 transition-colors hover:bg-muted/5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-700 dark:text-primary-300">
+            <Icon icon={Lock} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-h3 text-foreground">Segurança e notificações</h2>
+            <p className="text-small text-muted">PIN, Face ID/biometria, notificações no celular e privacidade da tela de bloqueio.</p>
+          </div>
+        </Card>
+      </Link>
 
       {erro && <p className="text-small text-rose-600">{erro}</p>}
 

@@ -53,42 +53,57 @@ self.addEventListener("fetch", (event) => {
 });
 
 
-// Notificacoes push (Bloco 5) -- alerta de orcamento e falha de cobranca do
-// Asaas. O payload vem sempre de src/lib/push/enviarPush.ts, sempre no
-// formato PayloadPush (titulo, corpo, url) -- nunca dado bruto de
-// terceiro, entao o parse abaixo pode confiar no formato sem validar campo
-// a campo.
+// Notificações push (item 6.6 da especificação de 03/out/2026) -- o
+// payload vem sempre de src/lib/push/enviarPush.ts no formato PayloadPush
+// (titulo, corpo, url, tag). Aparece na tela de bloqueio com som/vibração
+// mesmo com o app fechado. Se a pessoa ligou "Ocultar prévia", o próprio
+// servidor já manda o texto genérico -- nada sensível chega aqui.
 self.addEventListener("push", (event) => {
-  let payload = { titulo: "Meu Controle", corpo: "" };
+  let payload = { titulo: "Calixto", corpo: "Você tem uma notificação do Calixto" };
   try {
     if (event.data) payload = { ...payload, ...event.data.json() };
   } catch {
-    // Payload sem JSON (nao deveria acontecer, mas nao trava a notificacao
-    // por causa disso) -- mostra so o titulo generico.
+    // Payload sem JSON (não deveria acontecer) -- mostra o texto genérico.
   }
 
-  event.waitUntil(
-    self.registration.showNotification(payload.titulo, {
-      body: payload.corpo,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      data: { url: payload.url || "/dashboard" },
-    })
-  );
+  const opcoes = {
+    body: payload.corpo,
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    data: { url: payload.url || "/dashboard" },
+    vibrate: [200, 100, 200],
+    timestamp: Date.now(),
+  };
+  // `tag` agrupa: o mesmo aviso reenviado substitui o anterior em vez de
+  // empilhar duplicado na central de notificações.
+  if (payload.tag) {
+    opcoes.tag = payload.tag;
+    opcoes.renotify = true;
+  }
+
+  event.waitUntil(self.registration.showNotification(payload.titulo, opcoes));
 });
 
-// Clique na notificacao: foca uma aba ja aberta do app se existir, senao
-// abre uma nova na URL indicada pelo payload.
+// Clique na notificação: leva direto pra tela do lançamento/conta/dívida
+// que gerou o aviso -- reaproveita uma janela aberta do app (navegando ela
+// até a tela certa) ou abre uma nova.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || "/dashboard";
+  const caminho = (event.notification.data && event.notification.data.url) || "/dashboard";
+  const destino = new URL(caminho, self.location.origin).href;
 
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((janelas) => {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (janelas) => {
       for (const janela of janelas) {
-        if (janela.url.includes(url) && "focus" in janela) return janela.focus();
+        if (new URL(janela.url).origin !== self.location.origin) continue;
+        try {
+          if (janela.url !== destino && "navigate" in janela) await janela.navigate(destino);
+        } catch {
+          // navigate pode falhar em janelas não controladas -- segue pro focus.
+        }
+        if ("focus" in janela) return janela.focus();
       }
-      if (self.clients.openWindow) return self.clients.openWindow(url);
+      if (self.clients.openWindow) return self.clients.openWindow(destino);
     })
   );
 });

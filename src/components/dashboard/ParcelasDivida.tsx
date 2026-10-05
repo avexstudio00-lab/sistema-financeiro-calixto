@@ -1,13 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Check, AlertCircle, Wallet, Pencil } from "lucide-react";
+import { ChevronDown, ChevronUp, Check, AlertCircle, Wallet, Pencil, Trash2 } from "lucide-react";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
 import { formatarMoeda } from "@/lib/format";
 import { resumirParcelasDivida } from "@/lib/data/dividas";
-import type { ParcelaDividaComStatus } from "@/lib/data/dividas";
+import type { ParcelaDividaComStatus, StatusParcelaDividaManual } from "@/lib/data/dividas";
 import type { Conta } from "@/lib/data/tipos";
 
 export interface ParcelasDividaProps {
@@ -19,9 +19,21 @@ export interface ParcelasDividaProps {
   podeRegistrarPagamento: boolean;
   salvando: boolean;
   onRegistrarPagamento: (parcela: ParcelaDividaComStatus, contaId: string | null) => void | Promise<void>;
-  /** Item 5.1: editar valor e vencimento de uma parcela ainda não paga. */
-  onEditarParcela?: (parcela: ParcelaDividaComStatus, dados: { valor: number; dataVencimento: string }) => void | Promise<void>;
+  /** Item 5.1: editar valor, vencimento e status de UMA parcela. */
+  onEditarParcela?: (
+    parcela: ParcelaDividaComStatus,
+    dados: { valor: number; dataVencimento: string; status: StatusParcelaDividaManual }
+  ) => void | Promise<void>;
+  /** Item 5.1: excluir só esta parcela (as outras ficam como estão). */
+  onExcluirParcela?: (parcela: ParcelaDividaComStatus) => void | Promise<void>;
 }
+
+const ROTULO_STATUS: Record<StatusParcelaDividaManual, string> = {
+  automatico: "Automático (pelo que já foi pago)",
+  pendente: "Pendente",
+  pago: "Pago",
+  vencido: "Vencido",
+};
 
 /**
  * Lista de parcelas de uma dívida parcelada -- versão simplificada de
@@ -42,10 +54,13 @@ export function ParcelasDivida({
   salvando,
   onRegistrarPagamento,
   onEditarParcela,
+  onExcluirParcela,
 }: ParcelasDividaProps) {
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
   const [valorEdicao, setValorEdicao] = React.useState("");
   const [dataEdicao, setDataEdicao] = React.useState("");
+  const [statusEdicao, setStatusEdicao] = React.useState<StatusParcelaDividaManual>("automatico");
+  const [confirmandoExclusao, setConfirmandoExclusao] = React.useState(false);
   const [erroEdicao, setErroEdicao] = React.useState<string | null>(null);
 
   function abrirEdicao(p: ParcelaDividaComStatus) {
@@ -53,6 +68,8 @@ export function ParcelasDivida({
     setEditandoId(p.id);
     setValorEdicao(Number(p.valor).toFixed(2).replace(".", ","));
     setDataEdicao(p.data_vencimento);
+    setStatusEdicao(p.status_manual ?? "automatico");
+    setConfirmandoExclusao(false);
     setErroEdicao(null);
   }
 
@@ -66,7 +83,7 @@ export function ParcelasDivida({
       setErroEdicao("Escolha o vencimento.");
       return;
     }
-    await onEditarParcela?.(p, { valor, dataVencimento: dataEdicao });
+    await onEditarParcela?.(p, { valor, dataVencimento: dataEdicao, status: statusEdicao });
     setEditandoId(null);
   }
   const [expandido, setExpandido] = React.useState(false);
@@ -137,6 +154,7 @@ export function ParcelasDivida({
                   <div className="flex flex-col">
                     <span className="font-medium text-foreground">
                       Parcela {parcela.numero} · {formatarMoeda(Number(parcela.valor))}
+                      {parcela.status_manual ? <span className="ml-1 text-xs font-normal text-muted">(status manual)</span> : null}
                     </span>
                     {!emPagamento && (
                       <span className={cn("text-xs", parcela.atrasada ? "text-red-600" : "text-muted")}>
@@ -147,7 +165,7 @@ export function ParcelasDivida({
                   </div>
                   {!emPagamento && (
                     <div className="flex shrink-0 items-center gap-1.5">
-                      {!parcela.paga && onEditarParcela && (
+                      {onEditarParcela && (
                         <button
                           type="button"
                           onClick={() => abrirEdicao(parcela)}
@@ -173,8 +191,13 @@ export function ParcelasDivida({
                           Registrar pagamento
                         </button>
                       ) : (
-                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-muted ring-1 ring-inset ring-border">
-                          Pendente
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+                            parcela.atrasada ? "bg-rose-50 text-red-700 ring-rose-200" : "bg-white text-muted ring-border"
+                          )}
+                        >
+                          {parcela.atrasada ? "Vencida" : "Pendente"}
                         </span>
                       )}
                     </div>
@@ -188,6 +211,24 @@ export function ParcelasDivida({
                       </div>
                       <DateMaskInput label="Vencimento" value={dataEdicao} onChange={setDataEdicao} />
                     </div>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-medium text-foreground">Status</span>
+                      <select
+                        value={statusEdicao}
+                        onChange={(e) => setStatusEdicao(e.target.value as StatusParcelaDividaManual)}
+                        className="h-9 rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                      >
+                        {(Object.keys(ROTULO_STATUS) as StatusParcelaDividaManual[]).map((st) => (
+                          <option key={st} value={st}>
+                            {ROTULO_STATUS[st]}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-xs text-muted">
+                        &quot;Pago&quot; marca como paga sem lançar nada no extrato (use para o que foi pago por fora). Para tirar o dinheiro de uma carteira, use
+                        &quot;Registrar pagamento&quot;.
+                      </span>
+                    </label>
                     {erroEdicao && <p className="text-xs text-rose-700">{erroEdicao}</p>}
                     <div className="flex items-center gap-2">
                       <button
@@ -202,7 +243,45 @@ export function ParcelasDivida({
                         Cancelar
                       </button>
                     </div>
-                    <p className="text-xs text-muted">O total da dívida é recalculado pela soma das parcelas.</p>
+                    <p className="text-xs text-muted">O total da dívida é recalculado pela soma das parcelas. As outras parcelas não mudam.</p>
+                    {onExcluirParcela &&
+                      (confirmandoExclusao ? (
+                        <div className="flex flex-col gap-2 rounded-lg bg-rose-50 p-2.5">
+                          <p className="text-xs text-foreground">
+                            Excluir só a parcela {parcela.numero}? As demais continuam iguais e pagamentos já lançados no extrato não são apagados.
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={salvando}
+                              onClick={async () => {
+                                await onExcluirParcela(parcela);
+                                setEditandoId(null);
+                              }}
+                              className="flex h-9 items-center rounded-xl bg-red-600 px-3 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                            >
+                              Excluir parcela
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmandoExclusao(false)}
+                              className="h-9 rounded-xl px-3 text-xs font-medium text-muted hover:bg-muted/10"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : parcelas.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmandoExclusao(true)}
+                          className="flex items-center gap-1.5 self-start text-xs font-medium text-rose-700 hover:underline dark:text-rose-300"
+                        >
+                          <Trash2 size={12} /> Excluir só esta parcela
+                        </button>
+                      ) : (
+                        <p className="text-xs text-muted">É a única parcela — para tirar, apague a dívida inteira.</p>
+                      ))}
                   </div>
                 )}
                 {pagandoId === parcela.id && (

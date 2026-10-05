@@ -31,6 +31,8 @@ import { formatarMoeda } from "@/lib/format";
 import { obterCotacoesMercado } from "@/lib/data/mercado";
 import { NovoInvestimentoModal, type TipoInvestimento } from "@/components/dashboard/NovoInvestimentoModal";
 import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
+import { PainelRevenda, VincularContaOrigem } from "@/components/dashboard/PainelRevenda";
+import { reavaliarQuitacaoRevenda, salvarPrecoRevenda, totalRecebidoRevenda } from "@/lib/data/revenda";
 import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } from "@/components/dashboard/FiltrosLista";
 import { Badge } from "@/components/ui/Badge";
 import { supabase } from "@/lib/supabase/client";
@@ -197,6 +199,8 @@ export default function InvestimentosPage() {
   async function handleAtualizarValor(inv: Investimento, novoValor: number) {
     setSalvandoAcao(true);
     await atualizarValorAtualInvestimento(inv.id, novoValor);
+    // Compra e revenda: "valor de venda" é o próprio preço de revenda (5.3).
+    if (inv.tipo === "revenda") await salvarPrecoRevenda(inv.id, novoValor);
     setSalvandoAcao(false);
     carregar();
   }
@@ -259,6 +263,8 @@ export default function InvestimentosPage() {
           await reabrirEmprestimoParcelado(inv.id);
         }
       }
+      // Com preço de revenda definido, quem manda é "recebido ≥ preço" (5.3).
+      if (inv && inv.tipo === "revenda" && inv.preco_revenda) await reavaliarQuitacaoRevenda(inv.id);
     } else {
       console.error("Erro ao marcar parcela:", error);
     }
@@ -408,6 +414,10 @@ export default function InvestimentosPage() {
   function estaQuitado(inv: Investimento): boolean {
     if (inv.tipo === "revenda" && inv.status_revenda) return inv.status_revenda === "quitado";
     if (inv.quitado) return true;
+    if (inv.tipo === "revenda" && inv.preco_revenda) {
+      const recebido = totalRecebidoRevenda(parcelasPorInvestimento.get(inv.id) ?? [], pagamentosPorInvestimento.get(inv.id) ?? []);
+      return recebido >= Number(inv.preco_revenda) - 0.005;
+    }
     const ps = parcelasPorInvestimento.get(inv.id) ?? [];
     return ps.length > 0 && ps.every((p) => p.pago);
   }
@@ -417,7 +427,7 @@ export default function InvestimentosPage() {
     if (inv.status_revenda) return inv.status_revenda;
     if (estaQuitado(inv)) return "quitado";
     const ps = parcelasPorInvestimento.get(inv.id) ?? [];
-    if (ps.some((p) => p.pago)) return "parcial";
+    if (totalRecebidoRevenda(ps, pagamentosPorInvestimento.get(inv.id) ?? []) > 0) return "parcial";
     return inv.forma_pagamento === "parcelado" ? "em_andamento" : "em_estoque";
   }
 
@@ -481,6 +491,15 @@ export default function InvestimentosPage() {
               </label>
             </div>
           )}
+          {inv.tipo === "revenda" && (
+            <PainelRevenda
+              inv={inv}
+              parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
+              pagamentos={pagamentosPorInvestimento.get(inv.id) ?? []}
+              onAlterado={carregar}
+            />
+          )}
+          <VincularContaOrigem inv={inv} onAlterado={carregar} />
           <InvestimentoCard
             key={inv.id}
             inv={inv}

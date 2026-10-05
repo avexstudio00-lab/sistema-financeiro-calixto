@@ -32,6 +32,8 @@ import { obterCotacoesMercado } from "@/lib/data/mercado";
 import { listarContas } from "@/lib/data/contas";
 import { lancarMovimentoInvestimento } from "@/lib/data/movimentosInvestimento";
 import { supabase } from "@/lib/supabase/client";
+import { formatarMoeda } from "@/lib/format";
+import { calcularLucroRevenda, textoLucroRevenda } from "@/lib/data/revenda";
 import type { Conta, CotacoesMercado } from "@/lib/data/tipos";
 
 const TIPOS_INVESTIMENTO = [
@@ -148,6 +150,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
     listarContas(user.id).then((lista) => {
       setContas(lista);
       setContaOrigemId((atual) => atual || (lista.find((c) => c.tipo !== "cartao_credito")?.id ?? ""));
+      // Cartão de crédito não é de onde "sai" dinheiro emprestado/aplicado:
+      // debitar nele não mexe no saldo disponível (era o bug relatado).
     });
   }, [aberto, user]);
 
@@ -158,6 +162,8 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
   const [tipo, setTipo] = React.useState<TipoInvestimento>("cdi");
   const [nome, setNome] = React.useState("");
   const [valorInvestido, setValorInvestido] = React.useState("");
+  // Item 5.3: preço de revenda (só Compra e revenda).
+  const [precoRevenda, setPrecoRevenda] = React.useState("");
   const [dataInicio, setDataInicio] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [taxa, setTaxa] = React.useState(String(TAXA_CDI_SUGERIDA).replace(".", ","));
   const [percentualCdi, setPercentualCdi] = React.useState(String(PERCENTUAL_CDI_SUGERIDO));
@@ -192,6 +198,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
       setTipo("cdi");
       setNome("");
       setValorInvestido("");
+      setPrecoRevenda("");
       setDataInicio(new Date().toISOString().slice(0, 10));
       setTaxa(String(TAXA_CDI_SUGERIDA).replace(".", ","));
       setPercentualCdi(String(PERCENTUAL_CDI_SUGERIDO));
@@ -268,7 +275,15 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
   const numeroParcelasNumero = Number(numeroParcelas);
   const valorInvestidoNumero = parsearValorDigitado(valorInvestido);
   const valorRetornavelNumero = parsearValorDigitado(valorRetornavel);
-  const valorParaParcelas = ehEmprestimo ? valorRetornavelNumero : valorInvestidoNumero;
+  const precoRevendaNumero = tipo === "revenda" ? parsearValorDigitado(precoRevenda) : 0;
+  const lucroRevenda = tipo === "revenda" ? calcularLucroRevenda(valorInvestidoNumero, precoRevendaNumero) : null;
+  // Revenda parcelada: quem paga em parcelas é o comprador, sobre o PREÇO DE
+  // REVENDA (sem ele definido, cai no custo como antes).
+  const valorParaParcelas = ehEmprestimo
+    ? valorRetornavelNumero
+    : tipo === "revenda" && precoRevendaNumero > 0
+      ? precoRevendaNumero
+      : valorInvestidoNumero;
   const valorParcelaCalculado =
     parcelando && valorParaParcelas > 0 && numeroParcelasNumero >= 2
       ? valorParaParcelas / numeroParcelasNumero
@@ -467,6 +482,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
       valor_parcela: parcelando && valorParcelaCalculado ? Number(valorParcelaCalculado.toFixed(2)) : null,
       titulo_tesouro: tesouroAoVivo ? (tituloEscolhido?.chave ?? null) : null,
       quantidade_cotas: tesouroAoVivo ? quantidadeCotasNumero : null,
+      preco_revenda: tipo === "revenda" && precoRevendaNumero > 0 ? Number(precoRevendaNumero.toFixed(2)) : null,
       periodicidade_parcelas: parcelando ? periodicidade : null,
       valor_retornavel: ehEmprestimo ? valorRetornavelNumero : null,
       data_vencimento_final: dataVencimentoFinalCalculada,
@@ -488,10 +504,12 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
       data: dataInicio,
       descricao: `${ehEmprestimo ? "Empréstimo para" : tipo === "revenda" ? "Compra" : "Aplicação"}: ${nome.trim()}`,
     });
-    await supabase
-      .from("investimentos")
-      .update({ conta_origem_id: contaOrigemId, transacao_origem_id: transacaoOrigemId })
-      .eq("id", data.id);
+    if (transacaoOrigemId) {
+      await supabase
+        .from("investimentos")
+        .update({ conta_origem_id: contaOrigemId, transacao_origem_id: transacaoOrigemId })
+        .eq("id", data.id);
+    }
 
     if (parcelando && valorParcelaCalculado) {
       const { error: erroParcelas } = await criarParcelasDoInvestimento(
@@ -509,6 +527,9 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
     }
 
     setSalvando(false);
+    // Se o lançamento de saída falhou (transacaoOrigemId nulo), o card do
+    // investimento mostra o aviso "Sem carteira de origem" com o botão pra
+    // debitar depois — nunca fica um investimento "fantasma" sem aviso.
     onSalvo();
     onFechar();
   }
@@ -676,6 +697,32 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
             />
           </div>
 
+          {tipo === "revenda" && (
+            <div className="flex flex-col gap-2">
+              <Input
+                label="Preço de revenda"
+                inputMode="decimal"
+                value={precoRevenda}
+                onChange={(e) => setPrecoRevenda(e.target.value)}
+                placeholder="0,00"
+                helperText="Quanto você vai vender (ou já vendeu). Pode deixar para depois."
+              />
+              {lucroRevenda ? (
+                <span
+                  className={`self-start rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    lucroRevenda.lucro >= 0 ? "bg-primary-50 text-primary-800 dark:text-primary-200" : "bg-rose-50 text-red-700 dark:text-rose-200"
+                  }`}
+                >
+                  {textoLucroRevenda(lucroRevenda)}
+                </span>
+              ) : (
+                <span className="self-start rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 dark:text-amber-200">
+                  Preço de revenda pendente — defina para ver o lucro
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <label htmlFor="conta-origem-investimento" className="text-small font-medium text-foreground">
               Saiu de qual carteira?
@@ -687,13 +734,17 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
               className="h-11 rounded-xl border border-border bg-card px-4 text-small text-foreground"
             >
               <option value="">Selecione a carteira...</option>
-              {contas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
+              {contas
+                .filter((c) => c.tipo !== "cartao_credito")
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome} — saldo {formatarMoeda(Number(c.saldo_atual))}
+                  </option>
+                ))}
             </select>
-            <span className="text-xs text-muted">O valor sai dessa carteira como gasto na categoria &quot;Investimentos&quot;.</span>
+            <span className="text-xs text-muted">
+              O valor é debitado na hora do saldo dessa carteira (aparece no extrato na categoria &quot;Investimentos&quot;).
+            </span>
           </div>
 
           {ehEmprestimo && (

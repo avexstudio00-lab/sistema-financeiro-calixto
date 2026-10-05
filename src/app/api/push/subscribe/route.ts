@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   const p256dh = corpo?.keys?.p256dh;
   const auth = corpo?.keys?.auth;
 
-  if (!endpoint || !p256dh || !auth) {
+  if (!endpoint || !p256dh || !auth || !/^https:\/\//.test(endpoint) || endpoint.length > 2048 || p256dh.length > 200 || auth.length > 100) {
     return NextResponse.json({ erro: "Inscricao push incompleta." }, { status: 400 });
   }
 
@@ -53,6 +53,8 @@ export async function POST(request: Request) {
       endpoint,
       p256dh,
       auth,
+      user_agent: (request.headers.get("user-agent") ?? "").slice(0, 300) || null,
+      atualizado_em: new Date().toISOString(),
     },
     { onConflict: "usuario_id,endpoint" }
   );

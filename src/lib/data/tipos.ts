@@ -163,6 +163,9 @@ export interface DividaParcela {
   valor: number;
   data_vencimento: string;
   data_criacao: string;
+  /** Item 5.1 (reforço de Dívidas): status fixado à mão. Nulo = automático
+   * (cascata sobre o que já foi pago no extrato). */
+  status_manual?: "pago" | "pendente" | "vencido" | null;
 }
 
 /** `Divida` com o progresso já calculado a partir da soma de
@@ -257,6 +260,8 @@ export interface Investimento {
   transacao_origem_id?: string | null;
   /** Item 5.3: status da compra e revenda fixado à mão (nulo = automático). */
   status_revenda?: "em_estoque" | "em_andamento" | "parcial" | "quitado" | null;
+  /** Item 5.3: preço combinado/praticado na revenda (nulo = ainda não definido). */
+  preco_revenda?: number | null;
 }
 
 /** Um título do Tesouro Direto disponível hoje, com preço/taxa de venda
@@ -320,7 +325,7 @@ export interface PagamentoInvestimento {
   investimento_id: string;
   usuario_id: string;
   parcela_id: string | null;
-  tipo: "juros" | "quitacao";
+  tipo: "juros" | "quitacao" | "recebimento";
   data_pagamento: string;
   dias_atraso: number;
   valor_juros: number | null;

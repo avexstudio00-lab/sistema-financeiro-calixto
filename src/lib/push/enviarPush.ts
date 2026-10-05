@@ -36,6 +36,27 @@ export interface PayloadPush {
   corpo: string;
   /** Caminho pra abrir quando a pessoa clica na notificacao (ver sw.js). */
   url?: string;
+  /** Agrupa avisos iguais na central de notificações (não duplica). */
+  tag?: string;
+}
+
+export const TEXTO_PRIVADO = "Você tem uma notificação do Calixto";
+
+/**
+ * "Ocultar prévia das notificações" (Fase 1, item 3.1): com a chave ligada,
+ * nenhum valor nem descrição sai do servidor — só o texto genérico. Feito
+ * aqui, no único ponto de envio, pra valer pra todo tipo de aviso.
+ */
+export async function aplicarPrivacidade(admin: SupabaseClient, usuarioId: string, payload: PayloadPush): Promise<PayloadPush> {
+  const { data } = await admin
+    .from("preferencias_privacidade")
+    .select("ocultar_previa_notificacoes")
+    .eq("usuario_id", usuarioId)
+    .maybeSingle();
+  if ((data as { ocultar_previa_notificacoes?: boolean } | null)?.ocultar_previa_notificacoes) {
+    return { titulo: "Calixto", corpo: TEXTO_PRIVADO, url: payload.url, tag: payload.tag };
+  }
+  return payload;
 }
 
 interface LinhaInscricaoPush {
@@ -74,6 +95,8 @@ export async function enviarPushParaUsuario(
 
   if (!inscricoes || inscricoes.length === 0) return 0;
 
+  const final = await aplicarPrivacidade(admin, usuarioId, payload);
+
   let enviados = 0;
   for (const inscricao of inscricoes as LinhaInscricaoPush[]) {
     try {
@@ -82,7 +105,10 @@ export async function enviarPushParaUsuario(
           endpoint: inscricao.endpoint,
           keys: { p256dh: inscricao.p256dh, auth: inscricao.auth },
         },
-        JSON.stringify(payload)
+        JSON.stringify(final),
+        // urgency "high" + TTL de 1 dia: entrega imediata na tela de
+        // bloqueio, e não insiste num aviso que já perdeu o sentido.
+        { TTL: 24 * 60 * 60, urgency: "high" }
       );
       enviados++;
     } catch (erro) {
@@ -141,4 +167,16 @@ export async function enviarPushComDedupe(
 
   await enviarPushParaUsuario(admin, usuarioId, payload);
   return true;
+}
+
+/**
+ * Só o "registro de já avisado" (sem enviar): devolve true se esta é a
+ * primeira vez de `tipo`+`chave` pra este usuário. Usado pelo cron diário,
+ * que primeiro filtra o que é novo e depois decide como agrupar o envio.
+ */
+export async function marcarAvisoSeNovo(admin: SupabaseClient, usuarioId: string, tipo: string, chave: string): Promise<boolean> {
+  const { error } = await admin.from("notificacoes_enviadas").insert({ usuario_id: usuarioId, tipo, chave });
+  if (!error) return true;
+  if (error.code !== "23505") console.error(`Erro ao registrar dedupe de notificacao (${tipo}:${chave}):`, error.message);
+  return false;
 }

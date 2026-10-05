@@ -38,6 +38,8 @@ export interface NovoInvestimento {
   valor_diaria: number | null;
   titulo_tesouro: string | null;
   quantidade_cotas: number | null;
+  /** Item 5.3: só Compra e revenda. */
+  preco_revenda?: number | null;
 }
 
 export async function listarInvestimentos(usuarioId: string): Promise<Investimento[]> {
@@ -636,6 +638,16 @@ export async function editarPagamentoInvestimento(pagamento: PagamentoInvestimen
  * partir de parcelas/quitado — nada disso é guardado como número solto.
  * Se o evento lançou dinheiro numa carteira (5.10), o lançamento é estornado. */
 export async function excluirPagamentoInvestimento(pagamento: PagamentoInvestimento) {
+  if (pagamento.tipo === "recebimento") {
+    // Recebimento de Compra e revenda (item 5.3): só apaga, estorna a
+    // carteira e reavalia a quitação automática.
+    const { error } = await supabase.from("investimento_pagamentos").delete().eq("id", pagamento.id);
+    if (error) return { data: null, error };
+    await estornarMovimento(pagamento.transacao_id);
+    const { reavaliarQuitacaoRevenda } = await import("./revenda");
+    await reavaliarQuitacaoRevenda(pagamento.investimento_id);
+    return { data: null, error: null };
+  }
   if (pagamento.tipo === "juros") {
     const base = supabase
       .from("investimento_pagamentos")

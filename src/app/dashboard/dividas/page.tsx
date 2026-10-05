@@ -18,6 +18,7 @@ import {
   calcularMesesParaQuitar,
   listarParcelasDivida,
   editarParcelaDivida,
+  excluirParcelaDivida,
   calcularStatusParcelasDivida,
   calcularCustoJuros,
   registrarPagamentoParcela,
@@ -478,6 +479,10 @@ export default function DividasPage() {
                         onRegistrarPagamento={(parcela, contaId) => handleRegistrarPagamento(divida, parcela, contaId)}
                         onEditarParcela={async (parcela, dados) => {
                           await editarParcelaDivida(parcela, dados);
+                          await carregar();
+                        }}
+                        onExcluirParcela={async (parcela) => {
+                          await excluirParcelaDivida(parcela);
                           await carregar();
                         }}
                       />

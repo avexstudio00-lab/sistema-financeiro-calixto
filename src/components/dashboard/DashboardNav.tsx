@@ -11,6 +11,7 @@ import {
   Repeat,
   HandCoins,
   CreditCard,
+  ShieldCheck,
   LogOut,
   Wallet,
   TrendingUp,
@@ -78,6 +79,7 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/dividas", label: "Dívidas", icon: HandCoins },
   { href: "/dashboard/carteiras", label: "Carteiras", icon: Wallet },
   { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
+  { href: "/dashboard/seguranca", label: "Segurança", icon: ShieldCheck },
 ];
 
 // Só quem é dono da própria conta convida gente — sócio/funcionário nunca

@@ -141,3 +141,97 @@ export async function desativarNotificacoesPush(): Promise<void> {
     // (ver enviarPushParaUsuario, que ignora erro de envio individual).
   }
 }
+
+// ---------------------------------------------------------------------------
+// Push real na tela inicial (item 6.6 da especificação de 03/out/2026).
+// ---------------------------------------------------------------------------
+
+/** iPhone/iPad (inclui iPad que se apresenta como Mac com toque). */
+export function ehIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+export function ehAndroid(): boolean {
+  return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+}
+
+/** O app está aberto como app instalado (Tela de Início), não no navegador? */
+export function estaInstaladoComoApp(): boolean {
+  if (typeof window === "undefined") return false;
+  const standaloneIos = (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return standaloneIos || window.matchMedia("(display-mode: standalone)").matches;
+}
+
+/** No iPhone, o push só existe com o app instalado (iOS 16.4+). */
+export function precisaInstalarParaPush(): boolean {
+  return ehIOS() && !estaInstaladoComoApp();
+}
+
+async function salvarInscricaoNoServidor(inscricao: PushSubscription): Promise<boolean> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return false;
+  const json = inscricao.toJSON();
+  const resposta = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+  });
+  return resposta.ok;
+}
+
+function mesmaChave(inscricao: PushSubscription, chavePublica: string): boolean {
+  const atual = inscricao.options?.applicationServerKey;
+  if (!atual) return true; // navegador não informa — assume que é a mesma
+  const esperada = urlBase64ToUint8Array(chavePublica);
+  const bytes = new Uint8Array(atual);
+  if (bytes.length !== esperada.length) return false;
+  for (let i = 0; i < bytes.length; i++) if (bytes[i] !== esperada[i]) return false;
+  return true;
+}
+
+/**
+ * Roda a cada abertura do app: se a pessoa já deu permissão, confere se a
+ * inscrição push continua viva e igual à salva no servidor. Se o navegador
+ * trocou/expirou a inscrição (ou a chave VAPID mudou), reinscreve e
+ * atualiza o banco. No máximo uma ida ao servidor por dia por aparelho
+ * quando nada mudou. Nunca lança erro.
+ */
+export async function sincronizarInscricaoPush(usuarioId: string): Promise<void> {
+  try {
+    if (!suportaPush() || Notification.permission !== "granted") return;
+    const chavePublica = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!chavePublica) return;
+    const registro = await navigator.serviceWorker.ready;
+    let inscricao = await registro.pushManager.getSubscription();
+    if (inscricao && !mesmaChave(inscricao, chavePublica)) {
+      await inscricao.unsubscribe();
+      inscricao = null;
+    }
+    let mudou = false;
+    if (!inscricao) {
+      inscricao = await registro.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(chavePublica),
+      });
+      mudou = true;
+    }
+    const chave = `calixto:push-sync:${usuarioId}`;
+    let anterior: { endpoint?: string; em?: number } = {};
+    try {
+      anterior = JSON.parse(localStorage.getItem(chave) ?? "{}");
+    } catch {
+      anterior = {};
+    }
+    const umDia = 24 * 60 * 60 * 1000;
+    if (!mudou && anterior.endpoint === inscricao.endpoint && Date.now() - (anterior.em ?? 0) < umDia) return;
+    if (await salvarInscricaoNoServidor(inscricao)) {
+      localStorage.setItem(chave, JSON.stringify({ endpoint: inscricao.endpoint, em: Date.now() }));
+    }
+  } catch {
+    // Silencioso: push é um complemento, nunca pode travar a abertura.
+  }
+}

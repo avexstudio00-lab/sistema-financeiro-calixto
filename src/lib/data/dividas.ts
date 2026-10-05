@@ -29,8 +29,19 @@ export async function listarDividasComProgresso(usuarioId: string): Promise<Divi
     .not("divida_id", "is", null);
 
   const totalPagoPorDivida = new Map<string, number>();
-  (pagamentos ?? []).forEach((p) => {
+  (pagamentos ?? []).forEach((p: { divida_id: string | null; valor: number }) => {
     if (!p.divida_id) return;
+    totalPagoPorDivida.set(p.divida_id, (totalPagoPorDivida.get(p.divida_id) ?? 0) + Number(p.valor));
+  });
+
+  // Parcelas marcadas como "Pago" à mão (pagas por fora do app) também
+  // contam no progresso — ver `calcularStatusParcelasDivida`.
+  const { data: pagasManual } = await supabase
+    .from("divida_parcelas")
+    .select("divida_id, valor")
+    .eq("usuario_id", usuarioId)
+    .eq("status_manual", "pago");
+  ((pagasManual ?? []) as { divida_id: string; valor: number }[]).forEach((p) => {
     totalPagoPorDivida.set(p.divida_id, (totalPagoPorDivida.get(p.divida_id) ?? 0) + Number(p.valor));
   });
 
@@ -133,9 +144,19 @@ export function calcularStatusParcelasDivida(
 ): ParcelaDividaComStatus[] {
   const ordenadas = [...parcelas].sort((a, b) => a.numero - b.numero);
   const hojeIso = new Date().toISOString().slice(0, 10);
-  let restante = valorPago;
+  // `valorPago` já inclui as parcelas marcadas "Pago" à mão (ver
+  // `listarDividasComProgresso`) — tira elas antes da cascata, senão o
+  // valor delas "pagaria" outras parcelas também.
+  const manualPago = ordenadas
+    .filter((p) => p.status_manual === "pago")
+    .reduce((acc, p) => acc + Number(p.valor), 0);
+  let restante = Math.max(valorPago - manualPago, 0);
   return ordenadas.map((parcela) => {
     const valor = Number(parcela.valor);
+    if (parcela.status_manual === "pago") return { ...parcela, paga: true, atrasada: false };
+    if (parcela.status_manual === "pendente" || parcela.status_manual === "vencido") {
+      return { ...parcela, paga: false, atrasada: parcela.status_manual === "vencido" || parcela.data_vencimento < hojeIso };
+    }
     // Tolerância de 1 centavo pra arredondamento de ponto flutuante.
     const paga = restante >= valor - 0.005;
     if (paga) restante -= valor;
@@ -257,15 +278,38 @@ export async function removerDivida(dividaId: string) {
   return supabase.from("dividas").delete().eq("id", dividaId);
 }
 
-/** Edita valor e vencimento de UMA parcela (item 5.1 da especificação de
- * 03/out/2026) e mantém o total da dívida igual à soma das parcelas. */
-export async function editarParcelaDivida(parcela: DividaParcela, dados: { valor: number; dataVencimento: string }) {
-  const { error } = await supabase
-    .from("divida_parcelas")
-    .update({ valor: Number(dados.valor.toFixed(2)), data_vencimento: dados.dataVencimento })
-    .eq("id", parcela.id);
+export type StatusParcelaDividaManual = "automatico" | "pago" | "pendente" | "vencido";
+
+async function recalcularTotalDivida(dividaId: string) {
+  const { data: todas } = await supabase.from("divida_parcelas").select("valor").eq("divida_id", dividaId);
+  const lista = (todas as { valor: number }[] | null) ?? [];
+  if (lista.length === 0) return { error: null };
+  const total = lista.reduce((acc, p) => acc + Number(p.valor), 0);
+  return supabase.from("dividas").update({ valor_total: Number(total.toFixed(2)) }).eq("id", dividaId);
+}
+
+/** Edita UMA parcela (item 5.1 da especificação de 03/out/2026): valor,
+ * vencimento e status. Não mexe nas outras parcelas; o total da dívida
+ * passa a ser a soma das parcelas. */
+export async function editarParcelaDivida(
+  parcela: DividaParcela,
+  dados: { valor: number; dataVencimento: string; status?: StatusParcelaDividaManual }
+) {
+  const atualizacao: Record<string, unknown> = {
+    valor: Number(dados.valor.toFixed(2)),
+    data_vencimento: dados.dataVencimento,
+  };
+  if (dados.status) atualizacao.status_manual = dados.status === "automatico" ? null : dados.status;
+  const { error } = await supabase.from("divida_parcelas").update(atualizacao).eq("id", parcela.id);
   if (error) return { error };
-  const { data: todas } = await supabase.from("divida_parcelas").select("valor").eq("divida_id", parcela.divida_id);
-  const total = ((todas as { valor: number }[] | null) ?? []).reduce((acc, p) => acc + Number(p.valor), 0);
-  return supabase.from("dividas").update({ valor_total: Number(total.toFixed(2)) }).eq("id", parcela.divida_id);
+  return recalcularTotalDivida(parcela.divida_id);
+}
+
+/** Exclui SÓ esta parcela — as demais continuam como estão (inclusive a
+ * numeração), e o total da dívida vira a soma das que sobraram. Pagamentos
+ * já lançados no extrato não são apagados. */
+export async function excluirParcelaDivida(parcela: DividaParcela) {
+  const { error } = await supabase.from("divida_parcelas").delete().eq("id", parcela.id);
+  if (error) return { error };
+  return recalcularTotalDivida(parcela.divida_id);
 }
