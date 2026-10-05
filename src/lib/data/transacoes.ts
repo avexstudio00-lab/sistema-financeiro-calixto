@@ -106,7 +106,7 @@ function deltaDe(tipo: "receita" | "despesa", valor: number) {
   return tipo === "receita" ? valor : -valor;
 }
 
-async function ajustarSaldoConta(contaId: string, delta: number) {
+export async function ajustarSaldoConta(contaId: string, delta: number) {
   const { data: conta } = await supabase
     .from("contas")
     .select("saldo_atual")
