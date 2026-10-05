@@ -12,10 +12,11 @@ import {
   Lock,
   Download,
   Printer,
+  FileUp,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonVariants } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { gerarResumoMensal, salvarAnaliseMensal, listarHistoricoAnalises, type ResumoMensal } from "@/lib/data/analises";
 import { listarTransacoes } from "@/lib/data/transacoes";
@@ -158,6 +159,10 @@ export default function ResumoMensalPage() {
             <Download size={16} />
             Exportar Excel (CSV)
           </Button>
+          <Link href="/dashboard/importar" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            <FileUp size={16} />
+            Importar CSV
+          </Link>
           <Button variant="secondary" size="sm" onClick={() => window.print()}>
             <Printer size={16} />
             Exportar PDF
