@@ -25,23 +25,40 @@ import { autenticarComBiometria, biometriaDisponivel, ErroBiometria } from "@/li
 /**
  * Barreira de PIN/biometria (Fase 1 da especificação de 03/out/2026).
  *
- * Enquanto bloqueado, as telas do painel NEM SÃO MONTADAS (não é uma camada
- * por cima): nada de dado financeiro é buscado nem fica no DOM. Por isso
- * apagar o "véu" pelo inspetor não revela nada, e recarregar a página cai
- * de novo aqui — o estado de desbloqueio e o contador de tentativas ficam
- * salvos no aparelho.
+ * Ao ABRIR o app bloqueado, as telas do painel nem são montadas: nada de
+ * dado financeiro é buscado nem fica no DOM, e recarregar a página cai de
+ * novo aqui (desbloqueio e tentativas ficam salvos no aparelho).
+ * Se o bloqueio acontece com o app já em uso, as telas ficam escondidas
+ * (sem desmontar) pra pessoa voltar exatamente de onde parou.
  */
 export function PinGate({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const uid = user?.id ?? "";
   const [verificado, setVerificado] = React.useState(false);
-  const [bloqueado, setBloqueado] = React.useState(true);
+  const [bloqueado, setBloqueadoEstado] = React.useState(true);
+  // Já desbloqueou nesta abertura do app? A partir daí, bloquear de novo NÃO
+  // desmonta as telas: elas ficam escondidas (display:none + inert) atrás da
+  // tela de PIN e voltam exatamente como estavam — formulário pela metade,
+  // item aberto, posição da rolagem (pedido do usuário em 05/out/2026).
+  const [jaDesbloqueou, setJaDesbloqueou] = React.useState(false);
+  const rolagemRef = React.useRef(0);
+  const conteudoRef = React.useRef<HTMLDivElement>(null);
+
+  const setBloqueado = React.useCallback((valor: boolean) => {
+    if (valor) rolagemRef.current = window.scrollY;
+    setBloqueadoEstado(valor);
+  }, []);
 
   React.useEffect(() => {
     if (!uid) return;
     setBloqueado(precisaDesbloquear(uid));
     setVerificado(true);
-  }, [uid]);
+  }, [uid, setBloqueado]);
+
+  // Esconde do teclado/leitor de tela o conteúdo atrás do bloqueio.
+  React.useEffect(() => {
+    conteudoRef.current?.toggleAttribute("inert", bloqueado);
+  }, [bloqueado, jaDesbloqueou]);
 
   // Inatividade + saída do app ("Manter desbloqueado por").
   React.useEffect(() => {
@@ -89,7 +106,7 @@ export function PinGate({ children }: { children: React.ReactNode }) {
       window.removeEventListener("pagehide", saindo);
       window.removeEventListener("focus", visibilidade);
     };
-  }, [uid, bloqueado]);
+  }, [uid, bloqueado, setBloqueado]);
 
   if (!uid || !verificado) {
     return (
@@ -99,20 +116,32 @@ export function PinGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (bloqueado) {
-    return (
-      <TelaBloqueio
-        uid={uid}
-        email={user?.email ?? ""}
-        onDesbloquear={() => {
-          marcarDesbloqueado(uid);
-          setBloqueado(false);
-        }}
-      />
-    );
+  const desbloquear = () => {
+    marcarDesbloqueado(uid);
+    setBloqueado(false);
+    setJaDesbloqueou(true);
+    const y = rolagemRef.current;
+    // Volta pra mesma altura da tela depois que o conteúdo reaparece.
+    requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+  };
+
+  // Abertura do app já bloqueada: nada do painel é montado nem buscado.
+  if (bloqueado && !jaDesbloqueou) {
+    return <TelaBloqueio uid={uid} email={user?.email ?? ""} onDesbloquear={desbloquear} />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <div ref={conteudoRef} className={bloqueado ? "hidden" : undefined} aria-hidden={bloqueado || undefined}>
+        {children}
+      </div>
+      {bloqueado && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-background">
+          <TelaBloqueio uid={uid} email={user?.email ?? ""} onDesbloquear={desbloquear} />
+        </div>
+      )}
+    </>
+  );
 }
 
 function formatarEspera(ms: number): string {

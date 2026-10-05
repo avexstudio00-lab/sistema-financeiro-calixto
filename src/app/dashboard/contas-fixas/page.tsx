@@ -58,7 +58,9 @@ export default function ContasFixasPage() {
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     // Antes de listar, gera (se ainda não gerou este mês) os lançamentos das
     // contas fixas cujo dia de vencimento já chegou — assim quem entra aqui
     // sempre vê o estado mais atual, sem precisar de cron/infra separada.

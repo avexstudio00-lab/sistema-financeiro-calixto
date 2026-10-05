@@ -76,7 +76,9 @@ export default function ServicosPage() {
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     setServicos(await listarServicos(negocio.usuarioId));
     setCarregando(false);
   }, [negocio]);

@@ -65,7 +65,9 @@ export default function CarteirasPage() {
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     // Busca as transações também (sem filtro de período, mesmo padrão do
     // Extrato completo) só pra calcular o total da fatura em aberto de cada
     // cartão de crédito -- nunca usada pra recalcular saldo, isso continua

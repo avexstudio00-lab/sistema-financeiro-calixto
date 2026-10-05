@@ -118,6 +118,9 @@ export default function DashboardPage() {
   const [metas, setMetas] = React.useState<Meta[]>([]);
   const [limites, setLimites] = React.useState<LimiteCategoria[]>([]);
   const [carregando, setCarregando] = React.useState(true);
+  // Spinner só na 1ª carga ou ao trocar de mês; recarregar depois de
+  // salvar é silencioso, sem pular pro topo (05/out/2026).
+  const chaveCarregadaRef = React.useRef<string | null>(null);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [bloqueado, setBloqueado] = React.useState(false);
   const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
@@ -174,7 +177,8 @@ export default function DashboardPage() {
       return;
     }
 
-    setCarregando(true);
+    if (chaveCarregadaRef.current !== chaveCache) setCarregando(true);
+    chaveCarregadaRef.current = chaveCache;
     // Lança automaticamente (se ainda não lançou este mês) as contas fixas
     // recorrentes cujo dia de vencimento já chegou -- ver
     // src/lib/data/contasFixas.ts e /dashboard/contas-fixas. Roda antes de

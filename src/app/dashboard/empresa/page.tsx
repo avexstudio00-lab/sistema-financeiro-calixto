@@ -90,6 +90,9 @@ export default function PainelEmpresaPage() {
   const [contasReceber, setContasReceber] = React.useState<ContaReceber[]>([]);
   const [vendas, setVendas] = React.useState<Venda[]>([]);
   const [carregando, setCarregando] = React.useState(true);
+  // Spinner só na 1ª carga ou ao trocar de mês; recarregar depois de
+  // salvar é silencioso, sem pular pro topo (05/out/2026).
+  const chaveCarregadaRef = React.useRef<string | null>(null);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
 
@@ -141,7 +144,8 @@ export default function PainelEmpresaPage() {
       return;
     }
 
-    setCarregando(true);
+    if (chaveCarregadaRef.current !== chaveCache) setCarregando(true);
+    chaveCarregadaRef.current = chaveCache;
     const inicio = new Date(ano, mes - 1, 1).toISOString().slice(0, 10);
     const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
     // Vendas dos últimos 6 meses: alimentam "vendas de hoje", ticket médio

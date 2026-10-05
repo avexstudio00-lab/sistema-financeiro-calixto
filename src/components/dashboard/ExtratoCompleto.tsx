@@ -65,7 +65,9 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
 
   const carregar = React.useCallback(async () => {
     if (!usuarioEfetivoId) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     // Sem filtro de período -- `listarTransacoes` sem `inicio`/`fim` já
     // devolve TODO o histórico do usuário, passado e futuro, é isso que o
     // extrato completo precisa mostrar (diferente do painel, que só olha o

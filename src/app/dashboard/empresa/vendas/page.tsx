@@ -82,7 +82,9 @@ export default function VendasPage() {
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     const { inicio, fim } = limitesDosUltimosMeses(6);
     const [listaProdutos, listaClientes, listaContas, listaVendas, listaServicos] = await Promise.all([
       listarProdutos(negocio.usuarioId),

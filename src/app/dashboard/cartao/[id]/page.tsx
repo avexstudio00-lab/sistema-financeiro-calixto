@@ -39,7 +39,9 @@ export default function FaturaCartaoPage() {
 
   const carregar = React.useCallback(async () => {
     if (!user || !contaId) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     const [contas, lista] = await Promise.all([listarContas(user.id), listarTransacoes(user.id)]);
     setConta(contas.find((c) => c.id === contaId) ?? null);
     setTransacoes(lista.filter((t) => t.conta_id === contaId));

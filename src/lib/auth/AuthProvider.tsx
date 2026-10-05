@@ -71,6 +71,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [papel, setPapel] = React.useState<Papel>("dono");
   const [negocio, setNegocio] = React.useState<NegocioInfo | null>(null);
   const [carregando, setCarregando] = React.useState(true);
+  // Id do usuário já publicado em `user` — pra ignorar eventos de auth que
+  // não mudam de pessoa (ver onAuthStateChange abaixo).
+  const usuarioIdRef = React.useRef<string | null>(null);
   const [recuperacaoSenhaAtiva, setRecuperacaoSenhaAtiva] = React.useState(false);
 
   /** Descobre se quem está logado é dono da própria conta ou foi convidado
@@ -128,6 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!ativo) return;
       setSession(data.session);
+      usuarioIdRef.current = data.session?.user?.id ?? null;
       setUser(data.session?.user ?? null);
       if (data.session?.user) {
         await carregarPerfil(data.session.user.id);
@@ -149,6 +153,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setSession(novaSessao);
+      // Mesma pessoa de antes (renovação do token, ou o Supabase avisando
+      // "SIGNED_IN" de novo quando o app volta pra frente): NÃO troca o
+      // objeto `user` nem recarrega o perfil. Trocar fazia todas as telas
+      // recarregarem do zero ao voltar pro app — perdendo o formulário que
+      // a pessoa estava preenchendo e jogando a tela pro topo (05/out/2026).
+      const mesmoUsuario = !!novaSessao?.user && usuarioIdRef.current === novaSessao.user.id;
+      if (mesmoUsuario && evento !== "USER_UPDATED") return;
+      usuarioIdRef.current = novaSessao?.user?.id ?? null;
       setUser(novaSessao?.user ?? null);
       if (novaSessao?.user) {
         await carregarPerfil(novaSessao.user.id);

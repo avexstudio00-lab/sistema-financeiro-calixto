@@ -93,7 +93,9 @@ export default function ContasEmpresaPage() {
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     const [f, c, pagar, receber, cts] = await Promise.all([
       listarFornecedores(negocio.usuarioId),
       listarClientes(negocio.usuarioId),

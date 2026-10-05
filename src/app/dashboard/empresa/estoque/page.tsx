@@ -37,7 +37,9 @@ export default function EstoquePage() {
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     const inicio = new Date();
     inicio.setDate(inicio.getDate() - 60);
     const [p, v, f] = await Promise.all([

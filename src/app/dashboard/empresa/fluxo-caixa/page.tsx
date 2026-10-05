@@ -44,6 +44,9 @@ export default function FluxoCaixaPage() {
   const [categoriaProLabore, setCategoriaProLabore] = React.useState<Categoria | null>(null);
   const [config, setConfig] = React.useState<ConfigNegocio | null>(null);
   const [carregando, setCarregando] = React.useState(true);
+  // Spinner só na 1ª carga ou ao trocar de mês; recarregar depois de
+  // salvar é silencioso, sem pular pro topo (05/out/2026).
+  const chaveCarregadaRef = React.useRef<string | null>(null);
   const [modalAberto, setModalAberto] = React.useState(false);
 
   // Mesmo padrão de cache das outras telas do modo offline (ver seção 19 do
@@ -77,7 +80,8 @@ export default function FluxoCaixaPage() {
       return;
     }
 
-    setCarregando(true);
+    if (chaveCarregadaRef.current !== chaveCache) setCarregando(true);
+    chaveCarregadaRef.current = chaveCache;
     const [res, cat, cfg] = await Promise.all([
       gerarFluxoCaixa(negocio.usuarioId, ano, mes),
       buscarCategoriaPadraoPorNome("Pró-labore", "despesa"),

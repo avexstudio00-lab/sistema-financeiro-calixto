@@ -57,7 +57,9 @@ export default function ClientesFornecedoresPage() {
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
-    setCarregando(true);
+    // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
+    // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
+    // estava aberto (pedido do usuário em 05/out/2026).
     // Funcionário não tem acesso a fornecedores nem a contas a pagar/receber
     // (RLS bloqueia) — nem tenta buscar, pra não gerar erro à toa na tela.
     const [c, f, v, cp, cr] = await Promise.all([
