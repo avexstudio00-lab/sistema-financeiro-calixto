@@ -9,10 +9,12 @@ import {
   CalendarClock,
   Plus,
   ScrollText,
+  FileUp,
 } from "lucide-react";
+import Link from "next/link";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonVariants } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarTransacoes } from "@/lib/data/transacoes";
@@ -158,10 +160,19 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
             agrupados pelo dia em que você anotou.
           </p>
         </div>
-        <Button size="lg" variant={mundo === "negocio" ? "secondary" : "primary"} onClick={handleAbrirModalNova}>
-          <Plus size={18} />
-          Nova anotação
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Link
+            href={mundo === "negocio" ? "/dashboard/importar?mundo=negocio" : "/dashboard/importar"}
+            className={buttonVariants({ variant: "tertiary", size: "lg", className: "w-full sm:w-auto" })}
+          >
+            <FileUp size={18} />
+            Importar CSV
+          </Link>
+          <Button size="lg" variant={mundo === "negocio" ? "secondary" : "primary"} onClick={handleAbrirModalNova}>
+            <Plus size={18} />
+            Nova anotação
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
