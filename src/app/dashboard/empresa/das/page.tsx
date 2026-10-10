@@ -21,6 +21,10 @@ import { gerarResumoEmpresa, faturamentoAnualPorMes, calcularReservaSugerida } f
 import { formatarMoeda } from "@/lib/format";
 import type { ContaPagar } from "@/lib/data/tipos";
 
+/** Limite de receita bruta anual do MEI usado no acompanhamento da DASN.
+ * Fica numa constante para atualizar fácil se a lei mudar. */
+const LIMITE_MEI_ANUAL = 81000;
+
 export default function DasPage() {
   const { papel, negocio } = useAuth();
   const router = useRouter();
@@ -277,6 +281,24 @@ export default function DasPage() {
         <p className="text-small text-muted">
           Total faturado em {anoRelatorio}: <strong className="text-foreground">{formatarMoeda(totalFaturamentoAnual)}</strong>
         </p>
+        {/* Checklist (10/out/2026) — DASN-SIMEI: declaração anual do MEI. */}
+        <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+          <p className="text-small font-semibold text-foreground">Declaração anual do MEI (DASN-SIMEI) de {anoRelatorio}</p>
+          <p className="text-small text-muted">
+            Entregue até <strong className="text-foreground">31 de maio de {anoRelatorio + 1}</strong> no portal do Empreendedor (gov.br),
+            informando a receita bruta total do ano: <strong className="text-foreground">{formatarMoeda(totalFaturamentoAnual)}</strong>.
+          </p>
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted/15">
+            <div
+              className={`h-full rounded-full ${totalFaturamentoAnual > LIMITE_MEI_ANUAL ? "bg-rose-600" : totalFaturamentoAnual > LIMITE_MEI_ANUAL * 0.8 ? "bg-amber-500" : "bg-primary-700"}`}
+              style={{ width: `${Math.min(100, (totalFaturamentoAnual / LIMITE_MEI_ANUAL) * 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted">
+            {((totalFaturamentoAnual / LIMITE_MEI_ANUAL) * 100).toFixed(0)}% do limite anual do MEI ({formatarMoeda(LIMITE_MEI_ANUAL)} — confira o valor vigente
+            com seu contador). {totalFaturamentoAnual > LIMITE_MEI_ANUAL ? "Passou do limite: procure um contador sobre o desenquadramento." : ""}
+          </p>
+        </div>
         <div className="flex flex-col gap-2">
           {faturamentoAnual.map((p) => (
             <div key={p.mes} className="flex items-center gap-3">

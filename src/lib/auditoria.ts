@@ -33,7 +33,13 @@ export type TipoEventoSeguranca =
   | "push_cancelado"
   | "push_falha_cobranca_notificada"
   | "biometria_cadastrada"
-  | "biometria_recusada";
+  | "biometria_recusada"
+  | "lgpd_consentimento_registrado"
+  | "lgpd_exportacao_dados"
+  | "lgpd_conta_excluida"
+  | "lgpd_exclusao_recusada"
+  | "comprovante_enviado"
+  | "comprovante_recusado";
 
 export async function registrarEventoSeguranca(
   usuarioId: string | null,

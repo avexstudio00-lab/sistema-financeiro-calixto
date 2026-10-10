@@ -187,9 +187,9 @@ export default function ContasFixasPage() {
         <div className="flex flex-col gap-1">
           <p className="text-small font-semibold text-foreground">Como funciona a pausa</p>
           <p className="text-small text-foreground">
-            Pausar uma conta fixa <strong>não apaga nem altera</strong> nenhum lançamento que já foi feito —
-            nem o deste mês, nem os dos meses anteriores. Ela só deixa de gerar lançamentos automáticos nos
-            próximos meses, até você tocar em reativar (▶).
+            A interrupção preserva integralmente os lançamentos já provisionados e consolidados em competências
+            passadas e vigentes no seu extrato. Apenas a injeção automática de novos registros para competências
+            futuras será suspensa até a reativação voluntária deste contrato (▶).
           </p>
         </div>
       </Card>

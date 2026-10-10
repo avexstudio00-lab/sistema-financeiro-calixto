@@ -51,11 +51,10 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("tema");if(t==="escuro"||(!t&&window.matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark");}}catch(e){}})();`,
-          }}
-        />
+        {/* Tema antes da 1ª pintura (evita "piscar" claro→escuro). Item 2.5:
+            sem dangerouslySetInnerHTML no código do app — o script é um
+            arquivo estático servido pelo próprio domínio (CSP 'self'). */}
+        <script src="/tema-inicial.js" />
       </head>
       <body className="font-sans" suppressHydrationWarning>
         <PwaRegister />

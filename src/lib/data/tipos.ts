@@ -67,6 +67,12 @@ export interface Transacao {
   categorias?: Categoria | null;
   /** Só lançamentos do negócio: a empresa a que pertencem (multi-empresa). */
   empresa_id?: string | null;
+  /** Aporte/retirada de meta que gerou este lançamento (6.6/12.6). */
+  meta_id?: string | null;
+  /** Caminho do comprovante no bucket privado (2.6). Nunca base64. */
+  comprovante_path?: string | null;
+  /** Mesmo UUID nas duas pontas de uma transferência entre contas próprias. */
+  transferencia_id?: string | null;
 }
 
 /** Limite mensal opcional que o usuário define pra uma categoria de despesa
@@ -147,6 +153,9 @@ export interface Divida {
    * ver `calcularCustoJuros` em src/lib/data/dividas.ts. */
   valor_emprestado: number | null;
   criado_em: string;
+  /** Item 6.7: carteira em que o dinheiro emprestado entrou e o lançamento. */
+  conta_destino_id?: string | null;
+  transacao_origem_id?: string | null;
 }
 
 /** Uma parcela de uma dívida parcelada — mesma forma de `ParcelaInvestimento`,
@@ -203,7 +212,7 @@ export interface Investimento {
   id: string;
   usuario_id: string;
   nome: string;
-  tipo: "cdi" | "tesouro" | "bolsa" | "emprestimo" | "revenda" | "poupanca" | "cdb" | "lci" | "lca";
+  tipo: "cdi" | "tesouro" | "bolsa" | "emprestimo" | "revenda" | "poupanca" | "cdb" | "lci" | "lca" | "cripto";
   valor_investido: number;
   valor_atual: number;
   taxa: number | null;
@@ -262,6 +271,13 @@ export interface Investimento {
   status_revenda?: "em_estoque" | "em_andamento" | "parcial" | "quitado" | null;
   /** Item 5.3: preço combinado/praticado na revenda (nulo = ainda não definido). */
   preco_revenda?: number | null;
+  /** Item 6.8: aplicação feita com dinheiro pessoal ou com o caixa da empresa. */
+  tipo_ambiente?: "PESSOAL" | "NEGOCIO";
+  /** Item 4.13: este card nasceu de um bem recebido em troca (rolo). */
+  permuta_origem_id?: string | null;
+  /** Item 4.13: soma dos bens recebidos em troca nesta revenda. */
+  valor_bem_permuta?: number | null;
+  descricao_bem_permuta?: string | null;
 }
 
 /** Um título do Tesouro Direto disponível hoje, com preço/taxa de venda
@@ -336,6 +352,8 @@ export interface PagamentoInvestimento {
   criado_em: string;
   conta_id?: string | null;
   transacao_id?: string | null;
+  /** Item 4.13: recebimento feito com um BEM (permuta), não em dinheiro. */
+  recebido_em_bem?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -488,6 +506,8 @@ export interface Venda {
   clientes?: Cliente | null;
   empresa_id?: string;
   servico_id?: string | null;
+  /** Pagamento dividido em várias formas (cada uma com seu lançamento). */
+  pagamentos?: { forma: string; valor: number; contaId: string | null; transacao_id?: string | null }[] | null;
 }
 
 export interface ContaPagar {
@@ -528,6 +548,8 @@ export interface ContaReceber {
   origem?: "manual" | "fiado" | "orcamento";
   orcamento_id?: string | null;
   transacao_id?: string | null;
+  /** Item 6.4: última vez que o lembrete de cobrança foi usado. */
+  ultima_cobranca_em?: string | null;
 }
 
 // ---------------------------------------------------------------------------

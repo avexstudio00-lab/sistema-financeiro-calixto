@@ -34,7 +34,7 @@ export async function buscarGlobal(texto: string, usuarioId: string, contaMestre
   const negocio = contaMestreId;
   const vazio = Promise.resolve({ data: [] as unknown[] });
 
-  const [transacoes, transacoesNeg, clientes, fornecedores, dividas, pagar, receber, investimentos, metas, produtos, servicos] =
+  const [transacoes, transacoesNeg, clientes, fornecedores, dividas, pagar, receber, investimentos, metas, produtos, servicos, orcamentos] =
     await Promise.all([
       supabase.from("transacoes").select("id, descricao, valor, data, tipo").eq("usuario_id", usuarioId).or("tipo_negocio.is.null,tipo_negocio.eq.pessoal").ilike("descricao", p).order("data", { ascending: false }).limit(LIMITE),
       negocio
@@ -49,6 +49,8 @@ export async function buscarGlobal(texto: string, usuarioId: string, contaMestre
       supabase.from("metas").select("id, nome, valor_meta, valor_atual").eq("usuario_id", usuarioId).ilike("nome", p).limit(LIMITE),
       negocio ? supabase.from("produtos").select("id, nome, quantidade_estoque, preco_venda").eq("usuario_id", negocio).ilike("nome", p).limit(LIMITE) : vazio,
       negocio ? supabase.from("servicos").select("id, nome, referencia_preco, preco").eq("usuario_id", negocio).eq("ativo", true).ilike("nome", p).limit(LIMITE) : vazio,
+      // Item 5.2 (09/out/2026): propostas de orçamento também entram na busca.
+      negocio ? supabase.from("orcamentos").select("id, titulo, valor_total, status").eq("usuario_id", negocio).ilike("titulo", p).limit(LIMITE) : vazio,
     ]);
 
   type Linha = Record<string, unknown>;
@@ -78,7 +80,7 @@ export async function buscarGlobal(texto: string, usuarioId: string, contaMestre
       grupo: "Entidades",
       itens: [
         ...linhas(clientes).map((c) => ({ id: `c-${c.id}`, titulo: String(c.nome), detalhe: "Cliente", href: `/dashboard/empresa/clientes/${c.id}` })),
-        ...linhas(fornecedores).map((f) => ({ id: `f-${f.id}`, titulo: String(f.nome), detalhe: "Fornecedor", href: "/dashboard/empresa/clientes-fornecedores" })),
+        ...linhas(fornecedores).map((f) => ({ id: `f-${f.id}`, titulo: String(f.nome), detalhe: "Fornecedor", href: `/dashboard/empresa/fornecedores/${f.id}` })),
       ],
     },
     {
@@ -87,6 +89,7 @@ export async function buscarGlobal(texto: string, usuarioId: string, contaMestre
         ...linhas(dividas).map((d) => ({ id: `d-${d.id}`, titulo: String(d.nome), detalhe: `Dívida · ${moeda(d.valor_total)}${d.quitada ? " · quitada" : ""}`, href: "/dashboard/dividas" })),
         ...linhas(pagar).map((c) => ({ id: `cp-${c.id}`, titulo: String(c.descricao), detalhe: `A pagar · ${moeda(c.valor)} · vence ${data(c.vencimento)}`, href: "/dashboard/empresa/contas" })),
         ...linhas(receber).map((c) => ({ id: `cr-${c.id}`, titulo: String(c.descricao), detalhe: `A receber · ${moeda(c.valor)} · vence ${data(c.vencimento)}`, href: "/dashboard/empresa/contas" })),
+        ...linhas(orcamentos).map((o) => ({ id: `o-${o.id}`, titulo: String(o.titulo), detalhe: `Orçamento · ${moeda(o.valor_total)} · ${String(o.status)}`, href: "/dashboard/empresa/orcamentos" })),
       ],
     },
     {

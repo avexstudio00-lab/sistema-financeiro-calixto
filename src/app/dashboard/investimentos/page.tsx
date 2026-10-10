@@ -19,6 +19,8 @@ import {
   atualizarDiariaInvestimento,
   calcularValorAtualEstimado,
   calcularGanhoNoPeriodo,
+  calcularRecebidoNoPeriodo,
+  totalProjetado,
   calcularEvolucaoInvestimentos,
   listarParcelas,
   marcarParcelaPaga,
@@ -49,6 +51,7 @@ const ORDEM_TIPOS: Investimento["tipo"][] = [
   "lca",
   "tesouro",
   "bolsa",
+  "cripto",
   "emprestimo",
   "revenda",
 ];
@@ -176,11 +179,21 @@ export default function InvestimentosPage() {
       totalAtual += calcularValorAtualEstimado(inv, undefined, cotacoes);
     }
     const ganhoTotal = totalAtual - totalInvestido;
-    const ganhoPeriodo = periodoMeses == null ? ganhoTotal : calcularGanhoNoPeriodo(lista, periodoMeses, cotacoes);
-    return { totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo };
+    // Rendimento ESTIMADO no período (antigo "ganho") — continua visível
+    // como referência, mas o número principal agora é o que entrou de fato.
+    const ganhoEstimadoPeriodo = periodoMeses == null ? ganhoTotal : calcularGanhoNoPeriodo(lista, periodoMeses, cotacoes);
+    // Item 4.15 (09/out/2026): "Ganhos nos últimos X meses" = só entradas
+    // reais (parcelas, juros, amortizações, recebimentos) dentro do período,
+    // tanto "Por tipo" quanto no consolidado (a função recebe a lista).
+    const ganhoPeriodo = calcularRecebidoNoPeriodo(lista, parcelas, pagamentos, periodoMeses);
+    // "Total projetado": juros compostos pela taxa de cada ativo até daqui a
+    // X meses (3/6/12). "Desde o início" projeta 12 meses.
+    const mesesProjecao = periodoMeses ?? 12;
+    const projetado = totalProjetado(lista, mesesProjecao, cotacoes);
+    return { totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo, ganhoEstimadoPeriodo, projetado, mesesProjecao };
   }
 
-  const resumoGeral = React.useMemo(() => calcularResumo(investimentos), [investimentos, periodoMeses, cotacoes]);
+  const resumoGeral = React.useMemo(() => calcularResumo(investimentos), [investimentos, periodoMeses, cotacoes, parcelas, pagamentos]);
 
   const linhaEvolucao = React.useMemo(() => {
     return calcularEvolucaoInvestimentos(investimentos, periodoMeses ?? 12, cotacoes).map((p) => ({
@@ -189,7 +202,7 @@ export default function InvestimentosPage() {
     }));
   }, [investimentos, periodoMeses, cotacoes]);
 
-  const labelGanho = periodoMeses == null ? "Ganho estimado" : `Ganho nos últimos ${periodoMeses} meses`;
+  const labelGanho = periodoMeses == null ? "Ganhos recebidos desde o início" : `Ganhos nos últimos ${periodoMeses} meses`;
 
   async function handleSalvarTaxa(inv: Investimento, novaTaxa: number) {
     setSalvandoAcao(true);
@@ -398,14 +411,17 @@ export default function InvestimentosPage() {
         </Card>
         <Card className="flex flex-col gap-2">
           <p className="text-small text-muted">{labelGanho}</p>
-          <p className={`text-h2 ${resumo.ganhoPeriodo >= 0 ? "text-primary-500" : "text-red-500"}`}>
-            {resumo.ganhoPeriodo >= 0 ? "+" : ""}
-            {formatarMoeda(resumo.ganhoPeriodo)}
+          <p className="text-h2 text-primary-700">+{formatarMoeda(resumo.ganhoPeriodo)}</p>
+          <p className="text-xs text-muted">
+            Juros, parcelas, amortizações e rendimentos que entraram. Rendimento estimado no período:{" "}
+            {resumo.ganhoEstimadoPeriodo >= 0 ? "+" : ""}
+            {formatarMoeda(resumo.ganhoEstimadoPeriodo)}
           </p>
         </Card>
         <Card className="flex flex-col gap-2">
-          <p className="text-small text-muted">Total projetado</p>
-          <p className="text-h2 text-secondary">{formatarMoeda(resumo.totalAtual)}</p>
+          <p className="text-small text-muted">Total projetado em {resumo.mesesProjecao} meses</p>
+          <p className="text-h2 text-secondary">{formatarMoeda(resumo.projetado)}</p>
+          <p className="text-xs text-muted">Hoje: {formatarMoeda(resumo.totalAtual)} · juros compostos pela taxa de cada ativo</p>
         </Card>
       </div>
     );

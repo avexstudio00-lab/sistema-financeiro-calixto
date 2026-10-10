@@ -22,6 +22,9 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
+import { listarInvestimentos, calcularValorAtualEstimado } from "@/lib/data/investimentos";
+import { obterCotacoesMercado } from "@/lib/data/mercado";
 import { gerarResumoEmpresa, type ResumoEmpresa } from "@/lib/data/empresa";
 import { listarTransacoes } from "@/lib/data/transacoes";
 import { listarProdutos, estoqueBaixo } from "@/lib/data/produtos";
@@ -32,6 +35,7 @@ import { hojeIso } from "@/lib/util/texto";
 import { EVENTO_LANCAMENTO_SALVO } from "@/components/dashboard/BotaoLancamentoGlobal";
 import { AtalhosLancamento } from "@/components/dashboard/AtalhosLancamento";
 import { VisaoHoje, type ItemHoje } from "@/components/dashboard/VisaoHoje";
+import { CobrancasFiado } from "@/components/dashboard/CobrancasFiado";
 import { ProjecaoLiquidez, type MovimentoPrevisto } from "@/components/dashboard/ProjecaoLiquidez";
 import { KpisEmpresa } from "@/components/dashboard/KpisEmpresa";
 import { formatarMoeda } from "@/lib/format";
@@ -103,6 +107,8 @@ export default function PainelEmpresaPage() {
   const [offlineDesde, setOfflineDesde] = React.useState<string | null>(null);
 
   const ehFuncionario = papel === "funcionario";
+  const { empresaAtiva, empresas: listaEmpresas } = useEmpresa();
+  const empresaAtivaNome = empresaAtiva?.nome_fantasia ?? listaEmpresas[0]?.nome_fantasia ?? null;
 
   const aplicarCache = React.useCallback((chave: string) => {
     const cache = lerCache<DadosCacheEmpresa>(chave);
@@ -189,6 +195,24 @@ export default function PainelEmpresaPage() {
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Item 6.8: aplicações feitas com o caixa da empresa entram no PL da
+  // empresa (só o dono enxerga — investimentos são pessoais no RLS).
+  const [investimentosEmpresa, setInvestimentosEmpresa] = React.useState(0);
+  React.useEffect(() => {
+    if (!negocio || papel !== "dono") return;
+    let cancelado = false;
+    Promise.all([listarInvestimentos(negocio.usuarioId), obterCotacoesMercado()]).then(([lista, cot]) => {
+      if (cancelado) return;
+      const total = lista
+        .filter((i) => i.tipo_ambiente === "NEGOCIO" && !i.quitado)
+        .reduce((a, i) => a + calcularValorAtualEstimado(i, undefined, cot), 0);
+      setInvestimentosEmpresa(Number(total.toFixed(2)));
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [negocio, papel]);
 
   // Lançamentos feitos pelo botão flutuante global (6.3) recarregam o painel.
   React.useEffect(() => {
@@ -303,7 +327,7 @@ export default function PainelEmpresaPage() {
   const totalAPagar = pagarPendente.reduce((a, c) => a + Number(c.valor), 0);
   const estoqueValor = valorDoEstoque(produtos.filter((p) => p.ativo));
   const saldoCaixa = resumo?.saldoAcumulado ?? 0;
-  const patrimonioLiquido = saldoCaixa + estoqueValor + totalAReceber - totalAPagar;
+  const patrimonioLiquido = saldoCaixa + estoqueValor + totalAReceber + investimentosEmpresa - totalAPagar;
   const ticket = ticketMedioPorMes(vendas, 6);
   const ritmo = ritmoDiarioComMediaMovel(vendas, hoje.getFullYear(), hoje.getMonth() + 1);
   const itensHoje: ItemHoje[] = [
@@ -446,6 +470,9 @@ export default function PainelEmpresaPage() {
               )}
             </Card>
             <VisaoHoje itens={itensHoje} cor="accent" />
+            {!ehFuncionario && negocio && (
+              <CobrancasFiado contaMestreId={negocio.usuarioId} nomeEmpresa={empresaAtivaNome ?? negocio.nome} titulos={contasReceber} onAlterado={() => void carregar()} />
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -482,6 +509,9 @@ export default function PainelEmpresaPage() {
               <p className="text-muted">+ Estoque (custo): <strong className="text-foreground">{formatarMoeda(estoqueValor)}</strong></p>
               <p className="text-muted">+ A receber: <strong className="text-foreground">{formatarMoeda(totalAReceber)}</strong></p>
               <p className="text-muted">− A pagar: <strong className="text-foreground">{formatarMoeda(totalAPagar)}</strong></p>
+              {investimentosEmpresa > 0 && (
+                <p className="text-muted">+ Aplicações da empresa: <strong className="text-foreground">{formatarMoeda(investimentosEmpresa)}</strong></p>
+              )}
             </div>
           </Card>
 

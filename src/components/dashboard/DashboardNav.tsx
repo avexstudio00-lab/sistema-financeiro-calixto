@@ -33,6 +33,7 @@ import {
   FileDown,
   Settings2,
   type LucideIcon,
+ Lock as IconeCadeado,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -80,6 +81,7 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/carteiras", label: "Carteiras", icon: Wallet },
   { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
   { href: "/dashboard/seguranca", label: "Segurança", icon: ShieldCheck },
+  { href: "/dashboard/privacidade", label: "Privacidade e dados", icon: IconeCadeado },
 ];
 
 // Só quem é dono da própria conta convida gente — sócio/funcionário nunca

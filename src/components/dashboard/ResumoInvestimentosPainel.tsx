@@ -4,8 +4,9 @@ import * as React from "react";
 import Link from "next/link";
 import { PieChart as IconePizza, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { TIPO_META } from "@/components/dashboard/InvestimentoCard";
-import { calcularValorAtualEstimado } from "@/lib/data/investimentos";
+import { classeDoInvestimento } from "@/components/dashboard/InvestimentoCard";
+import { calcularValorAtualEstimado, rentabilidadePonderadaMes } from "@/lib/data/investimentos";
+import { investimentosPessoais } from "@/lib/data/patrimonio";
 import { formatarMoeda } from "@/lib/format";
 import type { Compromisso } from "@/lib/data/compromissos";
 import type { CotacoesMercado, Investimento } from "@/lib/data/tipos";
@@ -22,18 +23,29 @@ export function ResumoInvestimentosPainel({ investimentos, cotacoes, proximos }:
   cotacoes?: CotacoesMercado;
   proximos: Compromisso[];
 }) {
+  // Item 4.8 (09/out/2026): só o que é pessoal (aplicações com o caixa da
+  // empresa ficam no painel da empresa), agrupado nas 5 classes pedidas.
+  const pessoais = React.useMemo(() => investimentosPessoais(investimentos), [investimentos]);
   const porClasse = React.useMemo(() => {
-    const mapa = new Map<Investimento["tipo"], number>();
-    for (const inv of investimentos) {
+    const mapa = new Map<string, number>();
+    for (const inv of pessoais) {
       if (inv.quitado) continue;
-      mapa.set(inv.tipo, (mapa.get(inv.tipo) ?? 0) + calcularValorAtualEstimado(inv, undefined, cotacoes));
+      const classe = classeDoInvestimento(inv.tipo);
+      mapa.set(classe, (mapa.get(classe) ?? 0) + calcularValorAtualEstimado(inv, undefined, cotacoes));
     }
     return Array.from(mapa.entries())
-      .map(([tipo, valor]) => ({ tipo, rotulo: TIPO_META[tipo]?.label ?? tipo, valor }))
+      .map(([classe, valor]) => ({ tipo: classe, rotulo: classe, valor }))
       .filter((c) => c.valor > 0)
       .sort((a, b) => b.valor - a.valor);
-  }, [investimentos, cotacoes]);
+  }, [pessoais, cotacoes]);
   const total = porClasse.reduce((a, c) => a + c.valor, 0);
+  const rentabilidade = React.useMemo(() => rentabilidadePonderadaMes(pessoais, cotacoes), [pessoais, cotacoes]);
+  const limite15 = React.useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 15);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const vencimentos15 = proximos.filter((p) => p.data <= limite15);
 
   if (investimentos.length === 0) return null;
 
@@ -49,9 +61,18 @@ export function ResumoInvestimentosPainel({ investimentos, cotacoes, proximos }:
           <ChevronRight size={14} />
         </Link>
       </div>
-      <div>
-        <p className="text-small text-muted">Total aplicado hoje (estimado)</p>
-        <p className="text-h2 text-foreground">{formatarMoeda(total)}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-small text-muted">Patrimônio em ativos</p>
+          <p className="text-h2 text-foreground">{formatarMoeda(total)}</p>
+        </div>
+        <div>
+          <p className="text-small text-muted">Rentabilidade no mês</p>
+          <p className={`text-h2 ${rentabilidade == null || rentabilidade >= 0 ? "text-primary-700" : "text-rose-700"}`}>
+            {rentabilidade == null ? "—" : `${rentabilidade >= 0 ? "+" : ""}${rentabilidade.toFixed(2).replace(".", ",")}%`}
+          </p>
+          <p className="text-xs text-muted">ponderada pelo valor de cada ativo, últimos 30 dias</p>
+        </div>
       </div>
       {total > 0 && (
         <div className="flex flex-col gap-2">
@@ -74,11 +95,11 @@ export function ResumoInvestimentosPainel({ investimentos, cotacoes, proximos }:
         </div>
       )}
       <div className="flex flex-col gap-1 border-t border-border/60 pt-3">
-        <p className="text-small font-semibold text-foreground">Próximos recebimentos</p>
-        {proximos.length === 0 ? (
-          <p className="text-small text-muted">Nenhuma parcela a receber nos próximos 30 dias.</p>
+        <p className="text-small font-semibold text-foreground">Vencimentos nos próximos 15 dias</p>
+        {vencimentos15.length === 0 ? (
+          <p className="text-small text-muted">Nenhum vencimento de investimento nos próximos 15 dias.</p>
         ) : (
-          proximos.slice(0, 3).map((p) => (
+          vencimentos15.slice(0, 6).map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2 text-small">
               <span className="truncate text-foreground">
                 {p.titulo}

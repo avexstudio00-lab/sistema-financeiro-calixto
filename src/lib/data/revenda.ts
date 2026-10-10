@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
-import { lancarMovimentoInvestimento } from "./movimentosInvestimento";
+import { estornarMovimento, lancarMovimentoInvestimento } from "./movimentosInvestimento";
 import type { Investimento, PagamentoInvestimento, ParcelaInvestimento } from "./tipos";
 
 /**
@@ -111,7 +111,12 @@ export async function registrarRecebimentoRevenda(params: {
     conta_id: params.contaId,
     transacao_id: transacaoId,
   });
-  if (error) return { error };
+  if (error) {
+    // O dinheiro já entrou na carteira: desfaz, senão uma nova tentativa
+    // lançaria em dobro.
+    await estornarMovimento(transacaoId);
+    return { error };
+  }
   await reavaliarQuitacaoRevenda(params.investimento.id);
   return { error: null };
 }
@@ -133,4 +138,104 @@ export async function vincularContaOrigem(inv: Investimento, usuarioId: string, 
   });
   if (!transacaoId) return { error: { message: "Não foi possível lançar na carteira." } };
   return supabase.from("investimentos").update({ conta_origem_id: contaId, transacao_origem_id: transacaoId }).eq("id", inv.id);
+}
+
+/**
+ * "Operação de rolo" (item 4.13 da especificação de 09/out/2026): a venda é
+ * paga com dinheiro + um bem recebido em troca. O bem entra como
+ * recebimento pelo valor de avaliação (sem carteira — não é dinheiro), então
+ * a receita total = dinheiro + bem e o lucro real = receita − custo. Se a
+ * pessoa quiser revender o bem, nasce um novo card de Compra e revenda com
+ * custo de entrada = valor atribuído na troca (sem tirar dinheiro de carteira
+ * nenhuma, porque nada saiu do caixa).
+ */
+export async function registrarPermutaRevenda(params: {
+  investimento: Investimento;
+  usuarioId: string;
+  data: string;
+  descricaoBem: string;
+  valorBem: number;
+  dinheiro?: { valor: number; contaId: string } | null;
+  destinarRevenda: boolean;
+}): Promise<{ error: { message: string } | null; novoInvestimentoId?: string | null }> {
+  const { investimento, usuarioId, data } = params;
+  const valorBem = Number(params.valorBem.toFixed(2));
+  if (!(valorBem > 0)) return { error: { message: "Informe o valor atribuído ao bem." } };
+
+  // O bem é gravado PRIMEIRO: se der erro, nada entrou na carteira ainda e
+  // uma nova tentativa não duplica o dinheiro.
+  const { data: pagBem, error } = await supabase.from("investimento_pagamentos").insert({
+    investimento_id: investimento.id,
+    usuario_id: usuarioId,
+    parcela_id: null,
+    tipo: "recebimento",
+    data_pagamento: data,
+    dias_atraso: 0,
+    valor_juros: null,
+    valor_diaria: null,
+    valor_pago: valorBem,
+    vencimento_referencia: null,
+    proximo_vencimento: null,
+    conta_id: null,
+    transacao_id: null,
+    recebido_em_bem: true,
+  }).select("id").single();
+  if (error) return { error: { message: error.message } };
+
+  if (params.dinheiro && params.dinheiro.valor > 0) {
+    const r = await registrarRecebimentoRevenda({ investimento, usuarioId, valor: params.dinheiro.valor, data, contaId: params.dinheiro.contaId });
+    if (r.error) {
+      // Desfaz o bem para a pessoa poder repetir a operação inteira.
+      if (pagBem) await supabase.from("investimento_pagamentos").delete().eq("id", (pagBem as { id: string }).id);
+      return { error: { message: "Não foi possível lançar a parte em dinheiro. Nada foi gravado; tente de novo." } };
+    }
+  }
+
+  const descricao = params.descricaoBem.trim().slice(0, 120) || "Bem recebido na troca";
+  await supabase
+    .from("investimentos")
+    .update({
+      valor_bem_permuta: Number((Number(investimento.valor_bem_permuta ?? 0) + valorBem).toFixed(2)),
+      descricao_bem_permuta: descricao,
+    })
+    .eq("id", investimento.id);
+
+  let novoInvestimentoId: string | null = null;
+  if (params.destinarRevenda) {
+    const { data: novo } = await supabase
+      .from("investimentos")
+      .insert({
+        usuario_id: usuarioId,
+        nome: descricao.slice(0, 80),
+        tipo: "revenda",
+        valor_investido: valorBem,
+        valor_atual: valorBem,
+        taxa: null,
+        descricao: `Recebido na troca de "${investimento.nome}"`,
+        tipo_ganho: null,
+        data_inicio: data,
+        forma_pagamento: "vista",
+        numero_parcelas: null,
+        valor_parcela: null,
+        periodicidade_parcelas: null,
+        valor_retornavel: null,
+        data_vencimento_final: null,
+        valor_diaria: null,
+        titulo_tesouro: null,
+        quantidade_cotas: null,
+        permuta_origem_id: investimento.id,
+        tipo_ambiente: investimento.tipo_ambiente ?? "PESSOAL",
+      })
+      .select("id")
+      .single();
+    novoInvestimentoId = (novo as { id: string } | null)?.id ?? null;
+  }
+
+  await reavaliarQuitacaoRevenda(investimento.id);
+  return { error: null, novoInvestimentoId };
+}
+
+/** Recebimento em bem (permuta): sem carteira e sem lançamento. */
+export function ehRecebimentoEmBem(p: PagamentoInvestimento): boolean {
+  return p.tipo === "recebimento" && p.recebido_em_bem === true;
 }

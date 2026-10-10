@@ -1,9 +1,10 @@
 import { supabase } from "@/lib/supabase/client";
 import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import { criarContaReceberParcelada } from "./contasEmpresa";
+import { diasUteisEntre } from "@/lib/util/diasUteis";
 import type { ItemOrcamento, Orcamento, StatusOrcamento } from "./tipos";
 
-/** Dias sem mudança de status que disparam o alerta de follow-up (5.9). */
+/** DIAS ÚTEIS sem interação que disparam o alerta de follow-up (5.9 / 4.6). */
 export const DIAS_FOLLOW_UP = 3;
 
 export const ROTULO_STATUS_ORCAMENTO: Record<StatusOrcamento, string> = {
@@ -63,11 +64,25 @@ export async function excluirOrcamento(id: string) {
   return supabase.from("orcamentos").delete().eq("id", id);
 }
 
-/** Orçamento parado: em aberto (orçado/negociação) e sem mudança há 3+ dias. */
+/** Orçamento parado: em aberto (orçado/aguardando resposta) e sem
+ * interação há 3+ dias úteis (item 4.6 da especificação de 09/out/2026). */
 export function precisaFollowUp(o: Pick<Orcamento, "status" | "status_alterado_em">, agora: Date = new Date()): boolean {
   if (o.status !== "orcado" && o.status !== "negociacao") return false;
-  const dias = (agora.getTime() - new Date(o.status_alterado_em).getTime()) / 86400000;
-  return dias >= DIAS_FOLLOW_UP;
+  return diasUteisEntre(new Date(o.status_alterado_em), agora) >= DIAS_FOLLOW_UP;
+}
+
+/** Totais de propostas de um cliente (dossiê 360°, item 4.16). */
+export function resumirOrcamentosCliente(orcamentos: Orcamento[]) {
+  const soma = (lista: Orcamento[]) => lista.reduce((a, o) => a + Number(o.valor_total), 0);
+  const emAnalise = orcamentos.filter((o) => o.status === "orcado" || o.status === "negociacao");
+  const aprovados = orcamentos.filter((o) => o.status === "fechado");
+  const perdidos = orcamentos.filter((o) => o.status === "perdido");
+  return {
+    totalOrcado: soma(orcamentos),
+    emAnalise: { quantidade: emAnalise.length, valor: soma(emAnalise) },
+    aprovados: { quantidade: aprovados.length, valor: soma(aprovados) },
+    perdidos: { quantidade: perdidos.length, valor: soma(perdidos) },
+  };
 }
 
 /** Fechar o orçamento gera o título no Contas a Receber (5.8), à vista ou
@@ -90,19 +105,27 @@ export async function gerarContaReceberDoOrcamento(o: Orcamento, parcelas: numbe
 
 export function mensagemFollowUp(o: Orcamento, nomeEmpresa: string): string {
   const nome = o.clientes?.nome?.split(" ")[0] ?? "tudo bem";
-  return `Olá, ${nome}! Aqui é da ${nomeEmpresa}. Passando pra saber se você conseguiu avaliar o orçamento "${o.titulo}". Posso ajudar com alguma dúvida?`;
+  const itens = o.itens.slice(0, 3).map((i) => `• ${i.quantidade}x ${i.descricao}`).join("\n");
+  const total = Number(o.valor_total).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return `Olá, ${nome}! Aqui é da ${nomeEmpresa}. Passando pra saber se você conseguiu avaliar o orçamento "${o.titulo}"${itens ? `:\n${itens}` : ""}\nTotal: ${total}${o.validade ? ` (válido até ${new Date(o.validade + "T00:00:00").toLocaleDateString("pt-BR")})` : ""}.\nPosso ajudar com alguma dúvida?`;
 }
 
-/** Ao fechar, os itens do catálogo entram na esteira de vendas (5.8): uma
- * linha em `vendas` por item (sem lançamento de caixa — o dinheiro entra
- * pelo Contas a Receber), com baixa de estoque nos produtos. Itens livres
- * (sem cadastro no catálogo) ficam só no título a receber. */
+/** Ao fechar, os itens entram na esteira de vendas (5.8 / 12.2): uma linha
+ * em `vendas` por item (sem lançamento de caixa — o dinheiro entra pelo
+ * Contas a Receber), com baixa de estoque nos produtos e o MESMO id de
+ * produto/serviço do catálogo (12.11). Itens livres viram venda com o nome
+ * digitado, sem estoque. */
 export async function registrarVendasDoOrcamento(o: Orcamento) {
   const hoje = new Date().toISOString().slice(0, 10);
   for (const item of o.itens) {
-    if (!item.ref_id || item.tipo === "livre") continue;
+    // Item livre (digitado, sem cadastro) também entra no painel de vendas
+    // (item 12.2: "fechado" alimenta as vendas sem lançamento duplicado),
+    // só que sem baixa de estoque e com custo zero.
+    const livre = !item.ref_id || item.tipo === "livre";
     let custo = 0;
-    if (item.tipo === "produto") {
+    if (livre) {
+      // nada a buscar
+    } else if (item.tipo === "produto") {
       const { data: p } = await supabase.from("produtos").select("custo, quantidade_estoque").eq("id", item.ref_id).maybeSingle();
       if (p) {
         custo = Number((p as { custo: number }).custo);
@@ -116,8 +139,8 @@ export async function registrarVendasDoOrcamento(o: Orcamento) {
     await supabase.from("vendas").insert({
       ...(o.empresa_id ? { empresa_id: o.empresa_id } : campoEmpresa()),
       usuario_id: o.usuario_id,
-      produto_id: item.tipo === "produto" ? item.ref_id : null,
-      servico_id: item.tipo === "servico" ? item.ref_id : null,
+      produto_id: !livre && item.tipo === "produto" ? item.ref_id : null,
+      servico_id: !livre && item.tipo === "servico" ? item.ref_id : null,
       produto_nome: item.descricao,
       quantidade: Math.max(1, Math.round(item.quantidade)),
       valor_unitario: item.valor_unitario,

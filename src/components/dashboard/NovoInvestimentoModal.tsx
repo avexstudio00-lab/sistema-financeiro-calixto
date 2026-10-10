@@ -13,6 +13,7 @@ import {
   Building2,
   Home,
   Sprout,
+  Coins,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -80,6 +81,12 @@ const TIPOS_INVESTIMENTO = [
     icone: LineChartIcon,
   },
   {
+    id: "cripto",
+    nome: "Criptoativos",
+    descricao: "Bitcoin, Ethereum e outros. Você atualiza o valor manualmente.",
+    icone: Coins,
+  },
+  {
     id: "emprestimo",
     nome: "Empréstimo",
     descricao: "Dinheiro emprestado pra alguém, com um valor combinado de volta.",
@@ -140,7 +147,10 @@ export interface NovoInvestimentoModalProps {
 }
 
 export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial = null }: NovoInvestimentoModalProps) {
-  const { user } = useAuth();
+  const { user, papel, podeAcessarMinhaEmpresa } = useAuth();
+  // Item 6.8: de onde vem o dinheiro — pessoal (padrão) ou caixa da empresa.
+  const podeUsarCaixaEmpresa = papel === "dono" && podeAcessarMinhaEmpresa;
+  const [ambiente, setAmbiente] = React.useState<"PESSOAL" | "NEGOCIO">("PESSOAL");
   // Item 5.10: carteira de onde sai o dinheiro aplicado (obrigatória).
   const [contas, setContas] = React.useState<Conta[]>([]);
   const [contaOrigemId, setContaOrigemId] = React.useState("");
@@ -218,6 +228,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
       setQuantidadeCotas("");
       setCotacoes(undefined);
       setContaOrigemId("");
+      setAmbiente("PESSOAL");
     }
   }, [aberto]);
 
@@ -263,7 +274,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
   const precisaTaxa = tipo === "tesouro" && !tesouroAoVivo;
   const ehPoupanca = tipo === "poupanca";
   const ehRendaFixaPercentualCdi = tipo === "cdb" || tipo === "lci" || tipo === "lca";
-  const precisaDescricao = (tipo === "tesouro" && !tesouroAoVivo) || tipo === "bolsa";
+  const precisaDescricao = (tipo === "tesouro" && !tesouroAoVivo) || tipo === "bolsa" || tipo === "cripto";
   const quantidadeCotasNumero = parsearValorDigitado(quantidadeCotas);
   const podeParcelar = tipo === "emprestimo" || tipo === "revenda";
   const parcelando = podeParcelar && formaPagamento === "parcelado";
@@ -388,7 +399,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
       return;
     }
     if (precisaDescricao && !descricao.trim()) {
-      setErro(tipo === "tesouro" ? "Informe o título (ex: Tesouro Selic 2029)." : "Informe o ativo (ex: PETR4, HGLG11).");
+      setErro(tipo === "tesouro" ? "Informe o título (ex: Tesouro Selic 2029)." : tipo === "cripto" ? "Informe o ativo (ex: BTC, ETH)." : "Informe o ativo (ex: PETR4, HGLG11).");
       return;
     }
     if (tesouroAoVivo && !tituloEscolhido) {
@@ -487,6 +498,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
       valor_retornavel: ehEmprestimo ? valorRetornavelNumero : null,
       data_vencimento_final: dataVencimentoFinalCalculada,
       valor_diaria: ehEmprestimo && valorDiaria.trim() ? parsearValorDigitado(valorDiaria) || null : null,
+      tipo_ambiente: podeUsarCaixaEmpresa ? ambiente : "PESSOAL",
     });
 
     if (error || !data) {
@@ -503,6 +515,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
       valor: valorNumero,
       data: dataInicio,
       descricao: `${ehEmprestimo ? "Empréstimo para" : tipo === "revenda" ? "Compra" : "Aplicação"}: ${nome.trim()}`,
+      tipoNegocio: podeUsarCaixaEmpresa && ambiente === "NEGOCIO" ? "negocio" : "pessoal",
     });
     if (transacaoOrigemId) {
       await supabase
@@ -674,12 +687,12 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
               }
             />
           )}
-          {tipo === "bolsa" && (
+          {(tipo === "bolsa" || tipo === "cripto") && (
             <Input
               label="Ativo"
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              placeholder="Ex: PETR4, HGLG11"
+              placeholder={tipo === "cripto" ? "Ex: BTC, ETH" : "Ex: PETR4, HGLG11"}
             />
           )}
           <div className="grid grid-cols-2 gap-4">
@@ -700,7 +713,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
           {tipo === "revenda" && (
             <div className="flex flex-col gap-2">
               <Input
-                label="Preço de revenda"
+                label="Preço efetivo de revenda"
                 inputMode="decimal"
                 value={precoRevenda}
                 onChange={(e) => setPrecoRevenda(e.target.value)}
@@ -720,6 +733,35 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
                   Preço de revenda pendente — defina para ver o lucro
                 </span>
               )}
+            </div>
+          )}
+
+          {podeUsarCaixaEmpresa && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-small font-medium text-foreground">Esse dinheiro é</span>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  ["PESSOAL", "Meu (pessoal)"],
+                  ["NEGOCIO", "Da empresa"],
+                ] as const).map(([id, rotulo]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setAmbiente(id)}
+                    className={cn(
+                      "rounded-xl border px-3 py-2 text-small font-medium",
+                      ambiente === id ? "border-primary-700 bg-primary-50 text-primary-800 dark:text-primary-200" : "border-border text-foreground"
+                    )}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-muted">
+                {ambiente === "NEGOCIO"
+                  ? "Aplicação com o caixa da empresa: entra no patrimônio da empresa, não no seu pessoal."
+                  : "Aplicação pessoal: entra no seu patrimônio pessoal."}
+              </span>
             </div>
           )}
 

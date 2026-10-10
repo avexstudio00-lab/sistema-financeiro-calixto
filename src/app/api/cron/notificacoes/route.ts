@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { subtrairDiasUteis } from "@/lib/util/diasUteis";
 import { enviarPushParaUsuario, marcarAvisoSeNovo, aplicarPrivacidade, TEXTO_PRIVADO, type PayloadPush } from "@/lib/push/enviarPush";
 
 export const runtime = "nodejs";
@@ -18,7 +19,9 @@ export const maxDuration = 60;
  * contas a pagar/receber da empresa (inclui venda fiada), contas fixas,
  * parcelas de dívida, parcelas e vencimentos de empréstimo/revenda a
  * receber, orçamentos sem resposta há 3+ dias e categorias do orçamento
- * acima de 85%. Cada aviso tem dedupe próprio (rodar duas vezes no mesmo
+ * acima de 85%, cobrança ativa de fiado vencido (a cada 3 dias), lançamentos
+ * pessoais com vencimento, fatura de cartão e o lembrete da DASN-SIMEI em
+ * maio. Cada aviso tem dedupe próprio (rodar duas vezes no mesmo
  * dia não repete nada). Até 4 avisos saem um por um, com valor e descrição;
  * o resto vira um resumo. Com "Ocultar prévia" ligado, sai uma única
  * notificação genérica.
@@ -63,7 +66,8 @@ export async function GET(request: Request) {
   const inicioMes = new Date(Date.UTC(ano, mes, 1)).toISOString().slice(0, 10);
   const fimMes = new Date(Date.UTC(ano, mes + 1, 0)).toISOString().slice(0, 10);
   const chaveMes = `${ano}-${String(mes + 1).padStart(2, "0")}`;
-  const limiteFollowUp = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  // Follow-up de orçamento: 3 DIAS ÚTEIS sem interação (item 4.6).
+  const limiteFollowUp = new Date(subtrairDiasUteis(agoraBr, 3).getTime() + 24 * 60 * 60 * 1000 - 1).toISOString();
 
   const { data: inscricoes } = await admin.from("push_subscriptions").select("usuario_id");
   const usuarios: string[] = Array.from(new Set(((inscricoes ?? []) as { usuario_id: string }[]).map((i) => i.usuario_id)));
@@ -154,6 +158,92 @@ export async function GET(request: Request) {
             tag: `receber-${c.id}`,
           },
         });
+      }
+
+      // Item 6.4 / 12.4 (09/out/2026): cobrança ATIVA de venda fiada vencida
+      // (não só o aviso do dia do vencimento): lembra a cada 3 dias de atraso.
+      const { data: fiadosVencidos } = await admin
+        .from("contas_receber")
+        .select("id, valor, vencimento, clientes(nome)")
+        .eq("usuario_id", usuarioId)
+        .eq("status", "pendente")
+        .eq("origem", "fiado")
+        .lt("vencimento", hoje)
+        .limit(20);
+      for (const c of (fiadosVencidos ?? []) as { id: string; valor: number; vencimento: string; clientes: { nome: string } | { nome: string }[] | null }[]) {
+        const cliente = Array.isArray(c.clientes) ? c.clientes[0]?.nome : c.clientes?.nome;
+        const atraso = Math.round((Date.parse(hoje) - Date.parse(c.vencimento)) / 86400000);
+        avisos.push({
+          tipo: "cobranca_fiado",
+          chave: `${c.id}:${Math.floor(atraso / 3)}`,
+          payload: {
+            titulo: "Calixto — Cobrar venda fiada",
+            corpo: `${cliente ?? "Cliente"} está devendo ${moeda(c.valor)} há ${atraso} dia(s). Toque para cobrar no WhatsApp.`,
+            url: "/dashboard/empresa",
+            tag: `cobranca-${c.id}`,
+          },
+        });
+      }
+
+      // Checklist (10/out/2026) — alertas de vencimento PESSOAIS: lançamentos
+      // com data de vencimento hoje/amanhã e fatura de cartão que vence.
+      const [{ data: lancamentosVencendo }, { data: cartoes }] = await Promise.all([
+        admin
+          .from("transacoes")
+          .select("id, descricao, valor, data_vencimento")
+          .eq("usuario_id", usuarioId)
+          .eq("tipo", "despesa")
+          .in("data_vencimento", datas)
+          .limit(20),
+        admin.from("contas").select("id, nome, dia_vencimento").eq("usuario_id", usuarioId).eq("tipo", "cartao_credito").not("dia_vencimento", "is", null),
+      ]);
+      for (const t of (lancamentosVencendo ?? []) as { id: string; descricao: string | null; valor: number; data_vencimento: string }[]) {
+        avisos.push({
+          tipo: "venc_lancamento",
+          chave: `${t.id}:${t.data_vencimento}:${quando(t.data_vencimento, hoje)}`,
+          payload: {
+            titulo,
+            corpo: `${t.descricao || "Conta"} vence ${quando(t.data_vencimento, hoje)} — ${moeda(t.valor)}`,
+            url: "/dashboard/extrato",
+            tag: `lanc-${t.id}`,
+          },
+        });
+      }
+      for (const c of (cartoes ?? []) as { id: string; nome: string; dia_vencimento: number }[]) {
+        for (const d of datas) {
+          const [a, m, dd] = d.split("-").map(Number);
+          const diaEfetivo = Math.min(c.dia_vencimento, ultimoDiaDoMes(a, m - 1));
+          if (dd !== diaEfetivo) continue;
+          avisos.push({
+            tipo: "venc_fatura",
+            chave: `${c.id}:${d}:${quando(d, hoje)}`,
+            payload: {
+              titulo,
+              corpo: `Fatura do cartão ${c.nome} vence ${quando(d, hoje)}.`,
+              url: `/dashboard/cartao/${c.id}`,
+              tag: `fatura-${c.id}`,
+            },
+          });
+        }
+      }
+
+      // Checklist — DASN-SIMEI (declaração anual do MEI, prazo 31/05): um
+      // lembrete por semana entre 1º/maio e 31/maio para quem é MEI.
+      if (mes === 4) {
+        const { data: perfilUsuario } = await admin.from("usuarios").select("tipo_perfil").eq("id", usuarioId).maybeSingle();
+        if ((perfilUsuario as { tipo_perfil: string | null } | null)?.tipo_perfil === "mei") {
+          const semana = Math.floor((agoraBr.getUTCDate() - 1) / 7);
+          avisos.push({
+            tipo: "dasn_anual",
+            chave: `${ano}:${semana}`,
+            payload: {
+              titulo: "Calixto — DASN-SIMEI",
+              corpo: `A declaração anual do MEI (faturamento de ${ano - 1}) vence em 31/05. O total do ano está pronto na tela DAS/Impostos.`,
+              url: "/dashboard/empresa/das",
+              tag: `dasn-${ano}`,
+            },
+          });
+        }
       }
 
       // Contas fixas: o dia de vencimento vale todo mês (dia 31 em mês curto
@@ -293,7 +383,7 @@ export async function GET(request: Request) {
           chave: `${o.id}:${o.status_alterado_em.slice(0, 10)}`,
           payload: {
             titulo: "Calixto — Orçamento sem resposta",
-            corpo: `${o.titulo || "Orçamento"}${cliente ? ` para ${cliente}` : ""} está sem retorno há 3 dias ou mais. Que tal chamar no WhatsApp?`,
+            corpo: `${o.titulo || "Orçamento"}${cliente ? ` para ${cliente}` : ""} está sem retorno há 3 dias úteis ou mais. Que tal chamar no WhatsApp?`,
             url: "/dashboard/empresa/orcamentos",
             tag: `orcamento-${o.id}`,
           },

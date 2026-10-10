@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { detectarTipoImagem } from "@/lib/seguranca/arquivos";
 
 export async function atualizarTipoPerfil(usuarioId: string, tipo: "clt" | "mei" | "me") {
   return supabase.from("usuarios").update({ tipo_perfil: tipo }).eq("id", usuarioId);
@@ -17,10 +18,15 @@ export async function atualizarNome(usuarioId: string, nome: string) {
  * navegador mostre a foto antiga em cache depois da troca.
  */
 export async function enviarFotoPerfil(usuarioId: string, arquivo: File) {
+  // Item 2.6: confere o tipo REAL pelos primeiros bytes (não confia na
+  // extensão/tipo informado) antes de enviar.
+  const cabecalho = new Uint8Array(await arquivo.slice(0, 16).arrayBuffer());
+  const tipoReal = detectarTipoImagem(cabecalho);
+  if (!tipoReal) return { url: null, error: new Error("Arquivo não é uma imagem JPG, PNG ou WEBP.") };
   const caminho = `${usuarioId}/avatar`;
   const { error: erroUpload } = await supabase.storage
     .from("avatars")
-    .upload(caminho, arquivo, { upsert: true, contentType: arquivo.type, cacheControl: "0" });
+    .upload(caminho, arquivo, { upsert: true, contentType: tipoReal, cacheControl: "0" });
   if (erroUpload) return { url: null, error: erroUpload };
 
   const { data } = supabase.storage.from("avatars").getPublicUrl(caminho);

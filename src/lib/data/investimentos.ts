@@ -40,6 +40,8 @@ export interface NovoInvestimento {
   quantidade_cotas: number | null;
   /** Item 5.3: só Compra e revenda. */
   preco_revenda?: number | null;
+  /** Item 6.8: PESSOAL (padrão) ou NEGOCIO (caixa da empresa). */
+  tipo_ambiente?: "PESSOAL" | "NEGOCIO";
 }
 
 export async function listarInvestimentos(usuarioId: string): Promise<Investimento[]> {
@@ -644,6 +646,18 @@ export async function excluirPagamentoInvestimento(pagamento: PagamentoInvestime
     const { error } = await supabase.from("investimento_pagamentos").delete().eq("id", pagamento.id);
     if (error) return { data: null, error };
     await estornarMovimento(pagamento.transacao_id);
+    // Item 4.13: recebimento em BEM (permuta) — tira o valor do total de bens
+    // recebidos. O card de revenda criado a partir do bem continua existindo
+    // (pode já ter sido revendido); a pessoa apaga à mão se precisar.
+    if (pagamento.recebido_em_bem) {
+      const { data: inv } = await supabase.from("investimentos").select("valor_bem_permuta").eq("id", pagamento.investimento_id).maybeSingle();
+      const atual = Number((inv as { valor_bem_permuta: number | null } | null)?.valor_bem_permuta ?? 0);
+      const novo = Math.max(0, Number((atual - Number(pagamento.valor_pago)).toFixed(2)));
+      await supabase
+        .from("investimentos")
+        .update({ valor_bem_permuta: novo > 0 ? novo : null, ...(novo > 0 ? {} : { descricao_bem_permuta: null }) })
+        .eq("id", pagamento.investimento_id);
+    }
     const { reavaliarQuitacaoRevenda } = await import("./revenda");
     await reavaliarQuitacaoRevenda(pagamento.investimento_id);
     return { data: null, error: null };
@@ -1003,4 +1017,89 @@ export function calcularGanhoNoPeriodo(
     const ganhoPassado = calcularGanhoAcumuladoNaData(inv, dataPassada, cotacoes);
     return acc + (ganhoHoje - ganhoPassado);
   }, 0);
+}
+
+/**
+ * "Total projetado" (item 4.15 da especificação de 09/out/2026): patrimônio
+ * estimado daqui a `meses`, com juros compostos pela taxa pactuada de cada
+ * ativo. Renda fixa/poupança/CDI usam a mesma fórmula do valor atual, só que
+ * na data futura; Tesouro com cotas aplica a taxa do título sobre o valor de
+ * hoje; empréstimo cresce até o combinado; ativos sem taxa (bolsa, cripto,
+ * revenda) ficam no valor atual (não há como projetar sem chutar).
+ */
+export function calcularValorProjetado(inv: Investimento, meses: number, cotacoes?: CotacoesMercado): number {
+  const hoje = new Date();
+  if (inv.quitado) return calcularValorAtualEstimado(inv, hoje, cotacoes);
+  const futura = new Date(adicionarMeses(formatarDataIso(hoje), meses) + "T00:00:00");
+  if (inv.tipo === "tesouro" && inv.titulo_tesouro && inv.quantidade_cotas) {
+    const atual = calcularValorAtualEstimado(inv, hoje, cotacoes);
+    const titulo = cotacoes?.titulosTesouro.find((t) => t.chave === inv.titulo_tesouro);
+    const taxa = titulo?.taxaVenda ?? (inv.taxa != null ? Number(inv.taxa) : 0);
+    return atual * Math.pow(1 + taxa / 100, meses / 12);
+  }
+  return calcularValorAtualEstimado(inv, futura, cotacoes);
+}
+
+export function totalProjetado(investimentos: Investimento[], meses: number, cotacoes?: CotacoesMercado): number {
+  return investimentos.reduce((acc, inv) => acc + calcularValorProjetado(inv, meses, cotacoes), 0);
+}
+
+/**
+ * "Ganhos nos últimos X meses" (item 4.15): soma SÓ o que entrou de fato no
+ * período — parcelas recebidas, juros pagos, quitações/amortizações e
+ * recebimentos (inclui bem recebido em troca). Sem período (`null`), soma
+ * tudo desde o início. Parcela quitada junto numa quitação antecipada não é
+ * contada duas vezes (o valor já está no evento de quitação).
+ */
+export function calcularRecebidoNoPeriodo(
+  investimentos: Investimento[],
+  parcelas: ParcelaInvestimento[],
+  pagamentos: PagamentoInvestimento[],
+  meses: number | null
+): number {
+  const ids = new Set(investimentos.map((i) => i.id));
+  const hojeIso = formatarDataIso(new Date());
+  const inicio = meses == null ? "0000-01-01" : adicionarMeses(hojeIso, -meses);
+  const dentro = (d: string | null) => !!d && d >= inicio && d <= hojeIso;
+  const quitacoesAntecipadas = new Set(
+    pagamentos
+      .filter((p) => p.tipo === "quitacao" && !p.parcela_id && ids.has(p.investimento_id))
+      .map((p) => `${p.investimento_id}|${p.data_pagamento}`)
+  );
+  const dePagamentos = pagamentos
+    .filter((p) => ids.has(p.investimento_id) && dentro(p.data_pagamento))
+    .reduce((acc, p) => acc + Number(p.valor_pago), 0);
+  const deParcelas = parcelas
+    .filter(
+      (p) =>
+        ids.has(p.investimento_id) &&
+        p.pago &&
+        dentro(p.data_pagamento) &&
+        !quitacoesAntecipadas.has(`${p.investimento_id}|${p.data_pagamento}`)
+    )
+    .reduce((acc, p) => acc + Number(p.valor), 0);
+  return Number((dePagamentos + deParcelas).toFixed(2));
+}
+
+/**
+ * Rentabilidade do mês ponderada pelo valor de cada ativo (item 4.8):
+ * (valor hoje − valor há 30 dias) / valor há 30 dias, somando a carteira
+ * toda — equivale à média das rentabilidades individuais ponderada pelo
+ * tamanho de cada posição. Ativos criados há menos de 30 dias entram a
+ * partir do valor aplicado.
+ */
+export function rentabilidadePonderadaMes(investimentos: Investimento[], cotacoes?: CotacoesMercado): number | null {
+  const hoje = new Date();
+  const ha30 = new Date(hoje.getTime() - 30 * 86400000);
+  let base = 0;
+  let agora = 0;
+  for (const inv of investimentos) {
+    if (inv.quitado) continue;
+    const inicio = new Date(inv.data_inicio + "T00:00:00");
+    const valorBase = inicio > ha30 ? Number(inv.valor_investido) : calcularValorNaData(inv, ha30, cotacoes);
+    base += valorBase;
+    agora += calcularValorAtualEstimado(inv, hoje, cotacoes);
+  }
+  if (base <= 0) return null;
+  return ((agora - base) / base) * 100;
 }

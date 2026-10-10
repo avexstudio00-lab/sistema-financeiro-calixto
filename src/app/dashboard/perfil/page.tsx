@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Briefcase, Building2, User, Camera, Check, Loader2, LogOut, Trash2, KeyRound, Lock } from "lucide-react";
+import { Briefcase, Building2, User, Camera, Check, Loader2, LogOut, Trash2, KeyRound, Lock , ShieldCheck } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -414,6 +414,18 @@ export default function PerfilPage() {
           <div className="min-w-0">
             <h2 className="text-h3 text-foreground">Segurança e notificações</h2>
             <p className="text-small text-muted">PIN, Face ID/biometria, notificações no celular e privacidade da tela de bloqueio.</p>
+          </div>
+        </Card>
+      </Link>
+
+      <Link href="/dashboard/privacidade" className="block">
+        <Card padding="lg" className="flex items-center gap-3 transition-colors hover:bg-muted/5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-700 dark:text-primary-300">
+            <Icon icon={ShieldCheck} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-h3 text-foreground">Privacidade e dados (LGPD)</h2>
+            <p className="text-small text-muted">Baixar seus dados, ver seus aceites e excluir a conta.</p>
           </div>
         </Card>
       </Link>

@@ -20,6 +20,7 @@ import {
   Home,
   Sprout,
   type LucideIcon,
+  Coins,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -51,7 +52,17 @@ export const TIPO_META: Record<Investimento["tipo"], { label: string; icone: Luc
   bolsa: { label: "Bolsa de Valores", icone: LineChartIcon },
   emprestimo: { label: "Empréstimo", icone: HandCoins },
   revenda: { label: "Compra e revenda", icone: ShoppingBag },
+  cripto: { label: "Criptoativos", icone: Coins },
 };
+
+/** Classe de ativo para a distribuição do painel (item 4.8). */
+export function classeDoInvestimento(tipo: Investimento["tipo"]): "Renda Fixa" | "Ações" | "Criptoativos" | "Empréstimos" | "Revenda" {
+  if (tipo === "bolsa") return "Ações";
+  if (tipo === "cripto") return "Criptoativos";
+  if (tipo === "emprestimo") return "Empréstimos";
+  if (tipo === "revenda") return "Revenda";
+  return "Renda Fixa";
+}
 
 function diasEntreHoje(dataIso: string): number {
   const hoje = new Date();
@@ -233,6 +244,7 @@ export function InvestimentoCard({
               {TIPO_META[inv.tipo].label}
               {inv.forma_pagamento === "parcelado" && inv.numero_parcelas ? ` · ${inv.numero_parcelas}x` : ""}
               {inv.descricao ? ` · ${inv.descricao}` : ""}
+              {inv.tipo_ambiente === "NEGOCIO" ? " · Caixa da empresa" : ""}
             </p>
           </div>
         </div>

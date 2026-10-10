@@ -24,6 +24,14 @@ export function supabaseComoUsuario(accessToken: string): SupabaseClient {
   });
 }
 
+/** Client anônimo sem sessão guardada — usado só para conferir uma senha
+ * (reautenticação antes de ação irreversível, ex.: excluir conta). */
+export function supabaseAnonimoSemSessao(): SupabaseClient {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 /**
  * Valida o header "Authorization: Bearer <token>" de uma requisição de API
  * e devolve um client Supabase já autenticado como esse usuário. Devolve

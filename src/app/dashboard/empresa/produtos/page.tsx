@@ -5,13 +5,11 @@ import { Plus, Package, Trash2, Pencil, AlertTriangle } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import {
   listarProdutos,
-  criarProduto,
-  atualizarProduto,
   deletarProduto,
   calcularMargem,
   estoqueBaixo,
@@ -20,17 +18,6 @@ import { listarFornecedores } from "@/lib/data/fornecedores";
 import { formatarMoeda } from "@/lib/format";
 import type { Fornecedor, Produto } from "@/lib/data/tipos";
 
-interface FormularioProduto {
-  nome: string;
-  custo: string;
-  precoVenda: string;
-  quantidade: string;
-  estoqueMinimo: string;
-  fornecedorId: string;
-}
-
-const FORM_VAZIO: FormularioProduto = { nome: "", custo: "", precoVenda: "", quantidade: "", estoqueMinimo: "", fornecedorId: "" };
-
 export default function ProdutosPage() {
   const { negocio } = useAuth();
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
@@ -38,9 +25,7 @@ export default function ProdutosPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [formAberto, setFormAberto] = React.useState(false);
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
-  const [form, setForm] = React.useState<FormularioProduto>(FORM_VAZIO);
   const [salvando, setSalvando] = React.useState(false);
-  const [erro, setErro] = React.useState<string | null>(null);
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
   const carregar = React.useCallback(async () => {
@@ -60,66 +45,12 @@ export default function ProdutosPage() {
 
   function abrirNovo() {
     setEditandoId(null);
-    setForm(FORM_VAZIO);
-    setErro(null);
     setFormAberto(true);
   }
 
   function abrirEdicao(produto: Produto) {
     setEditandoId(produto.id);
-    setForm({
-      nome: produto.nome,
-      custo: String(produto.custo).replace(".", ","),
-      precoVenda: String(produto.preco_venda).replace(".", ","),
-      quantidade: String(produto.quantidade_estoque),
-      estoqueMinimo: String(produto.estoque_minimo),
-      fornecedorId: produto.fornecedor_id ?? "",
-    });
-    setErro(null);
     setFormAberto(true);
-  }
-
-  async function handleSalvar(e: React.FormEvent) {
-    e.preventDefault();
-    if (!negocio) return;
-
-    const custo = Number(form.custo.replace(",", ".")) || 0;
-    const precoVenda = Number(form.precoVenda.replace(",", ".")) || 0;
-    const quantidade = Number(form.quantidade) || 0;
-    const estoqueMinimo = Number(form.estoqueMinimo) || 0;
-
-    if (form.nome.trim().length < 2) {
-      setErro("Digite o nome do produto.");
-      return;
-    }
-    if (precoVenda <= 0) {
-      setErro("Digite um preço de venda válido.");
-      return;
-    }
-
-    setErro(null);
-    setSalvando(true);
-    const dados = {
-      nome: form.nome.trim(),
-      custo,
-      preco_venda: precoVenda,
-      quantidade_estoque: quantidade,
-      estoque_minimo: estoqueMinimo,
-      fornecedor_id: form.fornecedorId || null,
-    };
-    const { error } = editandoId
-      ? await atualizarProduto(editandoId, dados)
-      : await criarProduto({ usuario_id: negocio.usuarioId, ...dados });
-    setSalvando(false);
-
-    if (error) {
-      setErro("Não foi possível salvar. Tente novamente.");
-      return;
-    }
-    setFormAberto(false);
-    setForm(FORM_VAZIO);
-    setEditandoId(null);
-    carregar();
   }
 
   async function handleExcluir(id: string) {
@@ -145,78 +76,19 @@ export default function ProdutosPage() {
         </Button>
       </div>
 
-      {formAberto && (
-        <Card padding="lg" className="flex flex-col gap-4">
-          <h2 className="text-h3 text-foreground">{editandoId ? "Editar produto" : "Novo produto"}</h2>
-          <form onSubmit={handleSalvar} className="flex flex-col gap-4">
-            <Input
-              label="Nome do produto"
-              value={form.nome}
-              onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))}
-              placeholder="Ex: Bolo de cenoura"
-              autoFocus
-            />
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Custo (unidade)"
-                inputMode="decimal"
-                value={form.custo}
-                onChange={(e) => setForm((f) => ({ ...f, custo: e.target.value }))}
-                placeholder="0,00"
-              />
-              <Input
-                label="Preço de venda (unidade)"
-                inputMode="decimal"
-                value={form.precoVenda}
-                onChange={(e) => setForm((f) => ({ ...f, precoVenda: e.target.value }))}
-                placeholder="0,00"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Quantidade em estoque"
-                inputMode="numeric"
-                value={form.quantidade}
-                onChange={(e) => setForm((f) => ({ ...f, quantidade: e.target.value }))}
-                placeholder="0"
-              />
-              <Input
-                label="Avisar quando o estoque chegar em"
-                inputMode="numeric"
-                value={form.estoqueMinimo}
-                onChange={(e) => setForm((f) => ({ ...f, estoqueMinimo: e.target.value }))}
-                placeholder="0"
-              />
-            </div>
-            {fornecedores.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Fornecedor principal (opcional)</span>
-                <select
-                  value={form.fornecedorId}
-                  onChange={(e) => setForm((f) => ({ ...f, fornecedorId: e.target.value }))}
-                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
-                >
-                  <option value="">Nenhum</option>
-                  {fornecedores.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.nome}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-xs text-muted">Usado na sugestão de reposição (prazo de entrega do fornecedor).</span>
-              </div>
-            )}
-            {erro && <p className="text-small text-rose-600">{erro}</p>}
-            <div className="flex gap-2">
-              <Button type="submit" disabled={salvando} className="flex-1">
-                {salvando ? "Salvando..." : "Salvar produto"}
-              </Button>
-              <Button type="button" variant="tertiary" onClick={() => setFormAberto(false)}>
-                Cancelar
-              </Button>
-            </div>
-          </form>
-        </Card>
+      {formAberto && negocio && (
+        <FormularioProduto
+          key={editandoId ?? "novo"}
+          contaMestreId={negocio.usuarioId}
+          produto={editandoId ? produtos.find((x) => x.id === editandoId) ?? null : null}
+          fornecedores={fornecedores}
+          onSalvo={() => {
+            setFormAberto(false);
+            setEditandoId(null);
+            carregar();
+          }}
+          onCancelar={() => setFormAberto(false)}
+        />
       )}
 
       {carregando ? (

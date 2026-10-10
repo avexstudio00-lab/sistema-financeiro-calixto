@@ -49,6 +49,29 @@ export interface DadosVenda {
   /** Venda fiada (a prazo, item 5.2): em vez de entrar no caixa agora, vira
    * conta a receber parcelada no nome do cliente. */
   fiado?: { parcelas: number; primeiroVencimento: string } | null;
+  /** Checklist (10/out/2026): várias formas de pagamento na mesma venda
+   * (ex.: R$ 50 no Pix + R$ 30 em dinheiro). Com 2+ itens, gera um
+   * lançamento de receita por forma, cada um na sua carteira. A soma precisa
+   * bater com o total da venda (a tela confere). */
+  pagamentos?: PagamentoVenda[] | null;
+}
+
+export interface PagamentoVenda {
+  forma: NonNullable<Transacao["forma_pagamento"]>;
+  valor: number;
+  contaId: string | null;
+  transacao_id?: string | null;
+}
+
+/** Empresa da venda quando a tela está na visão "todas": a do cliente (se
+ * houver) — assim a venda nunca cai numa empresa diferente da do cliente
+ * (causa do "total comprado zerado" do item 4.16). */
+async function empresaParaVenda(clienteId: string | null): Promise<{ empresa_id?: string }> {
+  const ativa = campoEmpresa();
+  if (ativa.empresa_id || !clienteId) return ativa;
+  const { data } = await supabase.from("clientes").select("empresa_id").eq("id", clienteId).maybeSingle();
+  const id = (data as { empresa_id: string | null } | null)?.empresa_id;
+  return id ? { empresa_id: id } : {};
 }
 
 /**
@@ -66,8 +89,38 @@ export async function registrarVenda(dados: DadosVenda) {
   const categoriaId = await idCategoriaVendas();
   const fiado = dados.fiado && dados.clienteId ? dados.fiado : null;
 
+  const empresa = await empresaParaVenda(dados.clienteId);
   let transacao: Transacao | null = null;
-  if (!fiado) {
+  const dividida = !fiado && dados.pagamentos && dados.pagamentos.length >= 2 ? dados.pagamentos : null;
+  const pagamentosGravados: PagamentoVenda[] = [];
+  if (dividida) {
+    for (const pg of dividida) {
+      // eslint-disable-next-line no-await-in-loop -- sequencial: cada um ajusta saldo
+      const { data: t, error: erroT } = await criarTransacao({
+        usuario_id: dados.usuarioId,
+        conta_id: pg.contaId,
+        categoria_id: categoriaId,
+        tipo: "receita",
+        valor: Number(pg.valor.toFixed(2)),
+        descricao: `${nomeItem} (${pg.forma})`,
+        data: dados.data,
+        forma_pagamento: pg.forma,
+        tipo_negocio: "negocio",
+        ...empresa,
+      });
+      if (erroT || !t) {
+        for (const feito of pagamentosGravados) {
+          // eslint-disable-next-line no-await-in-loop
+          const { data: tt } = await supabase.from("transacoes").select("*").eq("id", feito.transacao_id).maybeSingle();
+          // eslint-disable-next-line no-await-in-loop
+          if (tt) await deletarTransacao(tt as Transacao);
+        }
+        return { data: null, error: erroT };
+      }
+      pagamentosGravados.push({ ...pg, transacao_id: (t as Transacao).id });
+      if (!transacao) transacao = t as Transacao;
+    }
+  } else if (!fiado) {
     const { data: t, error: erroTransacao } = await criarTransacao({
       usuario_id: dados.usuarioId,
       conta_id: dados.contaId,
@@ -78,6 +131,7 @@ export async function registrarVenda(dados: DadosVenda) {
       data: dados.data,
       forma_pagamento: dados.formaPagamento,
       tipo_negocio: "negocio",
+      ...empresa,
     });
     if (erroTransacao || !t) {
       return { data: null, error: erroTransacao };
@@ -89,8 +143,9 @@ export async function registrarVenda(dados: DadosVenda) {
   const { data: venda, error: erroVenda } = await supabase
     .from("vendas")
     .insert({
-      ...campoEmpresa(),
+      ...empresa,
       usuario_id: dados.usuarioId,
+      pagamentos: dividida ? pagamentosGravados : null,
       produto_id: dados.produto?.id ?? null,
       servico_id: dados.produto ? null : dados.servico?.id ?? null,
       produto_nome: nomeItem,
@@ -110,7 +165,14 @@ export async function registrarVenda(dados: DadosVenda) {
     // A transação de receita já foi criada — desfaz pra não deixar um
     // lançamento órfão (e seu efeito no saldo da conta) caso a venda em si
     // não possa ser salva.
-    if (transacao) await deletarTransacao(transacao);
+    if (dividida) {
+      for (const pg of pagamentosGravados) {
+        // eslint-disable-next-line no-await-in-loop
+        const { data: tt } = await supabase.from("transacoes").select("*").eq("id", pg.transacao_id).maybeSingle();
+        // eslint-disable-next-line no-await-in-loop
+        if (tt) await deletarTransacao(tt as Transacao);
+      }
+    } else if (transacao) await deletarTransacao(transacao);
     return { data: null, error: erroVenda };
   }
 
@@ -155,6 +217,24 @@ export async function registrarVenda(dados: DadosVenda) {
  * erro se qualquer uma dessas etapas falhar, pra tela avisar o usuário em
  * vez de dar como concluído silenciosamente. */
 export async function deletarVenda(venda: Venda) {
+  // Ordem pensada para tentativa repetida não duplicar nada: primeiro os
+  // lançamentos (idempotente — o que já foi apagado não é achado de novo),
+  // depois a linha da venda e, SÓ por último, a devolução do estoque.
+  const ids = [
+    ...(Array.isArray(venda.pagamentos) ? venda.pagamentos.map((p) => p.transacao_id) : []),
+    venda.transacao_id,
+  ].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
+  for (const id of ids) {
+    const { data: t } = await supabase.from("transacoes").select("*").eq("id", id).maybeSingle();
+    if (t) {
+      const { error: e } = await deletarTransacao(t as Transacao);
+      if (e) return { error: e };
+    }
+  }
+
+  const { error } = await supabase.from("vendas").delete().eq("id", venda.id);
+  if (error) return { error };
+
   if (venda.produto_id) {
     const { data: produto } = await supabase
       .from("produtos")
@@ -165,23 +245,7 @@ export async function deletarVenda(venda: Venda) {
       await ajustarEstoque(venda.produto_id, Number(produto.quantidade_estoque), venda.quantidade);
     }
   }
-
-  if (venda.transacao_id) {
-    const { data: transacao } = await supabase
-      .from("transacoes")
-      .select("*")
-      .eq("id", venda.transacao_id)
-      .maybeSingle();
-    if (transacao) {
-      const { error: erroTransacao } = await deletarTransacao(transacao as Transacao);
-      if (erroTransacao) {
-        return { error: erroTransacao };
-      }
-    }
-  }
-
-  const { error } = await supabase.from("vendas").delete().eq("id", venda.id);
-  return { error };
+  return { error: null };
 }
 
 export interface ResumoVendas {

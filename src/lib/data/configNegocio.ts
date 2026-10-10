@@ -21,6 +21,8 @@ export interface ConfigNegocio {
   valor_pro_labore: number | null;
   modo_sem_pro_labore: ModoSemProLabore | null;
   observacao_retiradas: string | null;
+  /** Item 3.4 (09/out/2026): dia padrão de competência do pró-labore. */
+  dia_pro_labore?: number | null;
 }
 
 /** Valor padrão quando o negócio ainda nunca salvou nada (mantém o
@@ -32,13 +34,14 @@ export function configNegocioPadrao(usuarioId: string): ConfigNegocio {
     valor_pro_labore: null,
     modo_sem_pro_labore: null,
     observacao_retiradas: null,
+    dia_pro_labore: null,
   };
 }
 
 export async function buscarConfigNegocio(usuarioId: string): Promise<ConfigNegocio> {
   const { data } = await supabase
     .from("config_negocio")
-    .select("usuario_id, retira_pro_labore, valor_pro_labore, modo_sem_pro_labore, observacao_retiradas")
+    .select("usuario_id, retira_pro_labore, valor_pro_labore, modo_sem_pro_labore, observacao_retiradas, dia_pro_labore")
     .eq("usuario_id", usuarioId)
     .maybeSingle();
   if (!data) return configNegocioPadrao(usuarioId);
@@ -60,6 +63,7 @@ export async function salvarConfigNegocio(config: ConfigNegocio) {
       valor_pro_labore: config.retira_pro_labore ? config.valor_pro_labore : null,
       modo_sem_pro_labore: config.retira_pro_labore ? null : config.modo_sem_pro_labore,
       observacao_retiradas: config.retira_pro_labore ? null : observacao ? observacao.slice(0, 500) : null,
+      dia_pro_labore: config.retira_pro_labore ? config.dia_pro_labore ?? null : null,
       atualizado_em: new Date().toISOString(),
     },
     { onConflict: "usuario_id" }

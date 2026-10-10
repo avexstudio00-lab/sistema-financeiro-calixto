@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Pencil, Trash2, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Pencil, Trash2, Wallet } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
@@ -11,6 +11,8 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { excluirPagamentoInvestimento } from "@/lib/data/investimentos";
 import {
   calcularLucroRevenda,
+  ehRecebimentoEmBem,
+  registrarPermutaRevenda,
   registrarRecebimentoRevenda,
   salvarPrecoRevenda,
   textoLucroRevenda,
@@ -54,6 +56,13 @@ export function PainelRevenda({
   const [contaId, setContaId] = React.useState("");
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
+  // Item 4.13: operação de rolo (dinheiro + bem recebido na troca).
+  const [permutando, setPermutando] = React.useState(false);
+  const [bemDescricao, setBemDescricao] = React.useState("");
+  const [bemValorTexto, setBemValorTexto] = React.useState("");
+  const [dinheiroTexto, setDinheiroTexto] = React.useState("");
+  const [destinarRevenda, setDestinarRevenda] = React.useState(true);
+  const [aviso, setAviso] = React.useState<string | null>(null);
 
   const precoDigitado = parsear(precoTexto);
   const lucroPrevia = editandoPreco ? calcularLucroRevenda(custo, precoDigitado) : null;
@@ -97,6 +106,49 @@ export function PainelRevenda({
     }
     setRecebendo(false);
     setValorTexto("");
+    onAlterado();
+  }
+
+  const bemValor = parsear(bemValorTexto || "0");
+  const dinheiroValor = parsear(dinheiroTexto || "0");
+  const receitaPermuta = (Number.isFinite(bemValor) ? bemValor : 0) + (Number.isFinite(dinheiroValor) ? dinheiroValor : 0);
+  const lucroPermuta = permutando && receitaPermuta > 0 ? calcularLucroRevenda(custo, recebido + receitaPermuta) : null;
+
+  async function confirmarPermuta() {
+    if (!user) return;
+    if (bemDescricao.trim().length < 2) {
+      setErro("Descreva o bem recebido (ex.: iPhone 11 64GB).");
+      return;
+    }
+    if (!bemValor || bemValor <= 0) {
+      setErro("Informe quanto vale o bem recebido na troca.");
+      return;
+    }
+    if (dinheiroValor > 0 && !contaId) {
+      setErro("Escolha em qual carteira entrou a parte em dinheiro.");
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    const r = await registrarPermutaRevenda({
+      investimento: inv,
+      usuarioId: user.id,
+      data,
+      descricaoBem: bemDescricao,
+      valorBem: bemValor,
+      dinheiro: dinheiroValor > 0 ? { valor: dinheiroValor, contaId } : null,
+      destinarRevenda,
+    });
+    setSalvando(false);
+    if (r.error) {
+      setErro(r.error.message);
+      return;
+    }
+    setPermutando(false);
+    setBemDescricao("");
+    setBemValorTexto("");
+    setDinheiroTexto("");
+    setAviso(destinarRevenda ? `"${bemDescricao.trim()}" entrou como novo item de revenda, com custo de ${formatarMoeda(bemValor)}.` : null);
     onAlterado();
   }
 
@@ -147,7 +199,7 @@ export function PainelRevenda({
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-end gap-2">
             <div className="w-36">
-              <Input label="Preço de revenda" inputMode="decimal" value={precoTexto} onChange={(e) => setPrecoTexto(e.target.value)} placeholder="0,00" />
+              <Input label="Preço efetivo de revenda" inputMode="decimal" value={precoTexto} onChange={(e) => setPrecoTexto(e.target.value)} placeholder="0,00" />
             </div>
             <Button size="sm" disabled={salvando} onClick={salvarPreco}>
               Salvar
@@ -172,6 +224,39 @@ export function PainelRevenda({
               {salvando ? "Salvando..." : "Confirmar recebimento"}
             </Button>
             <Button size="sm" variant="tertiary" onClick={() => setRecebendo(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : permutando ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+          <p className="text-small font-semibold text-foreground">A negociação inclui receber outro bem como parte do pagamento</p>
+          <Input label="Bem recebido na troca" value={bemDescricao} onChange={(e) => setBemDescricao(e.target.value)} placeholder="Ex.: iPhone 11 64GB" />
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-36">
+              <Input label="Avaliação do bem (R$)" inputMode="decimal" value={bemValorTexto} onChange={(e) => setBemValorTexto(e.target.value)} placeholder="0,00" />
+            </div>
+            <div className="w-36">
+              <Input label="Dinheiro recebido junto" inputMode="decimal" value={dinheiroTexto} onChange={(e) => setDinheiroTexto(e.target.value)} placeholder="0,00" />
+            </div>
+            <DateMaskInput label="Data" value={data} onChange={setData} />
+          </div>
+          {dinheiroValor > 0 && <SeletorCarteira valor={contaId} onChange={setContaId} rotulo="O dinheiro entrou em qual carteira?" />}
+          <label className="flex items-center gap-2 text-small text-foreground">
+            <input type="checkbox" checked={destinarRevenda} onChange={(e) => setDestinarRevenda(e.target.checked)} className="h-4 w-4 accent-emerald-700" />
+            Destinar o bem recebido para revenda imediata (cria um novo item com esse custo)
+          </label>
+          {receitaPermuta > 0 && (
+            <p className="text-xs text-foreground">
+              Receita desta negociação: <strong>{formatarMoeda(receitaPermuta)}</strong> ({formatarMoeda(dinheiroValor || 0)} em dinheiro + {formatarMoeda(bemValor || 0)} em bem)
+              {lucroPermuta ? <> · {textoLucroRevenda(lucroPermuta)} no total</> : null}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button size="sm" disabled={salvando} onClick={confirmarPermuta}>
+              {salvando ? "Salvando..." : "Confirmar troca"}
+            </Button>
+            <Button size="sm" variant="tertiary" onClick={() => setPermutando(false)}>
               Cancelar
             </Button>
           </div>
@@ -202,8 +287,20 @@ export function PainelRevenda({
               <Wallet size={12} /> Registrar recebimento
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setPermutando(true);
+              setErro(null);
+              setAviso(null);
+            }}
+            className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/20"
+          >
+            <ArrowLeftRight size={12} /> Recebi um bem na troca (rolo)
+          </button>
         </div>
       )}
+      {aviso && <p className="text-xs font-medium text-primary-800 dark:text-primary-200">{aviso}</p>}
 
       {recebimentos.length > 0 && (
         <div className="flex flex-col gap-1.5 border-t border-border pt-2">
@@ -212,6 +309,7 @@ export function PainelRevenda({
             <div key={p.id} className="flex items-center justify-between gap-2 text-xs">
               <span className="text-foreground">
                 {new Date(p.data_pagamento + "T00:00:00").toLocaleDateString("pt-BR")} · {formatarMoeda(Number(p.valor_pago))}
+                {ehRecebimentoEmBem(p) ? ` · bem na troca${inv.descricao_bem_permuta ? ` (${inv.descricao_bem_permuta})` : ""}` : ""}
               </span>
               <button
                 type="button"
@@ -255,7 +353,8 @@ export function VincularContaOrigem({ inv, onAlterado }: { inv: Investimento; on
   }, [chaveDispensa]);
 
   // Já quitado: o dinheiro saiu e voltou, não há saldo a corrigir.
-  if (inv.conta_origem_id || inv.transacao_origem_id || inv.quitado || dispensado) return null;
+  // Card nascido de troca (rolo): nada saiu de carteira nenhuma.
+  if (inv.conta_origem_id || inv.transacao_origem_id || inv.quitado || inv.permuta_origem_id || dispensado) return null;
 
   function dispensar() {
     try {

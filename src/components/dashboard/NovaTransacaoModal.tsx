@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { CriarCategoriaInline } from "@/components/dashboard/CriarCategoriaInline";
+import { ComprovanteTransacao } from "@/components/dashboard/ComprovanteTransacao";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias } from "@/lib/data/categorias";
@@ -294,6 +295,7 @@ export function NovaTransacaoModal({
         valor: valorNumero,
         descricao: descricao.trim(),
         data,
+        conta_id: contaId || null,
       });
       if (parecida) {
         setDuplicata(parecida);
@@ -687,13 +689,16 @@ export function NovaTransacaoModal({
               </label>
             )}
 
+            {transacaoEditando && online && (
+              <ComprovanteTransacao transacaoId={transacaoEditando.id} temComprovante={!!transacaoEditando.comprovante_path} />
+            )}
+
             {duplicata && (
               <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <p className="text-small text-amber-900">
-                  <strong>Atenção:</strong> já existe um lançamento registrado com este mesmo valor e descrição
-                  nesta semana (&ldquo;{duplicata.descricao}&rdquo; em{" "}
-                  {new Date(duplicata.data + "T00:00:00").toLocaleDateString("pt-BR")}). Deseja registrar este
-                  duplicado mesmo assim?
+                  <strong>Atenção:</strong> Identificamos um lançamento muito semelhante já registrado nesta mesma conta
+                  em {new Date(duplicata.data + "T00:00:00").toLocaleDateString("pt-BR")} (&ldquo;{duplicata.descricao}&rdquo;).
+                  Deseja confirmar este novo registro ou cancelar a duplicidade?
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -703,10 +708,10 @@ export function NovaTransacaoModal({
                       duplicataConfirmadaRef.current = true;
                     }}
                   >
-                    Registrar mesmo assim
+                    Confirmar novo registro
                   </Button>
                   <Button type="button" size="sm" variant="tertiary" onClick={onFechar}>
-                    Cancelar
+                    Cancelar duplicidade
                   </Button>
                 </div>
               </div>

@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X } from "lucide-react";
+import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
+import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +27,7 @@ import {
   agruparVendasPorMes,
   rankingABC,
   type PontoVendasPeriodo,
+  type PagamentoVenda,
 } from "@/lib/data/vendas";
 import { formatarMoeda } from "@/lib/format";
 import type { Produto, Cliente, Conta, Venda, Servico } from "@/lib/data/tipos";
@@ -79,6 +82,11 @@ export default function VendasPage() {
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
   const [periodo, setPeriodo] = React.useState<"dia" | "semana" | "mes">("dia");
+  // Itens 6.1/12.1: cadastrar produto/serviço sem sair da venda.
+  const [cadastroInline, setCadastroInline] = React.useState<"produto" | "servico" | null>(null);
+  // Checklist: várias formas de pagamento na mesma venda.
+  const [dividirPagamento, setDividirPagamento] = React.useState(false);
+  const [partes, setPartes] = React.useState<{ forma: (typeof FORMAS_PAGAMENTO)[number]["id"]; valor: string; contaId: string }[]>([]);
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
@@ -140,10 +148,28 @@ export default function VendasPage() {
       setErro("Digite um valor de venda válido.");
       return;
     }
+    let pagamentos: PagamentoVenda[] | null = null;
+    if (dividirPagamento && !fiado) {
+      const lista = partes
+        .map((p) => ({ forma: p.forma, valor: Number(p.valor.replace(/\./g, "").replace(",", ".")), contaId: p.contaId || null }))
+        .filter((p) => p.valor > 0);
+      if (lista.length < 2) {
+        setErro("Para dividir, informe pelo menos duas formas de pagamento com valor.");
+        return;
+      }
+      const soma = lista.reduce((a, p) => a + p.valor, 0);
+      const total = Number((qtd * valorUnit).toFixed(2));
+      if (Math.abs(soma - total) > 0.009) {
+        setErro(`A soma das formas (${formatarMoeda(soma)}) precisa ser igual ao total da venda (${formatarMoeda(total)}).`);
+        return;
+      }
+      pagamentos = lista;
+    }
     setErro(null);
     setAviso(null);
     setSalvando(true);
     const resultado = await registrarVenda({
+      pagamentos,
       usuarioId: negocio.usuarioId,
       produto: produtoSelecionado,
       servico: servicoSelecionado,
@@ -171,6 +197,8 @@ export default function VendasPage() {
     setProdutoId("");
     setServicoId("");
     setFiado(false);
+    setDividirPagamento(false);
+    setPartes([]);
     setParcelasFiado("1");
     setQuantidade("1");
     setValorUnitario("");
@@ -224,7 +252,7 @@ export default function VendasPage() {
           <h1 className="text-h2 text-foreground">Vendas</h1>
           <p className="text-body text-muted">Registre suas vendas e acompanhe como o negócio está indo.</p>
         </div>
-        <Button onClick={() => setFormAberto((v) => !v)} disabled={!temItens}>
+        <Button onClick={() => setFormAberto((v) => !v)}>
           <Plus size={18} />
           Registrar venda
         </Button>
@@ -234,7 +262,7 @@ export default function VendasPage() {
         <Card className="flex items-center gap-3 border-amber-200 bg-amber-50/60">
           <AlertTriangle size={20} className="text-amber-600" />
           <p className="text-body text-foreground">
-            Cadastre um produto (Catálogo de produtos) ou um serviço (Catálogo de serviços) antes de registrar sua primeira venda.
+            Você ainda não tem produtos nem serviços. Pode cadastrar direto na hora de registrar a venda (botão &quot;Registrar venda&quot;).
           </p>
         </Card>
       )}
@@ -242,6 +270,34 @@ export default function VendasPage() {
       {formAberto && (
         <Card padding="lg" className="flex flex-col gap-4">
           <h2 className="text-h3 text-foreground">Nova venda</h2>
+          {cadastroInline === "produto" && negocio && (
+            <FormularioProduto
+              compacto
+              contaMestreId={negocio.usuarioId}
+              onCancelar={() => setCadastroInline(null)}
+              onSalvo={(novo) => {
+                setProdutos((lista) => [...lista, novo].sort((a, b) => a.nome.localeCompare(b.nome)));
+                setTipoItem("produto");
+                setProdutoId(novo.id);
+                setValorUnitario(String(novo.preco_venda).replace(".", ","));
+                setCadastroInline(null);
+              }}
+            />
+          )}
+          {cadastroInline === "servico" && negocio && (
+            <FormularioServico
+              compacto
+              contaMestreId={negocio.usuarioId}
+              onCancelar={() => setCadastroInline(null)}
+              onSalvo={(novo) => {
+                setServicos((lista) => [...lista, novo].sort((a, b) => a.nome.localeCompare(b.nome)));
+                setTipoItem("servico");
+                setServicoId(novo.id);
+                setValorUnitario(novo.preco_fixo && novo.preco != null ? String(novo.preco).replace(".", ",") : "");
+                setCadastroInline(null);
+              }}
+            />
+          )}
           <form onSubmit={handleRegistrarVenda} className="flex flex-col gap-4">
             {produtos.length > 0 && servicos.length > 0 && (
               <div className="flex gap-1 self-start rounded-full bg-muted/10 p-1">
@@ -299,6 +355,25 @@ export default function VendasPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+            )}
+
+            {!produtoSelecionado && !servicoSelecionado && !cadastroInline && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCadastroInline("produto")}
+                  className="flex items-center gap-1.5 rounded-full bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-800 hover:bg-primary-100 dark:text-primary-200"
+                >
+                  <PlusCircle size={14} /> Cadastrar novo produto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCadastroInline("servico")}
+                  className="flex items-center gap-1.5 rounded-full bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-800 hover:bg-primary-100 dark:text-primary-200"
+                >
+                  <PlusCircle size={14} /> Cadastrar novo serviço
+                </button>
               </div>
             )}
 
@@ -370,6 +445,101 @@ export default function VendasPage() {
                 <p className="col-span-2 text-xs text-muted">
                   Vira conta a receber no nome do cliente, com alerta quando estiver perto de vencer ou vencida.
                 </p>
+              </div>
+            )}
+
+            {!fiado && (
+              <label className="flex items-center gap-2 text-small text-foreground">
+                <input
+                  type="checkbox"
+                  checked={dividirPagamento}
+                  onChange={(e) => {
+                    setDividirPagamento(e.target.checked);
+                    if (e.target.checked && partes.length === 0) {
+                      const primeira = contas.find((c) => c.tipo !== "cartao_credito")?.id ?? "";
+                      setPartes([
+                        { forma: formaPagamento, valor: "", contaId: contaId || primeira },
+                        { forma: "dinheiro", valor: "", contaId: contaId || primeira },
+                      ]);
+                    }
+                  }}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                Dividir em mais de uma forma de pagamento
+              </label>
+            )}
+            {!fiado && !dividirPagamento && contas.length > 1 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Entrou em qual carteira?</span>
+                <select
+                  value={contaId}
+                  onChange={(e) => setContaId(e.target.value)}
+                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                >
+                  {contas.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {!fiado && dividirPagamento && (
+              <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+                {partes.map((p, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                    <label className="flex flex-col gap-1 text-xs font-medium text-foreground">
+                      Forma
+                      <select
+                        value={p.forma}
+                        onChange={(e) => setPartes((l) => l.map((x, j) => (j === i ? { ...x, forma: e.target.value as typeof p.forma } : x)))}
+                        className="h-10 rounded-xl border border-border bg-card px-2 text-small text-foreground"
+                      >
+                        {FORMAS_PAGAMENTO.map((f) => (
+                          <option key={f.id} value={f.id}>{f.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <Input label="Valor" inputMode="decimal" value={p.valor} onChange={(e) => setPartes((l) => l.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))} placeholder="0,00" />
+                    <label className="col-span-2 flex flex-col gap-1 text-xs font-medium text-foreground sm:col-span-1">
+                      Carteira
+                      <select
+                        value={p.contaId}
+                        onChange={(e) => setPartes((l) => l.map((x, j) => (j === i ? { ...x, contaId: e.target.value } : x)))}
+                        className="h-10 rounded-xl border border-border bg-card px-2 text-small text-foreground"
+                      >
+                        {contas.map((c) => (
+                          <option key={c.id} value={c.id}>{c.nome}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      aria-label="Remover forma"
+                      disabled={partes.length <= 2}
+                      onClick={() => setPartes((l) => l.filter((_, j) => j !== i))}
+                      className="flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setPartes((l) => [...l, { forma: "pix", valor: "", contaId: contaId }])}
+                  className="flex items-center gap-1.5 self-start text-xs font-semibold text-primary-700 hover:underline"
+                >
+                  <PlusCircle size={14} /> Adicionar forma
+                </button>
+                {(() => {
+                  const soma = partes.reduce((a, x) => a + (Number(x.valor.replace(/\./g, "").replace(",", ".")) || 0), 0);
+                  const total = Number(quantidade.replace(",", ".") || 0) * Number(valorUnitario.replace(",", ".") || 0);
+                  const falta = Number((total - soma).toFixed(2));
+                  return (
+                    <p className={`text-xs ${Math.abs(falta) < 0.01 ? "text-primary-700" : "text-amber-800"}`}>
+                      Soma: {formatarMoeda(soma)} de {formatarMoeda(total)}
+                      {Math.abs(falta) >= 0.01 ? ` — ${falta > 0 ? "falta" : "sobra"} ${formatarMoeda(Math.abs(falta))}` : " — confere"}
+                    </p>
+                  );
+                })()}
               </div>
             )}
 

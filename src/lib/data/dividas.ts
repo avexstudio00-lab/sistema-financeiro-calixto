@@ -274,7 +274,20 @@ export function calcularMesesParaQuitar(valorRestante: number, pagamentoMensal: 
  * intactos em `transacoes` (só perdem a referência, `divida_id` vira null
  * via ON DELETE SET NULL), exatamente como uma conta fixa removida nunca
  * apaga os lançamentos que ela já gerou (ver seção 9 do contexto). */
-export async function removerDivida(dividaId: string) {
+export async function removerDivida(dividaId: string, estornarEntrada = false) {
+  // Item 6.7: dívida cadastrada por engano — opcionalmente desfaz também a
+  // entrada "Empréstimo recebido" que ela lançou na carteira.
+  if (estornarEntrada) {
+    const { data } = await supabase.from("dividas").select("transacao_origem_id").eq("id", dividaId).maybeSingle();
+    const tid = (data as { transacao_origem_id: string | null } | null)?.transacao_origem_id;
+    if (tid) {
+      const { data: t } = await supabase.from("transacoes").select("*").eq("id", tid).maybeSingle();
+      if (t) {
+        const { deletarTransacao } = await import("./transacoes");
+        await deletarTransacao(t as import("./tipos").Transacao);
+      }
+    }
+  }
   return supabase.from("dividas").delete().eq("id", dividaId);
 }
 
@@ -312,4 +325,46 @@ export async function excluirParcelaDivida(parcela: DividaParcela) {
   const { error } = await supabase.from("divida_parcelas").delete().eq("id", parcela.id);
   if (error) return { error };
   return recalcularTotalDivida(parcela.divida_id);
+}
+
+/**
+ * Item 6.7 / 12.7 (09/out/2026): ao cadastrar um passivo (empréstimo ou
+ * financiamento tomado), registra EM QUAL carteira o dinheiro entrou — um
+ * lançamento de entrada na categoria "Empréstimo recebido", ligado à dívida.
+ * Não é receita do mês (é dinheiro emprestado), então fica fora do resumo
+ * de "entradas" do relatório só se a pessoa quiser (categoria própria).
+ */
+export async function registrarEntradaDaDivida(params: {
+  dividaId: string;
+  usuarioId: string;
+  contaId: string;
+  valor: number;
+  data: string;
+  nome: string;
+}): Promise<{ error: { message: string } | null }> {
+  const { data: cat } = await supabase
+    .from("categorias")
+    .select("id")
+    .is("usuario_id", null)
+    .eq("nome", "Empréstimo recebido")
+    .eq("tipo", "receita")
+    .maybeSingle();
+  const { criarTransacao } = await import("./transacoes");
+  const { data, error } = await criarTransacao({
+    usuario_id: params.usuarioId,
+    conta_id: params.contaId,
+    categoria_id: (cat as { id: string } | null)?.id ?? null,
+    tipo: "receita",
+    valor: Number(params.valor.toFixed(2)),
+    descricao: `Empréstimo recebido: ${params.nome}`.slice(0, 120),
+    data: params.data,
+    forma_pagamento: "pix",
+    tipo_negocio: "pessoal",
+  });
+  if (error || !data) return { error: { message: "Não foi possível lançar a entrada na carteira." } };
+  await supabase
+    .from("dividas")
+    .update({ conta_destino_id: params.contaId, transacao_origem_id: (data as { id: string }).id })
+    .eq("id", params.dividaId);
+  return { error: null };
 }

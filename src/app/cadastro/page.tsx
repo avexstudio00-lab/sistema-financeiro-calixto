@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { PLANOS, PLANOS_PAGOS } from "@/lib/planos";
+import { PLANOS, PLANOS_PAGOS, resolverPlano } from "@/lib/planos";
 import { DIAS_TRIAL, PLANO_TRIAL } from "@/lib/data/assinaturas";
 
 function CadastroConteudo() {
@@ -17,7 +17,7 @@ function CadastroConteudo() {
   const searchParams = useSearchParams();
   const { signUp, user, perfil, recuperacaoSenhaAtiva } = useAuth();
 
-  const planoPretendido = searchParams.get("plano");
+  const planoPretendido = resolverPlano(searchParams.get("plano"));
 
   const [nome, setNome] = React.useState("");
   const [email, setEmail] = React.useState("");
@@ -26,6 +26,8 @@ function CadastroConteudo() {
   const [erro, setErro] = React.useState<string | null>(null);
   const [enviando, setEnviando] = React.useState(false);
   const [precisaConfirmarEmail, setPrecisaConfirmarEmail] = React.useState(false);
+  // LGPD (item 2.4): aceite obrigatório, desmarcado por padrão.
+  const [aceitouTermos, setAceitouTermos] = React.useState(false);
 
   React.useEffect(() => {
     // Mesma trava de "esqueci minha senha" das outras páginas de
@@ -46,6 +48,7 @@ function CadastroConteudo() {
     if (!email.includes("@")) return "Digite um e-mail válido.";
     if (senha.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
     if (senha !== confirmacao) return "As senhas não coincidem.";
+    if (!aceitouTermos) return "Para criar a conta, marque que leu e aceita os Termos de uso e a Política de privacidade.";
     return null;
   }
 
@@ -153,21 +156,34 @@ function CadastroConteudo() {
           autoComplete="new-password"
         />
 
-        {erro && <p className="text-small text-rose-600">{erro}</p>}
+        <label className="flex items-start gap-3 rounded-xl border border-border p-3 text-small text-foreground">
+          <input
+            type="checkbox"
+            checked={aceitouTermos}
+            onChange={(e) => setAceitouTermos(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-700"
+            required
+          />
+          <span>
+            Li e aceito os{" "}
+            <Link href="/termos" target="_blank" className="font-semibold text-primary-700 underline">
+              Termos de uso
+            </Link>{" "}
+            e a{" "}
+            <Link href="/privacidade" target="_blank" className="font-semibold text-primary-700 underline">
+              Política de privacidade
+            </Link>
+            , incluindo o tratamento dos meus dados para prestação do serviço.
+          </span>
+        </label>
 
-        <Button type="submit" size="lg" disabled={enviando} className="mt-2 w-full">
+        {erro && <p className="text-small text-rose-700">{erro}</p>}
+
+        <Button type="submit" size="lg" disabled={enviando || !aceitouTermos} className="mt-2 w-full">
           {enviando ? "Criando conta..." : "Criar minha conta"}
           {!enviando && <ArrowRight size={18} />}
         </Button>
       </form>
-
-      <p className="text-center text-small text-muted">
-        Ao criar sua conta, você concorda com os{" "}
-        <Link href="/termos" className="font-semibold text-primary-600">
-          Termos de uso e política de cancelamento
-        </Link>
-        .
-      </p>
 
       <p className="text-center text-small text-muted">
         Já tem uma conta?{" "}

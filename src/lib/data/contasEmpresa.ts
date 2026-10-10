@@ -85,7 +85,80 @@ export async function editarContaPagar(
 }
 
 export async function deletarContaPagar(id: string) {
+  // Item 6.3: se essa conta deu entrada de mercadoria no estoque, apagar a
+  // conta tira as unidades de volta (sem deixar estoque negativo).
+  const { data } = await supabase.from("contas_pagar").select("itens_estoque, estoque_lancado, grupo_parcela_id").eq("id", id).maybeSingle();
+  const linha = data as { itens_estoque: ItemCompraEstoque[] | null; estoque_lancado: boolean; grupo_parcela_id: string | null } | null;
+  // Compra parcelada: os itens ficam numa parcela só. Se ainda existem
+  // outras parcelas do grupo, os itens "mudam" para uma delas (o estoque só
+  // volta quando a ÚLTIMA parcela da compra for apagada).
+  if (linha?.estoque_lancado && Array.isArray(linha.itens_estoque) && linha.grupo_parcela_id) {
+    const { data: irmas } = await supabase
+      .from("contas_pagar")
+      .select("id")
+      .eq("grupo_parcela_id", linha.grupo_parcela_id)
+      .neq("id", id)
+      .order("parcela_numero", { ascending: true })
+      .limit(1);
+    const destino = ((irmas as { id: string }[]) ?? [])[0];
+    if (destino) {
+      const { error: erroMover } = await supabase
+        .from("contas_pagar")
+        .update({ itens_estoque: linha.itens_estoque, estoque_lancado: true })
+        .eq("id", destino.id);
+      if (erroMover) return { data: null, error: erroMover };
+      return supabase.from("contas_pagar").delete().eq("id", id);
+    }
+  }
+  if (linha?.estoque_lancado && Array.isArray(linha.itens_estoque)) {
+    for (const item of linha.itens_estoque) {
+      // eslint-disable-next-line no-await-in-loop
+      const { data: p } = await supabase.from("produtos").select("quantidade_estoque").eq("id", item.produto_id).maybeSingle();
+      if (p) {
+        // eslint-disable-next-line no-await-in-loop
+        await supabase
+          .from("produtos")
+          .update({ quantidade_estoque: Math.max(0, Number((p as { quantidade_estoque: number }).quantidade_estoque) - Number(item.quantidade)) })
+          .eq("id", item.produto_id);
+      }
+    }
+  }
   return supabase.from("contas_pagar").delete().eq("id", id);
+}
+
+/** Um produto comprado numa conta a pagar de fornecedor (item 6.3). */
+export interface ItemCompraEstoque {
+  produto_id: string;
+  nome: string;
+  quantidade: number;
+  custo_unitario: number;
+}
+
+/**
+ * Item 6.3 / 12.3 (09/out/2026): compra de mercadoria lançada como conta a
+ * pagar já dá entrada no estoque — sem lançar duas vezes. Soma as unidades e
+ * atualiza o custo do produto pelo custo médio ponderado (estoque antigo +
+ * compra nova). Os itens ficam gravados na conta (para o dossiê do
+ * fornecedor e para desfazer se a conta for apagada).
+ */
+export async function darEntradaEstoqueDaCompra(contaPagarId: string, itens: ItemCompraEstoque[]) {
+  const validos = itens.filter((i) => i.produto_id && i.quantidade > 0);
+  if (validos.length === 0) return { error: null };
+  for (const item of validos) {
+    // eslint-disable-next-line no-await-in-loop -- sequencial (leitura e escrita do mesmo estoque)
+    const { data: p } = await supabase.from("produtos").select("quantidade_estoque, custo").eq("id", item.produto_id).maybeSingle();
+    if (!p) continue;
+    const atual = Number((p as { quantidade_estoque: number }).quantidade_estoque);
+    const custoAtual = Number((p as { custo: number }).custo);
+    const novaQtd = atual + item.quantidade;
+    const custoMedio = novaQtd > 0 ? (Math.max(atual, 0) * custoAtual + item.quantidade * item.custo_unitario) / (Math.max(atual, 0) + item.quantidade) : item.custo_unitario;
+    // eslint-disable-next-line no-await-in-loop
+    await supabase
+      .from("produtos")
+      .update({ quantidade_estoque: novaQtd, custo: Number(custoMedio.toFixed(2)) })
+      .eq("id", item.produto_id);
+  }
+  return supabase.from("contas_pagar").update({ itens_estoque: validos, estoque_lancado: true }).eq("id", contaPagarId);
 }
 
 // ---------------------------------------------------------------------------

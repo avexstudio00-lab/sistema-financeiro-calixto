@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { usuarioAutenticadoDaRequisicao, supabaseAdmin } from "@/lib/supabase/admin";
 import { limitarRequisicoes, RESPOSTA_RATE_LIMIT } from "@/lib/rateLimit";
 import { registrarEventoSeguranca } from "@/lib/auditoria";
+import { z } from "zod";
+
+const esquemaInscricao = z
+  .object({
+    endpoint: z.string().url().startsWith("https://").max(2048),
+    expirationTime: z.number().nullable().optional(),
+    keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }).strict(),
+  })
+  .strict();
 
 export const runtime = "nodejs";
 
@@ -31,20 +40,19 @@ export async function POST(request: Request) {
     return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
   }
 
-  let corpo: { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+  let bruto: unknown;
   try {
-    corpo = await request.json();
+    bruto = await request.json();
   } catch {
     return NextResponse.json({ erro: "Corpo invalido." }, { status: 400 });
   }
-
-  const endpoint = corpo?.endpoint;
-  const p256dh = corpo?.keys?.p256dh;
-  const auth = corpo?.keys?.auth;
-
-  if (!endpoint || !p256dh || !auth || !/^https:\/\//.test(endpoint) || endpoint.length > 2048 || p256dh.length > 200 || auth.length > 100) {
+  // Item 2.5 (09/out/2026): validação estrita de esquema com Zod.
+  const validado = esquemaInscricao.safeParse(bruto);
+  if (!validado.success) {
     return NextResponse.json({ erro: "Inscricao push incompleta." }, { status: 400 });
   }
+  const { endpoint } = validado.data;
+  const { p256dh, auth } = validado.data.keys;
 
   const admin = supabaseAdmin();
   const { error } = await admin.from("push_subscriptions").upsert(

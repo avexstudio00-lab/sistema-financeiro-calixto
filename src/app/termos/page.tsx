@@ -124,9 +124,12 @@ export default function TermosPage() {
           <p className="text-body text-muted">
             Os dados financeiros que você cadastra são usados exclusivamente para fornecer as
             funcionalidades do próprio aplicativo (organização, gráficos, alertas e resumos). Não vendemos
-            dados de usuários a terceiros. Uma Política de privacidade detalhada, com o tratamento de dados
-            pessoais conforme a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018), será
-            disponibilizada separadamente.
+            dados de usuários a terceiros. O tratamento de dados pessoais conforme a Lei Geral de Proteção
+            de Dados (LGPD — Lei nº 13.709/2018) está descrito na{" "}
+            <Link href="/privacidade" className="font-semibold text-primary-700 underline">
+              Política de privacidade
+            </Link>
+            , que faz parte destes Termos.
           </p>
         </section>
 

@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Receipt, Trash2, AlertTriangle, Check, Pencil, Clock, Layers } from "lucide-react";
+import { Plus, Receipt, Trash2, AlertTriangle, Check, Pencil, Clock, Layers, Package, PlusCircle, X } from "lucide-react";
+import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
+import { listarProdutos } from "@/lib/data/produtos";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -18,6 +20,7 @@ import {
   listarContasPagar,
   criarContaPagar,
   criarContaPagarParcelada,
+  darEntradaEstoqueDaCompra,
   marcarContaPagarPaga,
   editarContaPagar,
   deletarContaPagar,
@@ -31,7 +34,7 @@ import {
 } from "@/lib/data/contasEmpresa";
 import { formatarMoeda } from "@/lib/format";
 import { diasEntre, hojeIso } from "@/lib/util/texto";
-import type { Fornecedor, Cliente, ContaPagar, ContaReceber, Conta } from "@/lib/data/tipos";
+import type { Fornecedor, Cliente, ContaPagar, ContaReceber, Conta, Produto } from "@/lib/data/tipos";
 
 type Titulo = ContaPagar | ContaReceber;
 
@@ -67,6 +70,11 @@ export default function ContasEmpresaPage() {
   const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
   const [clientes, setClientes] = React.useState<Cliente[]>([]);
   const [carteiras, setCarteiras] = React.useState<Conta[]>([]);
+  // Item 6.3/12.3: compra de mercadoria ligada ao estoque.
+  const [produtos, setProdutos] = React.useState<Produto[]>([]);
+  const [compraEstoque, setCompraEstoque] = React.useState(false);
+  const [itensCompra, setItensCompra] = React.useState<{ produtoId: string; quantidade: string; custo: string }[]>([]);
+  const [cadastrandoProduto, setCadastrandoProduto] = React.useState<number | null>(null);
   const [contasPagar, setContasPagar] = React.useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = React.useState<ContaReceber[]>([]);
   const [carregando, setCarregando] = React.useState(true);
@@ -96,13 +104,15 @@ export default function ContasEmpresaPage() {
     // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
     // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
     // estava aberto (pedido do usuário em 05/out/2026).
-    const [f, c, pagar, receber, cts] = await Promise.all([
+    const [f, c, pagar, receber, cts, prods] = await Promise.all([
       listarFornecedores(negocio.usuarioId),
       listarClientes(negocio.usuarioId),
       listarContasPagar(negocio.usuarioId),
       listarContasReceber(negocio.usuarioId),
       listarContas(negocio.usuarioId),
+      listarProdutos(negocio.usuarioId),
     ]);
+    setProdutos(prods);
     setFornecedores(f);
     setClientes(c);
     setContasPagar(pagar.filter((cp) => cp.categoria !== "das"));
@@ -123,6 +133,9 @@ export default function ContasEmpresaPage() {
     setParcelar(modo === "parcelado");
     setNumeroParcelas("2");
     setFiado(false);
+    setCompraEstoque(false);
+    setItensCompra([]);
+    setCadastrandoProduto(null);
     setErro(null);
     setFormAberto(true);
   }
@@ -136,6 +149,15 @@ export default function ContasEmpresaPage() {
     if (!valorNumero || valorNumero <= 0) return setErro("Digite um valor válido.");
     if (parcelar && (!Number.isInteger(n) || n < 2 || n > 60)) return setErro("Parcelas: um número entre 2 e 60.");
     if (aba === "receber" && fiado && !vinculoId) return setErro("Venda fiada precisa de um cliente.");
+    const itensValidos = aba === "pagar" && compraEstoque
+      ? itensCompra
+          .map((i) => {
+            const prod = produtos.find((p) => p.id === i.produtoId);
+            return { produto_id: i.produtoId, nome: prod?.nome ?? "", quantidade: Number(i.quantidade.replace(",", ".")) || 0, custo_unitario: parsearValor(i.custo) || 0 };
+          })
+          .filter((i) => i.produto_id && i.quantidade > 0)
+      : [];
+    if (aba === "pagar" && compraEstoque && itensValidos.length === 0) return setErro("Informe pelo menos um produto e a quantidade comprada.");
     setErro(null);
     setSalvando(true);
 
@@ -151,6 +173,12 @@ export default function ContasEmpresaPage() {
       };
       const r = parcelar ? await criarContaPagarParcelada(base, n) : await criarContaPagar(base);
       erroSalvar = r.error;
+      // Item 6.3: a compra já alimenta o estoque (itens gravados na 1ª parcela).
+      if (!r.error && itensValidos.length > 0) {
+        const linhas = (Array.isArray(r.data) ? r.data : r.data ? [r.data] : []) as { id: string; parcela_numero?: number | null }[];
+        const primeira = linhas.find((l) => !l.parcela_numero || l.parcela_numero === 1) ?? linhas[0];
+        if (primeira) await darEntradaEstoqueDaCompra(primeira.id, itensValidos);
+      }
     } else {
       const r = await criarContaReceberParcelada(
         {
@@ -410,6 +438,20 @@ export default function ContasEmpresaPage() {
       {formAberto && (
         <Card padding="lg" className="flex flex-col gap-4">
           <h2 className="text-h3 text-foreground">{aba === "pagar" ? "Nova conta a pagar" : "Nova conta a receber"}</h2>
+          {cadastrandoProduto != null && negocio && (
+            <FormularioProduto
+              compacto
+              contaMestreId={negocio.usuarioId}
+              fornecedores={fornecedores}
+              onCancelar={() => setCadastrandoProduto(null)}
+              onSalvo={(novo) => {
+                setProdutos((l) => [...l, novo]);
+                const linha = cadastrandoProduto;
+                setItensCompra((l) => l.map((x, j) => (j === linha ? { ...x, produtoId: novo.id, custo: String(novo.custo).replace(".", ",") } : x)));
+                setCadastrandoProduto(null);
+              }}
+            />
+          )}
           <form onSubmit={handleSalvar} className="flex flex-col gap-4">
             <Input
               label="Descrição"
@@ -480,6 +522,81 @@ export default function ContasEmpresaPage() {
                     <option key={v.id} value={v.id}>{v.nome}</option>
                   ))}
                 </select>
+              </div>
+            )}
+            {aba === "pagar" && (
+              <label className="flex items-center gap-2 text-small text-foreground">
+                <input
+                  type="checkbox"
+                  checked={compraEstoque}
+                  onChange={(e) => {
+                    setCompraEstoque(e.target.checked);
+                    if (e.target.checked && itensCompra.length === 0) setItensCompra([{ produtoId: "", quantidade: "1", custo: "" }]);
+                  }}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                <Package size={14} /> É compra de mercadoria para o estoque (dar entrada automática)
+              </label>
+            )}
+            {aba === "pagar" && compraEstoque && (
+              <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+                {itensCompra.map((item, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_70px_100px_auto] items-end gap-2">
+                    <label className="flex flex-col gap-1 text-xs font-medium text-foreground">
+                      Produto
+                      <select
+                        value={item.produtoId}
+                        onChange={(e) => {
+                          const prod = produtos.find((p) => p.id === e.target.value);
+                          setItensCompra((l) => l.map((x, j) => (j === i ? { ...x, produtoId: e.target.value, custo: x.custo || (prod ? String(prod.custo).replace(".", ",") : "") } : x)));
+                        }}
+                        className="h-10 rounded-xl border border-border bg-card px-2 text-small text-foreground"
+                      >
+                        <option value="">Escolha...</option>
+                        {produtos.map((p) => (
+                          <option key={p.id} value={p.id}>{p.nome} ({p.quantidade_estoque} em estoque)</option>
+                        ))}
+                      </select>
+                    </label>
+                    <Input label="Qtd." inputMode="decimal" value={item.quantidade} onChange={(e) => setItensCompra((l) => l.map((x, j) => (j === i ? { ...x, quantidade: e.target.value } : x)))} />
+                    <Input label="Custo un." inputMode="decimal" value={item.custo} onChange={(e) => setItensCompra((l) => l.map((x, j) => (j === i ? { ...x, custo: e.target.value } : x)))} placeholder="0,00" />
+                    <button
+                      type="button"
+                      aria-label="Remover produto"
+                      onClick={() => setItensCompra((l) => l.filter((_, j) => j !== i))}
+                      className="flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <X size={16} />
+                    </button>
+                    {!item.produtoId && (
+                      <button
+                        type="button"
+                        onClick={() => setCadastrandoProduto(i)}
+                        className="col-span-4 flex items-center gap-1 self-start text-xs font-semibold text-primary-700 hover:underline"
+                      >
+                        <PlusCircle size={13} /> Produto novo? Cadastrar
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setItensCompra((l) => [...l, { produtoId: "", quantidade: "1", custo: "" }])}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-primary-700 hover:underline"
+                  >
+                    <PlusCircle size={14} /> Adicionar produto
+                  </button>
+                  {(() => {
+                    const soma = itensCompra.reduce((a, x) => a + (Number(x.quantidade.replace(",", ".")) || 0) * (parsearValor(x.custo) || 0), 0);
+                    return soma > 0 ? (
+                      <button type="button" onClick={() => setValor(soma.toFixed(2).replace(".", ","))} className="text-xs text-muted hover:underline">
+                        Total dos itens: {formatarMoeda(soma)} (usar como valor)
+                      </button>
+                    ) : null;
+                  })()}
+                </div>
+                <p className="text-xs text-muted">Ao salvar, as unidades entram no estoque na hora e o custo do produto vira o custo médio.</p>
               </div>
             )}
             {erro && <p className="text-small text-rose-700">{erro}</p>}

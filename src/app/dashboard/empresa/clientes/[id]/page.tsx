@@ -9,10 +9,9 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { supabase } from "@/lib/supabase/client";
-import { listarVendas } from "@/lib/data/vendas";
-import { listarOrcamentos, ROTULO_STATUS_ORCAMENTO } from "@/lib/data/orcamentos";
-import { listarContasReceber, estaAtrasada } from "@/lib/data/contasEmpresa";
+import { ROTULO_STATUS_ORCAMENTO, resumirOrcamentosCliente } from "@/lib/data/orcamentos";
+import { estaAtrasada } from "@/lib/data/contasEmpresa";
+import { carregarDossieCliente } from "@/lib/data/clientes";
 import { formatarMoeda } from "@/lib/format";
 import { linkWhatsApp } from "@/lib/util/texto";
 import type { Cliente, ContaReceber, Orcamento, Venda } from "@/lib/data/tipos";
@@ -37,16 +36,13 @@ export default function DossieClientePage() {
     if (!negocio || !clienteId) return;
     (async () => {
       setCarregando(true);
-      const [{ data: c }, v, o, t] = await Promise.all([
-        supabase.from("clientes").select("*").eq("id", clienteId).maybeSingle(),
-        listarVendas(negocio.usuarioId),
-        veFinanceiro ? listarOrcamentos(negocio.usuarioId) : Promise.resolve([] as Orcamento[]),
-        veFinanceiro ? listarContasReceber(negocio.usuarioId) : Promise.resolve([] as ContaReceber[]),
-      ]);
-      setCliente((c as Cliente | null) ?? null);
-      setVendas(v.filter((x) => x.cliente_id === clienteId));
-      setOrcamentos(o.filter((x) => x.cliente_id === clienteId));
-      setTitulos(t.filter((x) => x.cliente_id === clienteId));
+      // Busca pela chave do cliente, sem o filtro de empresa ativa (item
+      // 4.16: corrige totais zerados de cliente recém-cadastrado).
+      const d = await carregarDossieCliente(clienteId, veFinanceiro);
+      setCliente(d.cliente);
+      setVendas(d.vendas);
+      setOrcamentos(d.orcamentos);
+      setTitulos(d.titulos);
       setCarregando(false);
     })();
   }, [negocio, clienteId, veFinanceiro]);
@@ -75,6 +71,7 @@ export default function DossieClientePage() {
   const vencidos = abertos.filter((t) => estaAtrasada(t));
   const totalAberto = abertos.reduce((acc, t) => acc + Number(t.valor), 0);
   const whats = linkWhatsApp(cliente.telefone, `Olá, ${cliente.nome.split(" ")[0]}!`);
+  const pipeline = resumirOrcamentosCliente(orcamentos);
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
@@ -128,6 +125,27 @@ export default function DossieClientePage() {
           </>
         )}
       </div>
+
+      {veFinanceiro && (
+        <Card className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-small text-muted">Total orçado (pipeline)</p>
+            <p className="text-h3 text-foreground">{formatarMoeda(pipeline.totalOrcado)}</p>
+          </div>
+          <div className="grid gap-2 text-small sm:grid-cols-3">
+            <p className="text-muted">Em análise ({pipeline.emAnalise.quantidade}): <strong className="text-foreground">{formatarMoeda(pipeline.emAnalise.valor)}</strong></p>
+            <p className="text-muted">Aprovados ({pipeline.aprovados.quantidade}): <strong className="text-primary-700">{formatarMoeda(pipeline.aprovados.valor)}</strong></p>
+            <p className="text-muted">Perdidos ({pipeline.perdidos.quantidade}): <strong className="text-rose-700">{formatarMoeda(pipeline.perdidos.valor)}</strong></p>
+          </div>
+          {pipeline.totalOrcado > 0 && (
+            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted/15">
+              <div className="bg-amber-500" style={{ width: `${(pipeline.emAnalise.valor / pipeline.totalOrcado) * 100}%` }} />
+              <div className="bg-primary-700" style={{ width: `${(pipeline.aprovados.valor / pipeline.totalOrcado) * 100}%` }} />
+              <div className="bg-rose-600" style={{ width: `${(pipeline.perdidos.valor / pipeline.totalOrcado) * 100}%` }} />
+            </div>
+          )}
+        </Card>
+      )}
 
       {veFinanceiro && abertos.length > 0 && (
         <Card padding="lg" className="flex flex-col gap-3">

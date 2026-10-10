@@ -55,7 +55,8 @@ export const PLANOS: Record<
     precoLabel: "R$ 45/mês",
     recursos: [
       "Módulo pessoal completo",
-      "Gestão de até 2 empresas independentes (cada uma com vendas, estoque, serviços, contas e fluxo de caixa)",
+      "Até 2 contas PJ distintas + 1 perfil pessoal",
+      "Fluxo de caixa, estoque, vendas, clientes e DRE (resultado do mês) em cada empresa",
       "Troque de empresa num clique, no topo da área Minha empresa",
     ],
   },
@@ -76,7 +77,8 @@ export const PLANOS: Record<
     preco: 55,
     precoLabel: "R$ 55/mês",
     recursos: [
-      "Tudo do Negócio Bi-Empresa (2 empresas)",
+      "Até 2 contas PJ + 1 perfil pessoal + gestão de grupo",
+      "Todos os recursos corporativos do Negócio Bi-Empresa",
       "Acesso multiusuário: até 2 convidados (sócio ou funcionário), cada um vinculado a uma empresa",
       "Visão consolidada do grupo econômico (as 2 empresas somadas)",
       "A vida pessoal de cada um continua 100% privada",
@@ -144,3 +146,29 @@ export function limiteEmpresas(plano: Plano): number {
 
 /** Lista de planos pagos válidos (usada na validação do checkout). */
 export const PLANOS_PAGOS = ["mensal", "clt", "avancado", "avancado_multi", "grupo", "grupo_multi"] as const;
+
+/**
+ * Identificadores comerciais dos planos corporativos (item 4.1 da
+ * especificação de 09/out/2026). No banco e no checkout os ids continuam
+ * `avancado_multi`/`grupo_multi` (já existem assinaturas e checagens de RLS
+ * com eles — renomear quebraria dados); estes nomes servem para links de
+ * venda, campanhas e integrações externas, e são traduzidos aqui.
+ */
+export const IDENTIFICADOR_COMERCIAL: Partial<Record<Plano, string>> = {
+  avancado_multi: "plano_duas_empresas",
+  grupo_multi: "plano_duas_empresas_grupo",
+};
+
+/** Matriz de acesso (RBAC) por plano corporativo. */
+export const LIMITES_PLANO_CORPORATIVO: Partial<Record<Plano, { contasPJ: number; perfisPessoais: number; multiusuario: boolean; modulos: string[] }>> = {
+  avancado_multi: { contasPJ: 2, perfisPessoais: 1, multiusuario: false, modulos: ["fluxo_caixa", "estoque", "vendas", "clientes", "dre"] },
+  grupo_multi: { contasPJ: 2, perfisPessoais: 1, multiusuario: true, modulos: ["fluxo_caixa", "estoque", "vendas", "clientes", "dre", "grupo", "multiusuario"] },
+};
+
+/** Aceita tanto o id interno quanto o identificador comercial. */
+export function resolverPlano(valor: string | null | undefined): Plano | null {
+  if (!valor) return null;
+  if (valor in PLANOS) return valor as Plano;
+  const achado = (Object.entries(IDENTIFICADOR_COMERCIAL) as [Plano, string][]).find(([, id]) => id === valor);
+  return achado ? achado[0] : null;
+}

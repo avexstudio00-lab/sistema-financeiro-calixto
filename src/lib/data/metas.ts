@@ -72,6 +72,64 @@ export async function excluirMeta(metaId: string) {
   return supabase.from("metas").delete().eq("id", metaId);
 }
 
+/** Quantos lançamentos do extrato vieram de aportes/retiradas desta meta. */
+export async function contarLancamentosDaMeta(metaId: string): Promise<number> {
+  const { count } = await supabase.from("transacoes").select("id", { count: "exact", head: true }).eq("meta_id", metaId);
+  return count ?? 0;
+}
+
+export type DestinoExclusaoMeta = "manter_na_conta" | "estornar";
+
+/**
+ * Exclusão com destino dos recursos (item 3.6 da especificação de
+ * 09/out/2026), quando a meta tem saldo:
+ * (A) "manter_na_conta": o valor guardado volta como saldo disponível na
+ *     carteira escolhida (lançamento de entrada "Resgate da meta excluída").
+ * (B) "estornar": apaga os lançamentos de aporte/retirada que a meta gerou no
+ *     extrato (o saldo das carteiras volta a ser como se eles não existissem).
+ * Nos dois casos o investimento espelho (CDB/Poupança — [Meta]) é removido,
+ * porque o dinheiro dele foi tratado acima.
+ */
+export async function excluirMetaComDestino(
+  meta: Meta,
+  usuarioId: string,
+  destino: DestinoExclusaoMeta | null,
+  contaId: string | null
+): Promise<{ error: { message: string } | null }> {
+  const saldo = Number(meta.valor_atual);
+  if (saldo > 0 && destino === "manter_na_conta") {
+    if (!contaId) return { error: { message: "Escolha a carteira que recebe o valor." } };
+    const { lancarMovimentoInvestimento } = await import("./movimentosInvestimento");
+    const id = await lancarMovimentoInvestimento({
+      usuarioId,
+      contaId,
+      sentido: "resgate",
+      valor: saldo,
+      data: new Date().toISOString().slice(0, 10),
+      descricao: `Resgate da meta excluída: ${meta.nome}`,
+    });
+    if (!id) return { error: { message: "Não foi possível lançar o valor na carteira." } };
+  }
+  if (saldo > 0 && destino === "estornar") {
+    const { data } = await supabase.from("transacoes").select("*").eq("meta_id", meta.id);
+    // Aportes antigos (antes de 10/out/2026) não guardavam meta_id: sem
+    // lançamento para estornar, apagar faria o dinheiro sumir. Bloqueia.
+    if (!data || data.length === 0) {
+      return { error: { message: "Esta meta não tem lançamentos no extrato para estornar (aportes antigos). Use a opção (A)." } };
+    }
+    const { deletarTransacao } = await import("./transacoes");
+    for (const t of (data as import("./tipos").Transacao[]) ?? []) {
+      // eslint-disable-next-line no-await-in-loop -- sequencial: cada estorno ajusta saldo
+      await deletarTransacao(t);
+    }
+  }
+  if (meta.investimento_id && destino) {
+    await supabase.from("investimentos").delete().eq("id", meta.investimento_id);
+  }
+  const { error } = await supabase.from("metas").delete().eq("id", meta.id);
+  return { error: error ? { message: error.message } : null };
+}
+
 // ---------------------------------------------------------------------------
 // Item 5.13 da especificação de 03/out/2026: custódia da meta.
 // Quando o dinheiro da meta fica aplicado (poupança ou CDB com liquidez), a
@@ -141,6 +199,7 @@ export async function movimentarMeta(params: {
       valor,
       data: new Date().toISOString().slice(0, 10),
       descricao: `${sentido === "aporte" ? "Aporte na meta" : "Retirada da meta"}: ${meta.nome}`,
+      metaId: meta.id,
     });
   }
   const base = params.valorAtualEspelho ?? Number(meta.valor_atual);

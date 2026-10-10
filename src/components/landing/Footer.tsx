@@ -31,6 +31,9 @@ export function Footer() {
           <Link href="/termos" className="text-small text-muted hover:text-foreground">
             Termos de uso
           </Link>
+          <Link href="/privacidade" className="text-small text-muted hover:text-foreground">
+            Privacidade
+          </Link>
         </nav>
 
         <p className="text-small text-muted">

@@ -13,10 +13,11 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   criarMeta,
   listarMetas,
-  atualizarProgressoMeta,
   atualizarMeta,
   calcularMesesParaAtingirMeta,
-  excluirMeta,
+  excluirMetaComDestino,
+  contarLancamentosDaMeta,
+  type DestinoExclusaoMeta,
   definirCustodiaMeta,
   movimentarMeta,
   sincronizarMetaComEspelho,
@@ -137,19 +138,15 @@ export default function MetasPage() {
     const valor = Number((valorTexto ?? "").replace(",", "."));
     if (!valor || valor <= 0) return;
     const contaId = carteiraPorMeta[meta.id] || null;
-    // Meta com custódia definida: o dinheiro sempre passa por uma carteira.
-    if (meta.custodia && !contaId) {
-      setErroMeta((prev) => ({ ...prev, [meta.id]: "Escolha a carteira." }));
+    // Itens 6.6/12.6 (09/out/2026): nada de saldo "virtual" — todo aporte
+    // sai de uma carteira e toda retirada volta pra uma, com lançamento no
+    // extrato ligado à meta.
+    if (!contaId) {
+      setErroMeta((prev) => ({ ...prev, [meta.id]: sentido === "aporte" ? "Escolha de qual carteira sai o aporte." : "Escolha em qual carteira entra a retirada." }));
       return;
     }
     setErroMeta((prev) => ({ ...prev, [meta.id]: "" }));
-    if (!meta.custodia && !contaId) {
-      const base = Number(meta.valor_atual);
-      const novoValor = sentido === "aporte" ? base + valor : Math.max(0, base - valor);
-      await atualizarProgressoMeta(meta.id, novoValor, novoValor >= Number(meta.valor_meta) ? "concluida" : "em_andamento");
-    } else {
-      await movimentarMeta({ meta, usuarioId: user.id, valor, sentido, contaId, valorAtualEspelho: espelhos.get(meta.id) ?? null });
-    }
+    await movimentarMeta({ meta, usuarioId: user.id, valor, sentido, contaId, valorAtualEspelho: espelhos.get(meta.id) ?? null });
     setAporteEmEdicao((prev) => ({ ...prev, [meta.id]: "" }));
     carregar();
   }
@@ -173,12 +170,32 @@ export default function MetasPage() {
   const [confirmandoExclusao, setConfirmandoExclusao] = React.useState(false);
   const [excluindo, setExcluindo] = React.useState(false);
 
+  // Item 3.6 (09/out/2026): meta com saldo exige decidir o destino do dinheiro.
+  const [destinoExclusao, setDestinoExclusao] = React.useState<DestinoExclusaoMeta | null>(null);
+  const [contaDestinoExclusao, setContaDestinoExclusao] = React.useState("");
+  const [lancamentosDaMeta, setLancamentosDaMeta] = React.useState<number | null>(null);
+  const [erroExclusao, setErroExclusao] = React.useState<string | null>(null);
+
+  async function abrirConfirmacaoExclusao(meta: Meta) {
+    setConfirmandoExclusao(true);
+    setDestinoExclusao(null);
+    setErroExclusao(null);
+    setContaDestinoExclusao(meta.conta_origem_id ?? "");
+    setLancamentosDaMeta(await contarLancamentosDaMeta(meta.id));
+  }
+
   async function handleExcluirMeta(meta: Meta) {
+    if (!user) return;
+    const temSaldo = Number(meta.valor_atual) > 0;
+    if (temSaldo && !destinoExclusao) {
+      setErroExclusao("Escolha o que fazer com o valor guardado.");
+      return;
+    }
     setExcluindo(true);
-    const { error } = await excluirMeta(meta.id);
+    const { error } = await excluirMetaComDestino(meta, user.id, temSaldo ? destinoExclusao : null, contaDestinoExclusao || null);
     setExcluindo(false);
     if (error) {
-      console.error("Erro ao excluir meta:", error.message);
+      setErroExclusao(error.message);
       return;
     }
     setConfirmandoExclusao(false);
@@ -317,7 +334,7 @@ export default function MetasPage() {
                     {!confirmandoExclusao ? (
                       <button
                         type="button"
-                        onClick={() => setConfirmandoExclusao(true)}
+                        onClick={() => void abrirConfirmacaoExclusao(meta)}
                         className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-small font-semibold text-rose-700 hover:bg-rose-50"
                       >
                         <Trash2 size={16} />
@@ -327,14 +344,34 @@ export default function MetasPage() {
                       <div className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
                         <p className="text-small font-semibold text-rose-800">Excluir &quot;{meta.nome}&quot;?</p>
                         {Number(meta.valor_atual) > 0 ? (
-                          <p className="text-small text-rose-800">
-                            Essa meta tem <strong>{formatarMoeda(Number(meta.valor_atual))}</strong> guardados. Ao
-                            excluir, o dinheiro <strong>continua exatamente onde está</strong> (nas carteiras e no
-                            investimento espelho, se houver) — só o acompanhamento da meta é apagado.
-                          </p>
+                          <div className="flex flex-col gap-2">
+                            <p className="text-small text-rose-800">
+                              Essa meta tem <strong>{formatarMoeda(Number(meta.valor_atual))}</strong> guardados. Os valores
+                              aportados nesta meta devem:
+                            </p>
+                            <label className="flex items-start gap-2 text-small text-foreground">
+                              <input type="radio" name={`destino-${meta.id}`} checked={destinoExclusao === "manter_na_conta"} onChange={() => setDestinoExclusao("manter_na_conta")} className="mt-1 accent-emerald-700" />
+                              <span><strong>(A)</strong> Ser mantidos como saldo disponível na conta bancária de origem</span>
+                            </label>
+                            {destinoExclusao === "manter_na_conta" && (
+                              <SeletorCarteira valor={contaDestinoExclusao} onChange={setContaDestinoExclusao} rotulo="Volta pra qual carteira?" />
+                            )}
+                            <label className="flex items-start gap-2 text-small text-foreground">
+                              <input type="radio" name={`destino-${meta.id}`} checked={destinoExclusao === "estornar"} disabled={lancamentosDaMeta === 0} onChange={() => setDestinoExclusao("estornar")} className="mt-1 accent-emerald-700" />
+                              <span>
+                                <strong>(B)</strong> Gerar estorno de despesa no extrato contábil
+                                {lancamentosDaMeta === 0
+                                  ? " — indisponível: os aportes desta meta são antigos e não têm lançamento ligado no extrato"
+                                  : lancamentosDaMeta != null
+                                    ? ` (desfaz ${lancamentosDaMeta} lançamento(s) de aporte/retirada desta meta)`
+                                    : ""}
+                              </span>
+                            </label>
+                          </div>
                         ) : (
                           <p className="text-small text-rose-800">Essa ação não pode ser desfeita.</p>
                         )}
+                        {erroExclusao && <p className="text-small font-medium text-rose-800">{erroExclusao}</p>}
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="tertiary" onClick={() => setConfirmandoExclusao(false)}>
                             Cancelar
@@ -417,7 +454,7 @@ export default function MetasPage() {
                   valor={carteiraPorMeta[meta.id] ?? ""}
                   onChange={(id) => setCarteiraPorMeta((prev) => ({ ...prev, [meta.id]: id }))}
                   rotulo="Carteira do aporte/retirada"
-                  ajuda={meta.custodia ? "O aporte sai dessa carteira e a retirada volta pra ela." : "Opcional: escolha uma carteira pra movimentar o saldo de verdade."}
+                  ajuda="Obrigatório: o aporte sai dessa carteira e a retirada volta pra ela (fica registrado no extrato)."
                 />
                 {erroMeta[meta.id] && <p className="text-xs text-rose-600">{erroMeta[meta.id]}</p>}
                 <div className="flex flex-wrap gap-2">

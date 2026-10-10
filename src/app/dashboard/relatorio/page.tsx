@@ -6,7 +6,9 @@ import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { listarTransacoes } from "@/lib/data/transacoes";
+import { supabase } from "@/lib/supabase/client";
+import { listarTransacoes, ehMovimentoInterno } from "@/lib/data/transacoes";
+import { CATEGORIA_APLICACAO, CATEGORIA_RESGATE } from "@/lib/data/movimentosInvestimento";
 import { listarMetas } from "@/lib/data/metas";
 import { listarLimites } from "@/lib/data/limitesCategoria";
 import { listarDividasComProgresso } from "@/lib/data/dividas";
@@ -17,8 +19,32 @@ import { TIPO_META } from "@/components/dashboard/InvestimentoCard";
 import { formatarMoeda, NOMES_MES } from "@/lib/format";
 import type { Conta, DividaComProgresso, Investimento, LimiteCategoria, Meta, Transacao } from "@/lib/data/tipos";
 
+/** Todos os lançamentos desde `inicio` (paginado: o Supabase devolve no
+ * máximo 1000 linhas por consulta — sem isso o saldo diário saía errado). */
+async function listarTransacoesPaginado(usuarioId: string, inicio: string): Promise<Transacao[]> {
+  const todas: Transacao[] = [];
+  for (let de = 0; de < 100000; de += 1000) {
+    const { data, error } = await supabase
+      .from("transacoes")
+      .select("id, conta_id, tipo, valor, data, tipo_negocio, transferencia_id")
+      .eq("usuario_id", usuarioId)
+      .gte("data", inicio)
+      .order("data", { ascending: true })
+      .order("id", { ascending: true })
+      .range(de, de + 999);
+    if (error || !data) break;
+    todas.push(...(data as Transacao[]));
+    if (data.length < 1000) break;
+  }
+  return todas;
+}
+
 interface DadosRelatorio {
   transacoes: Transacao[];
+  /** Lançamentos do 1º dia do mês até hoje — reconstroem o saldo diário e a
+   * conciliação por carteira (o saldo de hoje é conhecido; voltando no tempo
+   * se chega ao saldo de cada dia do mês). */
+  ateHoje: Transacao[];
   metas: Meta[];
   limites: LimiteCategoria[];
   dividas: DividaComProgresso[];
@@ -46,8 +72,9 @@ export default function RelatorioMensalPage() {
     const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
     const incluiEmpresa = podeAcessarMinhaEmpresa && negocio && papel !== "funcionario";
     (async () => {
-      const [transacoes, metas, limites, dividas, investimentos, contas, empresa] = await Promise.all([
+      const [transacoes, ateHoje, metas, limites, dividas, investimentos, contas, empresa] = await Promise.all([
         listarTransacoes(user.id, { inicio, fim }),
+        listarTransacoesPaginado(user.id, inicio),
         listarMetas(user.id),
         listarLimites(user.id),
         listarDividasComProgresso(user.id),
@@ -55,7 +82,7 @@ export default function RelatorioMensalPage() {
         listarContas(user.id),
         incluiEmpresa ? gerarResumoEmpresa(negocio.usuarioId, ano, mes) : Promise.resolve(null),
       ]);
-      setDados({ transacoes, metas, limites, dividas, investimentos, contas, empresa });
+      setDados({ transacoes, ateHoje, metas, limites, dividas, investimentos, contas, empresa });
     })();
   }, [user, ano, mes, negocio, podeAcessarMinhaEmpresa, papel]);
 
@@ -65,9 +92,58 @@ export default function RelatorioMensalPage() {
     setAno(d.getFullYear());
   }
 
-  const pessoais = (dados?.transacoes ?? []).filter((t) => t.tipo_negocio !== "negocio");
+  // Item 4.18 (09/out/2026): transferências entre carteiras próprias e
+  // movimentos de investimento (aplicar/resgatar) só trocam dinheiro de
+  // lugar — ficam FORA de entradas/saídas, listados à parte. Antes eles
+  // inflavam as "Entradas" (ex.: resgate de CDB contava como receita).
+  const ehMovInvestimento = (t: Transacao) =>
+    t.categorias?.nome === CATEGORIA_APLICACAO || t.categorias?.nome === CATEGORIA_RESGATE || t.categorias?.nome === "Empréstimo recebido";
+  const todosPessoais = (dados?.transacoes ?? []).filter((t) => t.tipo_negocio !== "negocio");
+  const internos = todosPessoais.filter((t) => ehMovimentoInterno(t) || ehMovInvestimento(t));
+  const pessoais = todosPessoais.filter((t) => !ehMovimentoInterno(t) && !ehMovInvestimento(t));
   const entradas = pessoais.filter((t) => t.tipo === "receita").reduce((a, t) => a + Number(t.valor), 0);
   const saidas = pessoais.filter((t) => t.tipo === "despesa").reduce((a, t) => a + Number(t.valor), 0);
+  const totalInternoEntrada = internos.filter((t) => t.tipo === "receita").reduce((a, t) => a + Number(t.valor), 0);
+  const totalInternoSaida = internos.filter((t) => t.tipo === "despesa").reduce((a, t) => a + Number(t.valor), 0);
+  const entradasPorCategoria = new Map<string, number>();
+  for (const t of pessoais.filter((x) => x.tipo === "receita")) {
+    const nome = t.categorias?.nome ?? "Sem categoria";
+    entradasPorCategoria.set(nome, (entradasPorCategoria.get(nome) ?? 0) + Number(t.valor));
+  }
+  const entradasOrdenadas = Array.from(entradasPorCategoria.entries()).sort((a, b) => b[1] - a[1]);
+
+  // Conciliação por carteira e evolução do saldo global no mês: parte do
+  // saldo de hoje e desfaz os lançamentos (com carteira) feitos depois de
+  // cada data.
+  const contasAtivas = (dados?.contas ?? []).filter((c) => c.tipo !== "cartao_credito");
+  const idsAtivas = new Set(contasAtivas.map((c) => c.id));
+  const deltaT = (t: Transacao) => (t.tipo === "receita" ? Number(t.valor) : -Number(t.valor));
+  const inicioMesIso = `${ano}-${String(mes).padStart(2, "0")}-01`;
+  const fimMesIso = `${ano}-${String(mes).padStart(2, "0")}-${String(new Date(ano, mes, 0).getDate()).padStart(2, "0")}`;
+  const conciliacao = contasAtivas.map((c) => {
+    const movs = (dados?.ateHoje ?? []).filter((t) => t.conta_id === c.id);
+    const depoisDoMes = movs.filter((t) => t.data > fimMesIso).reduce((a, t) => a + deltaT(t), 0);
+    const doMes = movs.filter((t) => t.data >= inicioMesIso && t.data <= fimMesIso);
+    const saldoFinal = Number(c.saldo_atual) - depoisDoMes;
+    const ent = doMes.filter((t) => t.tipo === "receita").reduce((a, t) => a + Number(t.valor), 0);
+    const sai = doMes.filter((t) => t.tipo === "despesa").reduce((a, t) => a + Number(t.valor), 0);
+    return { conta: c, saldoInicial: saldoFinal - ent + sai, entradas: ent, saidas: sai, saldoFinal };
+  });
+  const diasNoMes = new Date(ano, mes, 0).getDate();
+  const hojeIso = new Date().toISOString().slice(0, 10);
+  const evolucaoSaldo: { dia: number; saldo: number }[] = [];
+  {
+    const movsContas = (dados?.ateHoje ?? []).filter((t) => t.conta_id && idsAtivas.has(t.conta_id));
+    const saldoHoje = contasAtivas.reduce((a, c) => a + Number(c.saldo_atual), 0);
+    for (let d = 1; d <= diasNoMes; d++) {
+      const iso = `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (iso > hojeIso) break;
+      const depois = movsContas.filter((t) => t.data > iso).reduce((a, t) => a + deltaT(t), 0);
+      evolucaoSaldo.push({ dia: d, saldo: saldoHoje - depois });
+    }
+  }
+  const minSaldo = Math.min(0, ...evolucaoSaldo.map((p) => p.saldo));
+  const maxSaldo = Math.max(1, ...evolucaoSaldo.map((p) => p.saldo));
   const porCategoria = new Map<string, { nome: string; valor: number }>();
   for (const t of pessoais.filter((x) => x.tipo === "despesa")) {
     const chave = t.categoria_id ?? "sem";
@@ -122,17 +198,18 @@ export default function RelatorioMensalPage() {
         <p className="py-8 text-center text-body text-muted">Montando relatório...</p>
       ) : (
         <>
+          <h2 className="text-h3 text-foreground">Resumo executivo da competência</h2>
           <section className="grid gap-4 sm:grid-cols-3 print:grid-cols-3">
             <Card className="flex flex-col gap-1 print:shadow-none">
-              <p className="text-small text-muted">Entradas</p>
+              <p className="text-small text-muted">Receitas (entradas reais)</p>
               <p className="text-h3 text-accent-700">{formatarMoeda(entradas)}</p>
             </Card>
             <Card className="flex flex-col gap-1 print:shadow-none">
-              <p className="text-small text-muted">Saídas</p>
+              <p className="text-small text-muted">Custos (saídas reais)</p>
               <p className="text-h3 text-rose-700">{formatarMoeda(saidas)}</p>
             </Card>
             <Card className="flex flex-col gap-1 print:shadow-none">
-              <p className="text-small text-muted">Sobrou</p>
+              <p className="text-small text-muted">Resultado líquido</p>
               <p className={`text-h3 ${entradas - saidas >= 0 ? "text-foreground" : "text-rose-700"}`}>{formatarMoeda(entradas - saidas)}</p>
             </Card>
           </section>
@@ -151,6 +228,126 @@ export default function RelatorioMensalPage() {
               <p className="text-h3 text-foreground">{formatarMoeda(totalDividas)}</p>
             </Card>
           </section>
+
+          {internos.length > 0 && (
+            <p className="text-xs text-muted">
+              Fora dos totais acima (dinheiro que só mudou de lugar): transferências entre carteiras, aplicações/resgates de
+              investimentos e empréstimos recebidos — {formatarMoeda(totalInternoEntrada)} de entrada e {formatarMoeda(totalInternoSaida)} de saída em {internos.length} lançamento(s).
+            </p>
+          )}
+
+          <Card className="flex flex-col gap-2 print:break-inside-avoid print:shadow-none">
+            <h2 className="text-h3 text-foreground">Entradas x saídas</h2>
+            <div className="grid gap-4 sm:grid-cols-2 print:grid-cols-2">
+              <div className="flex flex-col gap-1">
+                <p className="text-small font-semibold text-accent-700">Entradas por origem</p>
+                {entradasOrdenadas.length === 0 ? (
+                  <p className="text-small text-muted">Nenhuma entrada no mês.</p>
+                ) : (
+                  entradasOrdenadas.map(([nome, valor]) => (
+                    <p key={nome} className="flex justify-between gap-2 text-small">
+                      <span className="text-foreground">{nome}</span>
+                      <span className="text-muted">{formatarMoeda(valor)}</span>
+                    </p>
+                  ))
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <p className="text-small font-semibold text-rose-700">Saídas por categoria</p>
+                {categorias.length === 0 ? (
+                  <p className="text-small text-muted">Nenhuma saída no mês.</p>
+                ) : (
+                  categorias.map(([id, c]) => (
+                    <p key={id} className="flex justify-between gap-2 text-small">
+                      <span className="text-foreground">{c.nome}</span>
+                      <span className="text-muted">{formatarMoeda(c.valor)}</span>
+                    </p>
+                  ))
+                )}
+              </div>
+            </div>
+          </Card>
+
+          <Card className="flex flex-col gap-2 print:break-inside-avoid print:shadow-none">
+            <h2 className="text-h3 text-foreground">Maiores centros de custo</h2>
+            {categorias.length === 0 ? (
+              <p className="text-small text-muted">Nenhum gasto no mês.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {categorias.slice(0, 8).map(([id, c]) => {
+                  const pct = saidas > 0 ? (c.valor / saidas) * 100 : 0;
+                  return (
+                    <div key={id} className="flex flex-col gap-1">
+                      <div className="flex justify-between gap-2 text-small">
+                        <span className="text-foreground">{c.nome}</span>
+                        <span className="text-muted">{formatarMoeda(c.valor)} · {pct.toFixed(1)}%</span>
+                      </div>
+                      <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted/15 print:border print:border-slate-300">
+                        <div className="h-full rounded-full bg-rose-600 print:bg-slate-700" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          <Card className="flex flex-col gap-2 print:break-inside-avoid print:shadow-none">
+            <h2 className="text-h3 text-foreground">Evolução do saldo global no mês</h2>
+            {evolucaoSaldo.length === 0 ? (
+              <p className="text-small text-muted">Mês ainda não começou.</p>
+            ) : (
+              <svg viewBox={`0 0 ${Math.max(evolucaoSaldo.length, 2) * 10} 60`} className="h-28 w-full" preserveAspectRatio="none" role="img" aria-label="Saldo somado das carteiras dia a dia">
+                <polyline
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  className="text-primary-700"
+                  points={evolucaoSaldo
+                    .map((p, i) => `${i * 10 + 5},${55 - ((p.saldo - minSaldo) / (maxSaldo - minSaldo || 1)) * 50}`)
+                    .join(" ")}
+                />
+              </svg>
+            )}
+            {evolucaoSaldo.length > 0 && (
+              <p className="text-xs text-muted">
+                Dia 1: {formatarMoeda(evolucaoSaldo[0].saldo)} · Dia {evolucaoSaldo[evolucaoSaldo.length - 1].dia}:{" "}
+                {formatarMoeda(evolucaoSaldo[evolucaoSaldo.length - 1].saldo)} (carteiras, sem cartão de crédito)
+              </p>
+            )}
+          </Card>
+
+          <Card className="flex flex-col gap-2 print:break-inside-avoid print:shadow-none">
+            <h2 className="text-h3 text-foreground">Conciliação das contas ativas</h2>
+            {conciliacao.length === 0 ? (
+              <p className="text-small text-muted">Nenhuma carteira cadastrada.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px]">
+                  <thead>
+                    <tr>
+                      <th className={th}>Carteira</th>
+                      <th className={th}>Saldo inicial</th>
+                      <th className={th}>Entradas</th>
+                      <th className={th}>Saídas</th>
+                      <th className={th}>Saldo final</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conciliacao.map((c) => (
+                      <tr key={c.conta.id}>
+                        <td className={td}>{c.conta.nome}</td>
+                        <td className={td}>{formatarMoeda(c.saldoInicial)}</td>
+                        <td className={td}>{formatarMoeda(c.entradas)}</td>
+                        <td className={td}>{formatarMoeda(c.saidas)}</td>
+                        <td className={td}>{formatarMoeda(c.saldoFinal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
 
           <Card className="flex flex-col gap-2 print:break-inside-avoid print:shadow-none">
             <h2 className="text-h3 text-foreground">Gastos por categoria</h2>

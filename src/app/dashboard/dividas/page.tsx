@@ -11,6 +11,7 @@ import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   criarDivida,
+  registrarEntradaDaDivida,
   listarDividasComProgresso,
   alternarQuitadaDivida,
   removerDivida,
@@ -73,6 +74,10 @@ export default function DividasPage() {
   const [numeroParcelas, setNumeroParcelas] = React.useState("2");
   const [dataPrimeiraParcela, setDataPrimeiraParcela] = React.useState("");
   const [valorEmprestado, setValorEmprestado] = React.useState("");
+  // Item 6.7: em qual carteira entrou o dinheiro (ou "dívida antiga").
+  const [contaEntradaId, setContaEntradaId] = React.useState("");
+  const [valorEntrada, setValorEntrada] = React.useState("");
+  const [dataEntrada, setDataEntrada] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
   const [removendoId, setRemovendoId] = React.useState<string | null>(null);
@@ -157,10 +162,35 @@ export default function DividasPage() {
       };
     }
 
+    if (!contaEntradaId) {
+      setErro("Diga em qual carteira o dinheiro entrou (ou marque que é uma dívida antiga).");
+      return;
+    }
+    const valorRecebido = valorEntrada.trim()
+      ? Number(valorEntrada.trim().replace(/\./g, "").replace(",", "."))
+      : parcelamento?.valorEmprestado ?? valor;
+    if (contaEntradaId !== "antiga" && (!Number.isFinite(valorRecebido) || valorRecebido <= 0)) {
+      setErro("Valor recebido inválido.");
+      return;
+    }
+
     setErro(null);
     setSalvando(true);
-    await criarDivida(user.id, nome.trim(), valor, parcelamento);
+    const { data: novaDivida } = await criarDivida(user.id, nome.trim(), valor, parcelamento);
+    if (novaDivida && contaEntradaId !== "antiga") {
+      const r = await registrarEntradaDaDivida({
+        dividaId: (novaDivida as { id: string }).id,
+        usuarioId: user.id,
+        contaId: contaEntradaId,
+        valor: valorRecebido,
+        data: dataEntrada,
+        nome: nome.trim(),
+      });
+      if (r.error) setErro(`Dívida criada, mas ${r.error.message.toLowerCase()}`);
+    }
     setSalvando(false);
+    setContaEntradaId("");
+    setValorEntrada("");
     setNome("");
     setValorTotal("");
     setParcelada(false);
@@ -176,8 +206,8 @@ export default function DividasPage() {
     carregar();
   }
 
-  async function handleRemover(dividaId: string) {
-    await removerDivida(dividaId);
+  async function handleRemover(dividaId: string, estornarEntrada = false) {
+    await removerDivida(dividaId, estornarEntrada);
     setRemovendoId(null);
     carregar();
   }
@@ -343,6 +373,44 @@ export default function DividasPage() {
               </div>
             )}
 
+            <div className="flex flex-col gap-2 rounded-xl bg-muted/5 p-3">
+              <label htmlFor="conta-entrada-divida" className="text-small font-medium text-foreground">
+                Em qual carteira o dinheiro entrou?
+              </label>
+              <select
+                id="conta-entrada-divida"
+                value={contaEntradaId}
+                onChange={(e) => setContaEntradaId(e.target.value)}
+                className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
+              >
+                <option value="">Escolha...</option>
+                {contas
+                  .filter((c) => c.tipo !== "cartao_credito")
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} — saldo {formatarMoeda(Number(c.saldo_atual))}
+                    </option>
+                  ))}
+                <option value="antiga">Dívida antiga / o dinheiro já está no saldo (não lançar)</option>
+              </select>
+              {contaEntradaId && contaEntradaId !== "antiga" && (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="sm:w-44">
+                    <Input
+                      label="Quanto entrou"
+                      inputMode="decimal"
+                      value={valorEntrada}
+                      onChange={(e) => setValorEntrada(e.target.value)}
+                      placeholder={valorEmprestado || valorTotal || "0,00"}
+                      helperText="Vazio = valor emprestado (ou o total)"
+                    />
+                  </div>
+                  <DateMaskInput label="Data" value={dataEntrada} onChange={setDataEntrada} />
+                </div>
+              )}
+              <span className="text-xs text-muted">Gera um lançamento de entrada (&quot;Empréstimo recebido&quot;) no extrato dessa carteira.</span>
+            </div>
+
             <Button type="submit" disabled={salvando} className="sm:w-auto sm:self-start">
               {salvando ? "Salvando..." : "Criar"}
             </Button>
@@ -507,6 +575,15 @@ export default function DividasPage() {
                             Sim, apagar
                           </Button>
                         </div>
+                        {divida.transacao_origem_id && (
+                          <Button
+                            variant="tertiary"
+                            className="text-rose-700"
+                            onClick={() => handleRemover(divida.id, true)}
+                          >
+                            Apagar e desfazer a entrada do empréstimo na carteira (cadastrei por engano)
+                          </Button>
+                        )}
                       </div>
                     ) : (
                       <div className="flex flex-wrap gap-2">

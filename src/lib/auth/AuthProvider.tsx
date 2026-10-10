@@ -5,6 +5,8 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import { podeAcessarNegocio, type Plano } from "@/lib/planos";
 import { iniciarTrial, verificarExpiracaoTrial } from "@/lib/data/assinaturas";
+import { avisarLogoutOutrasAbas, escutarLogoutOutrasAbas, limparDadosLocais } from "@/lib/seguranca/sessaoLocal";
+import { registrarConsentimentoPendente, VERSAO_DOCUMENTOS_LEGAIS } from "@/lib/data/lgpd";
 
 export interface Perfil {
   id: string;
@@ -121,6 +123,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setPerfil(perfilCarregado);
       await carregarPapelENegocio(userId, perfilCarregado);
+      // Grava o aceite dos termos (feito no cadastro) se ainda não foi
+      // registrado no servidor. Não bloqueia nada: falha só vira log.
+      if (perfilCarregado) void registrarConsentimentoPendente();
     },
     [carregarPapelENegocio]
   );
@@ -190,7 +195,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password: senha,
-      options: { data: { nome } },
+      // LGPD (item 2.4): o aceite marcado no cadastro vai junto nos
+      // metadados; o registro formal (com IP e hora UTC) é gravado pelo
+      // servidor assim que existir sessão — ver registrarConsentimentoPendente.
+      options: { data: { nome, consentimento_versao: VERSAO_DOCUMENTOS_LEGAIS, consentimento_em: new Date().toISOString() } },
     });
     if (error) return { error: error.message, precisaConfirmarEmail: false };
 
@@ -262,10 +270,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [carregarPerfil]);
 
   const signOut = React.useCallback(async () => {
-    await supabase.auth.signOut();
+    // Item 2.5 (09/out/2026): antes de sair, tenta mandar o que ficou na
+    // fila offline (pra não perder anotação), depois revoga a sessão em
+    // TODOS os aparelhos/abas (scope "global" = refresh tokens invalidados
+    // no servidor), avisa as outras abas e apaga os dados temporários.
+    try {
+      const { sincronizarFila } = await import("@/lib/offline/sincronizarFila");
+      await sincronizarFila();
+    } catch {
+      // sem internet: a fila fica guardada no aparelho até o próximo login
+    }
+    const { error: erroSaida } = await supabase.auth.signOut({ scope: "global" }).catch((e: unknown) => ({ error: e }));
+    // Sem rede (ou servidor fora), ao menos encerra a sessão neste aparelho.
+    if (erroSaida) await supabase.auth.signOut({ scope: "local" });
+    avisarLogoutOutrasAbas();
+    limparDadosLocais();
     setPerfil(null);
     setPapel("dono");
     setNegocio(null);
+  }, []);
+
+  // Outra aba saiu: esta sai também, na hora.
+  React.useEffect(() => {
+    return escutarLogoutOutrasAbas(() => {
+      supabase.auth.signOut({ scope: "local" }).finally(() => {
+        limparDadosLocais();
+        usuarioIdRef.current = null;
+        setUser(null);
+        setSession(null);
+        setPerfil(null);
+        setPapel("dono");
+        setNegocio(null);
+      });
+    });
   }, []);
 
   const resetPassword = React.useCallback(async (email: string) => {

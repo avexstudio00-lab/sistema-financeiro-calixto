@@ -2,7 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Plus, Wallet, Pencil, Trash2, Landmark, PiggyBank, Banknote, CreditCard, Smartphone, Receipt } from "lucide-react";
+import { Plus, Wallet, Pencil, Trash2, Landmark, PiggyBank, Banknote, CreditCard, Smartphone, Receipt, ArrowLeftRight, Building2 } from "lucide-react";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
+import { criarTransferencia } from "@/lib/data/transacoes";
+import { dividirCarteirasPessoalEmpresa, type DivisaoCarteiras } from "@/lib/data/patrimonio";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -52,7 +55,17 @@ const INPUT_DIA_CLASSE =
   "h-11 w-full rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100";
 
 export default function CarteirasPage() {
-  const { user } = useAuth();
+  const { user, papel, podeAcessarMinhaEmpresa } = useAuth();
+  const temEmpresaPropria = papel === "dono" && podeAcessarMinhaEmpresa;
+  const [divisao, setDivisao] = React.useState<DivisaoCarteiras | null>(null);
+  // Transferência entre carteiras (item 4.18: não conta como gasto/receita).
+  const [transferindo, setTransferindo] = React.useState(false);
+  const [transfOrigem, setTransfOrigem] = React.useState("");
+  const [transfDestino, setTransfDestino] = React.useState("");
+  const [transfValor, setTransfValor] = React.useState("");
+  const [transfData, setTransfData] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [transfDescricao, setTransfDescricao] = React.useState("");
+  const [transfErro, setTransfErro] = React.useState<string | null>(null);
   const [contas, setContas] = React.useState<Conta[]>([]);
   const [transacoes, setTransacoes] = React.useState<Transacao[]>([]);
   const [carregando, setCarregando] = React.useState(true);
@@ -79,7 +92,38 @@ export default function CarteirasPage() {
     setContas(listaContas);
     setTransacoes(listaTransacoes);
     setCarregando(false);
-  }, [user]);
+    // Item 6.9: quanto de cada carteira é caixa da empresa x pessoal.
+    if (temEmpresaPropria) setDivisao(await dividirCarteirasPessoalEmpresa(user.id, listaContas));
+  }, [user, temEmpresaPropria]);
+
+  async function handleTransferir(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    const valor = Number(transfValor.trim().replace(/\./g, "").replace(",", "."));
+    if (!transfOrigem || !transfDestino) {
+      setTransfErro("Escolha a carteira de origem e a de destino.");
+      return;
+    }
+    setSalvando(true);
+    setTransfErro(null);
+    const { error } = await criarTransferencia({
+      usuarioId: user.id,
+      contaOrigemId: transfOrigem,
+      contaDestinoId: transfDestino,
+      valor,
+      data: transfData,
+      descricao: transfDescricao,
+    });
+    setSalvando(false);
+    if (error) {
+      setTransfErro((error as { message?: string }).message ?? "Não foi possível transferir.");
+      return;
+    }
+    setTransferindo(false);
+    setTransfValor("");
+    setTransfDescricao("");
+    carregar();
+  }
 
   const totalFaturaAberta = React.useCallback(
     (conta: Conta) => {
@@ -206,6 +250,76 @@ export default function CarteirasPage() {
           <p className={`text-h2 ${saldoTotal >= 0 ? "text-primary-500" : "text-red-500"}`}>
             {formatarMoeda(saldoTotal)}
           </p>
+        </Card>
+      )}
+
+      {contas.length >= 2 && (
+        <Card className="flex flex-col gap-3">
+          {!transferindo ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTransferindo(true);
+                setTransfErro(null);
+              }}
+              className="flex items-center gap-2 self-start text-small font-semibold text-primary-700 hover:underline"
+            >
+              <ArrowLeftRight size={16} />
+              Transferir entre carteiras
+            </button>
+          ) : (
+            <form onSubmit={handleTransferir} className="flex flex-col gap-3">
+              <p className="text-small font-semibold text-foreground">Transferir entre carteiras</p>
+              <p className="text-xs text-muted">
+                Dinheiro que só muda de lugar (ex.: corrente → poupança, pagar a fatura do cartão). Não conta como gasto nem como
+                receita nos relatórios.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-small font-medium text-foreground">
+                  Sai de
+                  <select value={transfOrigem} onChange={(e) => setTransfOrigem(e.target.value)} className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground">
+                    <option value="">Escolha...</option>
+                    {contas.filter((c) => c.tipo !== "cartao_credito").map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome} — {formatarMoeda(Number(c.saldo_atual))}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1.5 text-small font-medium text-foreground">
+                  Entra em
+                  <select value={transfDestino} onChange={(e) => setTransfDestino(e.target.value)} className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground">
+                    <option value="">Escolha...</option>
+                    {contas.filter((c) => c.id !== transfOrigem).map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                </label>
+                <Input label="Valor" inputMode="decimal" value={transfValor} onChange={(e) => setTransfValor(e.target.value)} placeholder="0,00" />
+                <DateMaskInput label="Data" value={transfData} onChange={setTransfData} />
+              </div>
+              <Input label="Descrição (opcional)" value={transfDescricao} onChange={(e) => setTransfDescricao(e.target.value)} placeholder="Ex.: Pagamento da fatura" />
+              {transfErro && <p className="text-small text-rose-700">{transfErro}</p>}
+              <div className="flex gap-2">
+                <Button type="submit" disabled={salvando}>{salvando ? "Transferindo..." : "Transferir"}</Button>
+                <Button type="button" variant="tertiary" onClick={() => setTransferindo(false)}>Cancelar</Button>
+              </div>
+            </form>
+          )}
+        </Card>
+      )}
+
+      {divisao && divisao.porConta.some((d) => d.mista) && (
+        <Card className="flex flex-col gap-2">
+          <p className="flex items-center gap-2 text-small font-semibold text-foreground">
+            <Building2 size={16} className="text-primary-700" />
+            Pessoal x empresa nas suas carteiras
+          </p>
+          <p className="text-xs text-muted">
+            Calculado pelos lançamentos marcados como &quot;negócio&quot; em cada carteira: entradas da empresa − saídas da empresa.
+          </p>
+          <div className="grid gap-1 text-small sm:grid-cols-2">
+            <p className="text-muted">Total da empresa: <strong className="text-foreground">{formatarMoeda(divisao.totalEmpresa)}</strong></p>
+            <p className="text-muted">Total pessoal: <strong className="text-foreground">{formatarMoeda(divisao.totalPessoal)}</strong></p>
+          </div>
         </Card>
       )}
 
@@ -345,6 +459,17 @@ export default function CarteirasPage() {
                   {c.limite !== null && (
                     <p className="text-xs text-muted">Limite: {formatarMoeda(Number(c.limite))}</p>
                   )}
+                  {(() => {
+                    const d = divisao?.porConta.find((x) => x.conta.id === c.id);
+                    if (!d || !d.mista) return null;
+                    return (
+                      <div className="mt-2 flex flex-col gap-0.5 rounded-xl bg-muted/5 p-2 text-xs">
+                        <span className="font-semibold text-foreground">Conta mista</span>
+                        <span className="text-muted">Empresa (capital de giro): <strong className="text-foreground">{formatarMoeda(d.parteEmpresa)}</strong></span>
+                        <span className="text-muted">Pessoal: <strong className="text-foreground">{formatarMoeda(d.partePessoal)}</strong></span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {fatura && (

@@ -46,6 +46,7 @@ export function ConfigProLabore({ config, retiradoNoMes, sobrou, podeEditar, onS
     config.valor_pro_labore !== null ? String(config.valor_pro_labore).replace(".", ",") : ""
   );
   const [modo, setModo] = React.useState<ModoSemProLabore | null>(config.modo_sem_pro_labore);
+  const [diaTexto, setDiaTexto] = React.useState(config.dia_pro_labore != null ? String(config.dia_pro_labore) : "");
   const [observacao, setObservacao] = React.useState(config.observacao_retiradas ?? "");
   const [salvando, setSalvando] = React.useState(false);
   const [mensagem, setMensagem] = React.useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
@@ -55,20 +56,28 @@ export function ConfigProLabore({ config, retiradoNoMes, sobrou, podeEditar, onS
     setRetira(config.retira_pro_labore);
     setValorTexto(config.valor_pro_labore !== null ? String(config.valor_pro_labore).replace(".", ",") : "");
     setModo(config.modo_sem_pro_labore);
+    setDiaTexto(config.dia_pro_labore != null ? String(config.dia_pro_labore) : "");
     setObservacao(config.observacao_retiradas ?? "");
   }, [config]);
 
   const valorDigitado = valorTexto.trim() === "" ? null : Number(valorTexto.replace(/\./g, "").replace(",", "."));
   const valorInvalido = valorDigitado !== null && (!Number.isFinite(valorDigitado) || valorDigitado < 0);
+  const diaDigitado = diaTexto.trim() === "" ? null : Number(diaTexto);
+  const diaInvalido = diaDigitado !== null && (!Number.isInteger(diaDigitado) || diaDigitado < 1 || diaDigitado > 31);
 
   const alterado =
     retira !== config.retira_pro_labore ||
     (retira && (valorInvalido ? true : valorDigitado) !== config.valor_pro_labore) ||
+    (retira && diaDigitado !== (config.dia_pro_labore ?? null)) ||
     (!retira && (modo !== config.modo_sem_pro_labore || (observacao.trim() || null) !== config.observacao_retiradas));
 
   async function salvar() {
     if (valorInvalido) {
       setMensagem({ tipo: "erro", texto: "Valor do pró-labore inválido." });
+      return;
+    }
+    if (diaInvalido) {
+      setMensagem({ tipo: "erro", texto: "Dia de competência: um número de 1 a 31." });
       return;
     }
     setSalvando(true);
@@ -79,6 +88,7 @@ export function ConfigProLabore({ config, retiradoNoMes, sobrou, podeEditar, onS
       valor_pro_labore: retira ? valorDigitado : null,
       modo_sem_pro_labore: retira ? null : modo,
       observacao_retiradas: retira ? null : observacao.trim() || null,
+      dia_pro_labore: retira ? diaDigitado : null,
     };
     const { error } = await salvarConfigNegocio(nova);
     setSalvando(false);
@@ -109,7 +119,7 @@ export function ConfigProLabore({ config, retiradoNoMes, sobrou, podeEditar, onS
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-small font-medium text-foreground">Retira pró-labore?</span>
+        <span className="text-small font-medium text-foreground">A administração realiza retirada mensal de Pró-labore?</span>
         <div className="flex gap-2" role="radiogroup" aria-label="Retira pró-labore?">
           {[true, false].map((opcao) => (
             <button
@@ -142,6 +152,18 @@ export function ConfigProLabore({ config, retiradoNoMes, sobrou, podeEditar, onS
           onChange={(e) => setValorTexto(e.target.value)}
           error={valorInvalido ? "Digite um valor válido." : undefined}
           helperText="Entra como saída prevista todo mês no fluxo de caixa."
+        />
+      ) : null}
+      {retira ? (
+        <Input
+          label="Dia padrão da retirada (competência)"
+          inputMode="numeric"
+          placeholder="Ex: 5"
+          value={diaTexto}
+          disabled={!podeEditar}
+          onChange={(e) => setDiaTexto(e.target.value.replace(/\D/g, "").slice(0, 2))}
+          error={diaInvalido ? "Dia de 1 a 31." : undefined}
+          helperText="Usado para lembrar e prever a saída no dia certo de cada mês."
         />
       ) : (
         <div className="flex flex-col gap-3">

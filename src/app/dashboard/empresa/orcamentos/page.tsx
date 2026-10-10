@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, ClipboardList, Trash2, Pencil, MessageCircle, BellRing, CheckCircle2, X } from "lucide-react";
+import { Plus, ClipboardList, Trash2, Pencil, MessageCircle, BellRing, CheckCircle2, X, PlusCircle } from "lucide-react";
+import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
+import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -153,6 +155,25 @@ export default function OrcamentosPage() {
     setFormAberto(true);
   }
 
+  // Itens 6.5/12.5/12.11: cadastrar no catálogo sem sair do orçamento — o
+  // item novo já entra na linha com o MESMO id (vira a mesma entidade na
+  // venda quando o orçamento fechar).
+  const [cadastroCatalogo, setCadastroCatalogo] = React.useState<{ tipo: "produto" | "servico"; linha: number } | null>(null);
+
+  function usarItemNovo(linha: number, tipo: "produto" | "servico", item: Produto | Servico) {
+    setLinhas((atual) =>
+      atual.map((l, i) => {
+        if (i !== linha) return l;
+        if (tipo === "produto") {
+          const p = item as Produto;
+          return { ...l, tipo, ref_id: p.id, descricao: p.nome, valor: String(p.preco_venda).replace(".", ",") };
+        }
+        const sv = item as Servico;
+        return { ...l, tipo, ref_id: sv.id, descricao: sv.nome, valor: sv.preco_fixo && sv.preco != null ? String(sv.preco).replace(".", ",") : l.valor };
+      })
+    );
+  }
+
   function escolherItem(indice: number, chave: string) {
     setLinhas((atual) =>
       atual.map((l, i) => {
@@ -288,6 +309,32 @@ export default function OrcamentosPage() {
               <X size={18} />
             </button>
           </div>
+          {cadastroCatalogo && negocio && cadastroCatalogo.tipo === "produto" && (
+            <FormularioProduto
+              compacto
+              contaMestreId={negocio.usuarioId}
+              nomeInicial={linhas[cadastroCatalogo.linha]?.descricao ?? ""}
+              onCancelar={() => setCadastroCatalogo(null)}
+              onSalvo={(novo) => {
+                setProdutos((lista) => [...lista, novo]);
+                usarItemNovo(cadastroCatalogo.linha, "produto", novo);
+                setCadastroCatalogo(null);
+              }}
+            />
+          )}
+          {cadastroCatalogo && negocio && cadastroCatalogo.tipo === "servico" && (
+            <FormularioServico
+              compacto
+              contaMestreId={negocio.usuarioId}
+              nomeInicial={linhas[cadastroCatalogo.linha]?.descricao ?? ""}
+              onCancelar={() => setCadastroCatalogo(null)}
+              onSalvo={(novo) => {
+                setServicos((lista) => [...lista, novo]);
+                usarItemNovo(cadastroCatalogo.linha, "servico", novo);
+                setCadastroCatalogo(null);
+              }}
+            />
+          )}
           <form onSubmit={salvar} className="flex flex-col gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Input label="Título" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex: Site institucional" autoFocus />
@@ -328,6 +375,22 @@ export default function OrcamentosPage() {
                         </optgroup>
                       )}
                     </select>
+                  )}
+                  {l.tipo === "servico" && (() => {
+                    const sv = servicos.find((x) => x.id === l.ref_id);
+                    return sv && !sv.preco_fixo ? (
+                      <p className="text-xs text-muted">Base de orçamento: {rotuloPrecoServico(sv)} — defina o valor desta proposta abaixo.</p>
+                    ) : null;
+                  })()}
+                  {!l.ref_id && !cadastroCatalogo && (
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => setCadastroCatalogo({ tipo: "servico", linha: i })} className="flex items-center gap-1 text-xs font-semibold text-primary-700 hover:underline">
+                        <PlusCircle size={13} /> Cadastrar como serviço
+                      </button>
+                      <button type="button" onClick={() => setCadastroCatalogo({ tipo: "produto", linha: i })} className="flex items-center gap-1 text-xs font-semibold text-primary-700 hover:underline">
+                        <PlusCircle size={13} /> Cadastrar como produto
+                      </button>
+                    </div>
                   )}
                   <div className="grid gap-2 sm:grid-cols-[1fr_90px_140px_auto]">
                     <Input

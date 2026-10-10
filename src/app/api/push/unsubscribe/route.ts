@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { usuarioAutenticadoDaRequisicao, supabaseAdmin } from "@/lib/supabase/admin";
 import { registrarEventoSeguranca } from "@/lib/auditoria";
+import { limitarRequisicoes, RESPOSTA_RATE_LIMIT } from "@/lib/rateLimit";
+import { z } from "zod";
+
+const esquema = z.object({ endpoint: z.string().url().max(2048) }).strict();
 
 export const runtime = "nodejs";
 
 /** Remove a inscricao push deste navegador -- chamado quando a pessoa
- * desativa notificacoes em `NotificacoesPush.tsx`. Sem rate limit: e uma
- * acao de "desligar", nunca vale a pena bloquear. */
+ * desativa notificacoes em `NotificacoesPush.tsx`. Rate limit folgado (30/h) so
+ * pra conter abuso; validacao Zod no corpo (item 2.5). */
 export async function POST(request: Request) {
   const autenticado = await usuarioAutenticadoDaRequisicao(request);
   if (!autenticado) {
@@ -14,16 +18,22 @@ export async function POST(request: Request) {
   }
   const { user } = autenticado;
 
-  let corpo: { endpoint?: string };
+  const { permitido } = await limitarRequisicoes("push-unsubscribe", { limite: 30, janelaSegundos: 3600, identificador: user.id });
+  if (!permitido) {
+    return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
+  }
+
+  let bruto: unknown;
   try {
-    corpo = await request.json();
+    bruto = await request.json();
   } catch {
     return NextResponse.json({ erro: "Corpo invalido." }, { status: 400 });
   }
-
-  if (!corpo?.endpoint) {
+  const validado = esquema.safeParse(bruto);
+  if (!validado.success) {
     return NextResponse.json({ erro: "Endpoint nao informado." }, { status: 400 });
   }
+  const corpo = validado.data;
 
   const admin = supabaseAdmin();
   // Sempre filtrado por usuario_id (nao so endpoint) -- ninguem pode apagar

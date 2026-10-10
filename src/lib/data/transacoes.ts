@@ -38,6 +38,11 @@ export interface NovaTransacao {
   /** Empresa (só lançamentos do negócio) — preenchida sozinha a partir da
    * empresa escolhida na área "Minha empresa" (ver empresaAtiva.ts). */
   empresa_id?: string | null;
+  /** Aporte/retirada de meta (itens 6.6/12.6): rastreia a origem. */
+  meta_id?: string | null;
+  /** Par de uma transferência entre contas próprias (mesmo UUID nas duas
+   * pontas). Fica fora dos totais de entradas/saídas dos relatórios. */
+  transferencia_id?: string | null;
 }
 
 export async function listarTransacoes(
@@ -177,7 +182,12 @@ export async function criarCompraParcelada(base: NovaTransacao, numeroParcelas: 
   return { data: resultados.map((r) => r.data), error: erro };
 }
 
-export async function atualizarTransacao(transacaoOriginal: Transacao, dados: NovaTransacao) {
+export async function atualizarTransacao(transacaoOriginal: Transacao, dadosEntrada: NovaTransacao) {
+  // Ponta de transferência: o tipo (saída/entrada) não muda — senão o par
+  // deixaria de se anular. Valor e data são espelhados na outra ponta abaixo.
+  const dados: NovaTransacao = transacaoOriginal.transferencia_id
+    ? { ...dadosEntrada, tipo: transacaoOriginal.tipo, transferencia_id: transacaoOriginal.transferencia_id }
+    : dadosEntrada;
   const { data, error } = await supabase
     .from("transacoes")
     .update(dados)
@@ -197,13 +207,62 @@ export async function atualizarTransacao(transacaoOriginal: Transacao, dados: No
     if (dados.conta_id) {
       await ajustarSaldoConta(dados.conta_id, deltaDe(dados.tipo, dados.valor));
     }
+    // Transferência: a outra ponta acompanha valor e data (senão o dinheiro
+    // "some" ou "aparece" entre as carteiras).
+    if (transacaoOriginal.transferencia_id) {
+      const { data: pares } = await supabase
+        .from("transacoes")
+        .select("*")
+        .eq("transferencia_id", transacaoOriginal.transferencia_id)
+        .neq("id", transacaoOriginal.id);
+      for (const par of (pares as Transacao[]) ?? []) {
+        if (Number(par.valor) === Number(dados.valor) && par.data === dados.data) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const { error: e2 } = await supabase.from("transacoes").update({ valor: dados.valor, data: dados.data }).eq("id", par.id);
+        if (!e2 && par.conta_id) {
+          // eslint-disable-next-line no-await-in-loop
+          await ajustarSaldoConta(par.conta_id, deltaDe(par.tipo, Number(dados.valor)) - deltaDe(par.tipo, Number(par.valor)));
+        }
+      }
+    }
   }
 
   return { data, error };
 }
 
+/** Remove o arquivo de comprovante (bucket privado) antes de apagar a linha
+ * — item 2.6: apagar o lançamento apaga o arquivo físico também. */
+async function removerComprovante(transacaoId: string) {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+    await fetch(`/api/comprovantes?transacao_id=${encodeURIComponent(transacaoId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // sem rede: o arquivo fica órfão no bucket privado (sem link nenhum).
+  }
+}
+
 export async function deletarTransacao(transacao: Transacao) {
+  if (transacao.comprovante_path) await removerComprovante(transacao.id);
   const { error } = await supabase.from("transacoes").delete().eq("id", transacao.id);
+
+  // Transferência entre contas: apagar uma ponta apaga a outra (e devolve o
+  // saldo das duas carteiras).
+  if (!error && transacao.transferencia_id) {
+    const { data: pares } = await supabase
+      .from("transacoes")
+      .select("*")
+      .eq("transferencia_id", transacao.transferencia_id)
+      .neq("id", transacao.id);
+    for (const par of (pares as Transacao[]) ?? []) {
+      const { error: e2 } = await supabase.from("transacoes").delete().eq("id", par.id);
+      if (!e2 && par.conta_id) await ajustarSaldoConta(par.conta_id, -deltaDe(par.tipo, Number(par.valor)));
+    }
+  }
 
   if (!error && transacao.conta_id) {
     await ajustarSaldoConta(
@@ -219,7 +278,7 @@ export async function deletarTransacao(transacao: Transacao) {
  * procura outro lançamento do mesmo usuário, do mesmo tipo e valor, com data
  * até 3 dias de diferença e descrição parecida (similaridade de Levenshtein
  * >= 0,8). Só avisa — quem decide se grava mesmo assim é a pessoa. */
-export async function buscarPossivelDuplicata(dados: Pick<NovaTransacao, "usuario_id" | "tipo" | "valor" | "descricao" | "data">): Promise<Transacao | null> {
+export async function buscarPossivelDuplicata(dados: Pick<NovaTransacao, "usuario_id" | "tipo" | "valor" | "descricao" | "data"> & { conta_id?: string | null }): Promise<Transacao | null> {
   const base = new Date(dados.data + "T00:00:00");
   const inicio = new Date(base);
   inicio.setDate(inicio.getDate() - 3);
@@ -235,6 +294,87 @@ export async function buscarPossivelDuplicata(dados: Pick<NovaTransacao, "usuari
     .gte("data", iso(inicio))
     .lte("data", iso(fim))
     .limit(20);
-  const candidatas = (data as Transacao[]) ?? [];
+  // Item 5.7 (09/out/2026): "na mesma conta" — quando a conta foi escolhida,
+  // só compara com lançamentos daquela conta.
+  const candidatas = ((data as Transacao[]) ?? []).filter((t) => !dados.conta_id || t.conta_id === dados.conta_id);
   return candidatas.find((t) => similaridade(t.descricao ?? "", dados.descricao) >= 0.8) ?? null;
+}
+
+export const NOME_CATEGORIA_TRANSFERENCIA = "Transferência entre contas";
+
+/** Ids das categorias padrão "Transferência entre contas" (receita e despesa). */
+export async function idsCategoriasTransferencia(): Promise<string[]> {
+  const { data } = await supabase
+    .from("categorias")
+    .select("id")
+    .is("usuario_id", null)
+    .eq("nome", NOME_CATEGORIA_TRANSFERENCIA);
+  return ((data as { id: string }[]) ?? []).map((c) => c.id);
+}
+
+/** true para movimentos internos (não são receita nem despesa de verdade):
+ * transferência entre contas próprias. Usado para os relatórios não somarem
+ * dinheiro que só mudou de bolso (item 4.18). */
+export function ehMovimentoInterno(t: Pick<Transacao, "transferencia_id" | "categorias">): boolean {
+  return !!t.transferencia_id || t.categorias?.nome === NOME_CATEGORIA_TRANSFERENCIA;
+}
+
+/**
+ * Transferência entre carteiras próprias (ex.: conta corrente → poupança,
+ * ou pagar a fatura do cartão). Gera duas pontas ligadas pelo mesmo
+ * `transferencia_id`: saída na origem e entrada no destino, na categoria
+ * "Transferência entre contas". Não conta como gasto nem como receita nos
+ * relatórios (item 4.18 da especificação de 09/out/2026).
+ */
+export async function criarTransferencia(params: {
+  usuarioId: string;
+  contaOrigemId: string;
+  contaDestinoId: string;
+  valor: number;
+  data: string;
+  descricao?: string;
+}) {
+  if (params.contaOrigemId === params.contaDestinoId) return { error: { message: "Escolha carteiras diferentes." } };
+  if (!(params.valor > 0)) return { error: { message: "Digite um valor maior que zero." } };
+  const { data: cats } = await supabase
+    .from("categorias")
+    .select("id, tipo")
+    .is("usuario_id", null)
+    .eq("nome", NOME_CATEGORIA_TRANSFERENCIA);
+  const lista = (cats as { id: string; tipo: "receita" | "despesa" }[]) ?? [];
+  const catSaida = lista.find((c) => c.tipo === "despesa")?.id ?? null;
+  const catEntrada = lista.find((c) => c.tipo === "receita")?.id ?? null;
+  const transferenciaId = crypto.randomUUID();
+  const valor = Number(params.valor.toFixed(2));
+  const descricao = (params.descricao?.trim() || "Transferência entre contas").slice(0, 120);
+  const saida = await criarTransacao({
+    usuario_id: params.usuarioId,
+    conta_id: params.contaOrigemId,
+    categoria_id: catSaida,
+    tipo: "despesa",
+    valor,
+    descricao,
+    data: params.data,
+    forma_pagamento: "pix",
+    tipo_negocio: "pessoal",
+    transferencia_id: transferenciaId,
+  });
+  if (saida.error) return { error: saida.error };
+  const entrada = await criarTransacao({
+    usuario_id: params.usuarioId,
+    conta_id: params.contaDestinoId,
+    categoria_id: catEntrada,
+    tipo: "receita",
+    valor,
+    descricao,
+    data: params.data,
+    forma_pagamento: "pix",
+    tipo_negocio: "pessoal",
+    transferencia_id: transferenciaId,
+  });
+  if (entrada.error && saida.data) {
+    await deletarTransacao(saida.data as Transacao);
+    return { error: entrada.error };
+  }
+  return { error: null };
 }

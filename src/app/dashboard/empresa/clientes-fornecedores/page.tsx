@@ -13,6 +13,9 @@ import {
   criarCliente,
   atualizarCliente,
   deletarCliente,
+  totaisPorCliente,
+  totaisPorFornecedor,
+  type TotaisParceiro,
 } from "@/lib/data/clientes";
 import {
   listarFornecedores,
@@ -20,10 +23,8 @@ import {
   atualizarFornecedor,
   deletarFornecedor,
 } from "@/lib/data/fornecedores";
-import { listarVendas } from "@/lib/data/vendas";
-import { listarContasPagar, listarContasReceber } from "@/lib/data/contasEmpresa";
 import { formatarMoeda } from "@/lib/format";
-import type { Cliente, Fornecedor, Venda, ContaPagar, ContaReceber } from "@/lib/data/tipos";
+import type { Cliente, Fornecedor } from "@/lib/data/tipos";
 
 export default function ClientesFornecedoresPage() {
   const { papel, negocio } = useAuth();
@@ -40,9 +41,10 @@ export default function ClientesFornecedoresPage() {
 
   const [clientes, setClientes] = React.useState<Cliente[]>([]);
   const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
-  const [vendas, setVendas] = React.useState<Venda[]>([]);
-  const [contasPagar, setContasPagar] = React.useState<ContaPagar[]>([]);
-  const [contasReceber, setContasReceber] = React.useState<ContaReceber[]>([]);
+  // Itens 4.16/4.17: totais somados pela chave do cliente/fornecedor (sem o
+  // filtro de empresa ativa, que zerava cliente recém-cadastrado).
+  const [totaisClientes, setTotaisClientes] = React.useState<Map<string, TotaisParceiro>>(new Map());
+  const [totaisFornecedores, setTotaisFornecedores] = React.useState<Map<string, TotaisParceiro>>(new Map());
   const [carregando, setCarregando] = React.useState(true);
 
   const [formAberto, setFormAberto] = React.useState(false);
@@ -62,18 +64,16 @@ export default function ClientesFornecedoresPage() {
     // estava aberto (pedido do usuário em 05/out/2026).
     // Funcionário não tem acesso a fornecedores nem a contas a pagar/receber
     // (RLS bloqueia) — nem tenta buscar, pra não gerar erro à toa na tela.
-    const [c, f, v, cp, cr] = await Promise.all([
+    const [c, f, tc, tf] = await Promise.all([
       listarClientes(negocio.usuarioId),
       ehFuncionario ? Promise.resolve([]) : listarFornecedores(negocio.usuarioId),
-      listarVendas(negocio.usuarioId),
-      ehFuncionario ? Promise.resolve([]) : listarContasPagar(negocio.usuarioId),
-      ehFuncionario ? Promise.resolve([]) : listarContasReceber(negocio.usuarioId),
+      totaisPorCliente(negocio.usuarioId, !ehFuncionario),
+      ehFuncionario ? Promise.resolve(new Map<string, TotaisParceiro>()) : totaisPorFornecedor(negocio.usuarioId),
     ]);
     setClientes(c);
     setFornecedores(f);
-    setVendas(v);
-    setContasPagar(cp.filter((c2) => c2.categoria !== "das"));
-    setContasReceber(cr);
+    setTotaisClientes(tc);
+    setTotaisFornecedores(tf);
     setCarregando(false);
   }, [negocio, ehFuncionario]);
 
@@ -223,20 +223,9 @@ export default function ClientesFornecedoresPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {lista.map((item) => {
-            const totalComprado =
-              aba === "clientes"
-                ? vendas.filter((v) => v.cliente_id === item.id).reduce((acc, v) => acc + Number(v.valor_total), 0)
-                : contasPagar
-                    .filter((c) => c.fornecedor_id === item.id && c.status === "pago")
-                    .reduce((acc, c) => acc + Number(c.valor), 0);
-            const pendente =
-              aba === "clientes"
-                ? contasReceber
-                    .filter((c) => c.cliente_id === item.id && c.status === "pendente")
-                    .reduce((acc, c) => acc + Number(c.valor), 0)
-                : contasPagar
-                    .filter((c) => c.fornecedor_id === item.id && c.status === "pendente")
-                    .reduce((acc, c) => acc + Number(c.valor), 0);
+            const totais = (aba === "clientes" ? totaisClientes : totaisFornecedores).get(item.id) ?? { total: 0, pendente: 0 };
+            const totalComprado = totais.total;
+            const pendente = totais.pendente;
 
             return (
               <Card key={item.id} className="flex flex-col gap-3">
@@ -254,7 +243,12 @@ export default function ClientesFornecedoresPage() {
                           {item.nome}
                         </Link>
                       ) : (
-                        <p className="text-body font-semibold text-foreground">{item.nome}</p>
+                        <Link
+                          href={`/dashboard/empresa/fornecedores/${item.id}`}
+                          className="text-body font-semibold text-foreground underline-offset-2 hover:underline"
+                        >
+                          {item.nome}
+                        </Link>
                       )}
                       <div className="flex flex-col text-xs text-muted">
                         {item.telefone && (
@@ -286,14 +280,12 @@ export default function ClientesFornecedoresPage() {
                 </div>
 
                 <div className="flex items-center gap-2 border-t border-border pt-3">
-                  {aba === "clientes" && (
-                    <Link
-                      href={`/dashboard/empresa/clientes/${item.id}`}
-                      className="flex items-center gap-1.5 rounded-full bg-accent-50 px-3 py-1.5 text-xs font-semibold text-accent-700 hover:bg-accent-100"
-                    >
-                      Ver dossiê
-                    </Link>
-                  )}
+                  <Link
+                    href={aba === "clientes" ? `/dashboard/empresa/clientes/${item.id}` : `/dashboard/empresa/fornecedores/${item.id}`}
+                    className="flex items-center gap-1.5 rounded-full bg-accent-50 px-3 py-1.5 text-xs font-semibold text-accent-700 hover:bg-accent-100"
+                  >
+                    Ver dossiê
+                  </Link>
                   <button
                     type="button"
                     onClick={() => abrirEdicao(item)}

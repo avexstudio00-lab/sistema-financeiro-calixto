@@ -31,6 +31,10 @@ export async function lancarMovimentoInvestimento(params: {
   valor: number;
   data: string;
   descricao: string;
+  /** Item 6.8: aplicação com caixa da empresa sai como lançamento do negócio. */
+  tipoNegocio?: "pessoal" | "negocio";
+  /** Itens 6.6/12.6: aporte/retirada de meta fica rastreável no extrato. */
+  metaId?: string | null;
 }): Promise<string | null> {
   if (!params.contaId || !(params.valor > 0)) return null;
   const tipo = params.sentido === "aplicacao" ? "despesa" : "receita";
@@ -44,7 +48,8 @@ export async function lancarMovimentoInvestimento(params: {
     descricao: params.descricao.slice(0, 120),
     data: params.data,
     forma_pagamento: null,
-    tipo_negocio: "pessoal",
+    tipo_negocio: params.tipoNegocio ?? "pessoal",
+    ...(params.metaId ? { meta_id: params.metaId } : {}),
   });
   if (error || !data) return null;
   return (data as { id: string }).id;

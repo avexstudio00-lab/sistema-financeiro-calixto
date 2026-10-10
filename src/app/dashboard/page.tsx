@@ -54,6 +54,7 @@ import { AtalhosLancamento } from "@/components/dashboard/AtalhosLancamento";
 import { VisaoHoje } from "@/components/dashboard/VisaoHoje";
 import { ProjecaoLiquidez } from "@/components/dashboard/ProjecaoLiquidez";
 import { ResumoInvestimentosPainel } from "@/components/dashboard/ResumoInvestimentosPainel";
+import { calcularPatrimonioEmpresa, dividirCarteirasPessoalEmpresa, investimentosPessoais } from "@/lib/data/patrimonio";
 import { listarCompromissosPessoais, type Compromisso } from "@/lib/data/compromissos";
 import { hojeIso } from "@/lib/util/texto";
 import type { Categoria, Transacao, Meta, LimiteCategoria, ContaFixa, Investimento, CotacoesMercado } from "@/lib/data/tipos";
@@ -108,10 +109,16 @@ interface PatrimonioResumo {
   /** Só contas que não são cartão — base da projeção de liquidez (6.5). */
   saldoDisponivel: number;
   liquido: number;
+  /** Itens 6.9/6.10 (09/out/2026): parte das carteiras que é caixa da
+   * empresa (já descontada de `totalContas`) e o PL consolidado. */
+  parteEmpresaContas: number;
+  plEmpresa: number | null;
+  consolidado: number | null;
 }
 
 export default function DashboardPage() {
-  const { user, perfil } = useAuth();
+  const { user, perfil, papel, negocio, podeAcessarMinhaEmpresa } = useAuth();
+  const temEmpresaPropria = papel === "dono" && podeAcessarMinhaEmpresa && !!negocio;
   const [transacoes, setTransacoes] = React.useState<Transacao[]>([]);
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
   const [evolucaoMensal, setEvolucaoMensal] = React.useState<PontoEvolucaoMensal[]>([]);
@@ -317,12 +324,20 @@ export default function DashboardPage() {
         );
       }
 
-      const totalContas = contas.reduce((acc, c) => acc + Number(c.saldo_atual), 0);
-      const totalInvestimentos = investimentos.reduce(
+      // Itens 6.9/6.10: a fração das carteiras movimentada pela empresa e as
+      // aplicações feitas com o caixa da empresa saem do patrimônio PESSOAL e
+      // entram no da empresa; o consolidado soma os dois.
+      const divisao = temEmpresaPropria ? await dividirCarteirasPessoalEmpresa(user.id, contas) : null;
+      const plEmpresa = temEmpresaPropria && negocio ? await calcularPatrimonioEmpresa(negocio.usuarioId, investimentos, cotacoes) : null;
+      if (cancelado) return;
+      const parteEmpresaContas = divisao ? divisao.totalEmpresa : 0;
+      const totalContas = contas.reduce((acc, c) => acc + Number(c.saldo_atual), 0) - parteEmpresaContas;
+      const totalInvestimentos = investimentosPessoais(investimentos).reduce(
         (acc, inv) => acc + calcularValorAtualEstimado(inv, undefined, cotacoes),
         0
       );
       const totalDividas = dividas.filter((d) => !d.quitada).reduce((acc, d) => acc + Number(d.valor_restante), 0);
+      const liquido = totalContas + totalInvestimentos - totalDividas - totalFaturaAberta;
 
       setPatrimonio({
         totalContas,
@@ -330,13 +345,16 @@ export default function DashboardPage() {
         totalDividas,
         totalFaturaAberta,
         saldoDisponivel: contas.filter((c) => c.tipo !== "cartao_credito").reduce((acc, c) => acc + Number(c.saldo_atual), 0),
-        liquido: totalContas + totalInvestimentos - totalDividas - totalFaturaAberta,
+        liquido,
+        parteEmpresaContas,
+        plEmpresa: plEmpresa ? plEmpresa.liquido : null,
+        consolidado: plEmpresa ? Number((liquido + plEmpresa.liquido).toFixed(2)) : null,
       });
     })();
     return () => {
       cancelado = true;
     };
-  }, [user, recarga]);
+  }, [user, recarga, temEmpresaPropria, negocio]);
 
   // Contas fixas (usadas só pra estimar o "custo médio mensal" abaixo, ver
   // `custoMedioMensal`) -- lista completa, independente do `carregar()`.
@@ -624,7 +642,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2">
               <Landmark size={18} className="shrink-0 text-secondary" />
               <div>
-                <p className="text-small text-muted">Patrimônio líquido</p>
+                <p className="text-small text-muted">{patrimonio?.consolidado != null ? "Patrimônio líquido pessoal" : "Patrimônio líquido"}</p>
                 <p className="text-h3 text-foreground">
                   {patrimonio ? formatarMoeda(patrimonio.liquido) : "Calculando..."}
                 </p>
@@ -646,7 +664,7 @@ export default function DashboardPage() {
               </p>
               <div className="flex flex-col gap-1">
                 <div className="flex items-center justify-between">
-                  <span>Contas</span>
+                  <span>Contas{patrimonio.parteEmpresaContas !== 0 ? " (parte pessoal)" : ""}</span>
                   <span className="font-medium text-foreground">+{formatarMoeda(patrimonio.totalContas)}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -664,10 +682,30 @@ export default function DashboardPage() {
                   <span className="font-medium text-red-500">-{formatarMoeda(patrimonio.totalFaturaAberta)}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between border-t border-border pt-1">
-                  <span className="font-medium text-foreground">Total</span>
+                  <span className="font-medium text-foreground">Total pessoal</span>
                   <span className="font-semibold text-secondary">{formatarMoeda(patrimonio.liquido)}</span>
                 </div>
+                {patrimonio.plEmpresa != null && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span>+ Patrimônio da empresa</span>
+                      <span className="font-medium text-foreground">{formatarMoeda(patrimonio.plEmpresa)}</span>
+                    </div>
+                    <p className="text-xs">
+                      A empresa usa as mesmas carteiras: {formatarMoeda(patrimonio.parteEmpresaContas)} do saldo delas é caixa da
+                      empresa e conta só lá (detalhe por carteira em Carteiras).
+                    </p>
+                  </>
+                )}
               </div>
+            </div>
+          )}
+          {patrimonio?.consolidado != null && (
+            <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/10 px-3 py-2">
+              <span className="text-small font-semibold text-foreground">Patrimônio líquido consolidado (pessoal + empresa)</span>
+              <span className={`text-body font-semibold ${patrimonio.consolidado >= 0 ? "text-secondary" : "text-rose-700"}`}>
+                {formatarMoeda(patrimonio.consolidado)}
+              </span>
             </div>
           )}
         </Card>
