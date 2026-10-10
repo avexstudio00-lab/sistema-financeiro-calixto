@@ -1,13 +1,29 @@
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: blob: https://*.supabase.co",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   staticPageGenerationTimeout: 120,
 
-  // Headers de segurança aplicados a toda resposta do site. Não inclui uma
-  // Content-Security-Policy estrita de propósito: sem conseguir rodar o build
-  // localmente neste ambiente (ver contexto-projeto-completo.md), uma CSP mal
-  // calibrada arrisca quebrar o site de forma silenciosa em produção — os
-  // headers abaixo são seguros por padrão e não têm esse risco.
+  // Headers de segurança aplicados a toda resposta do site. A partir de
+  // 10/out/2026 inclui a Content-Security-Policy pedida no item 2.5 da
+  // especificação de 09/out/2026 — com os acréscimos necessários para o
+  // app não quebrar: Google Fonts (fonte Inter, em style-src/font-src),
+  // service worker/manifest do PWA (worker-src/manifest-src) e travas extras
+  // (object-src, base-uri, frame-ancestors, form-action).
   async headers() {
     return [
       {
@@ -16,6 +32,7 @@ const nextConfig = {
         headers: [
           // Impede que o site seja carregado dentro de um <iframe> de outro
           // domínio (proteção contra clickjacking).
+          { key: "Content-Security-Policy", value: CSP },
           { key: "X-Frame-Options", value: "DENY" },
           // Impede que o navegador tente "adivinhar" o tipo de um arquivo
           // servido, evitando alguns ataques de MIME-sniffing.
