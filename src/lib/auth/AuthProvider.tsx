@@ -135,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getSession().then(async ({ data }) => {
       if (!ativo) return;
-      setSession(data.session);
+      setSession(data.session ? { ...data.session, refresh_token: "" } : null);
       usuarioIdRef.current = data.session?.user?.id ?? null;
       setUser(data.session?.user ?? null);
       if (data.session?.user) {
@@ -157,7 +157,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRecuperacaoSenhaAtiva(false);
       }
 
-      setSession(novaSessao);
+      // O estado React nunca guarda o refresh token real (no modo cookie ele
+      // aparece aqui só no instante do login; ninguém no app precisa dele).
+      setSession(novaSessao ? { ...novaSessao, refresh_token: "" } : null);
       // Mesma pessoa de antes (renovação do token, ou o Supabase avisando
       // "SIGNED_IN" de novo quando o app volta pra frente): NÃO troca o
       // objeto `user` nem recarrega o perfil. Trocar fazia todas as telas
@@ -192,14 +194,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signUp = React.useCallback(async (nome: string, email: string, senha: string) => {
-    const { data, error } = await supabase.auth.signUp({
+    let respostaCadastro: Awaited<ReturnType<typeof supabase.auth.signUp>>;
+    try {
+      respostaCadastro = await supabase.auth.signUp({
       email,
       password: senha,
       // LGPD (item 2.4): o aceite marcado no cadastro vai junto nos
       // metadados; o registro formal (com IP e hora UTC) é gravado pelo
       // servidor assim que existir sessão — ver registrarConsentimentoPendente.
       options: { data: { nome, consentimento_versao: VERSAO_DOCUMENTOS_LEGAIS, consentimento_em: new Date().toISOString() } },
-    });
+      });
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : "Não foi possível criar a conta agora.", precisaConfirmarEmail: false };
+    }
+    const { data, error } = respostaCadastro;
     if (error) return { error: error.message, precisaConfirmarEmail: false };
 
     // Se já existe sessão (confirmação de e-mail desativada no projeto), cria o perfil na hora.
@@ -231,7 +239,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [carregarPerfil]);
 
   const signIn = React.useCallback(async (email: string, senha: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha });
+    let resposta: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+    try {
+      resposta = await supabase.auth.signInWithPassword({ email, password: senha });
+    } catch (e) {
+      // Sessão em cookie (item 3): se o cookie seguro não pôde ser gravado,
+      // o login falha aqui em vez de seguir com uma sessão que o servidor
+      // não reconhece.
+      return { error: e instanceof Error ? e.message : "Não foi possível entrar agora." };
+    }
+    const { data, error } = resposta;
     if (error) return { error: error.message };
 
     if (data.user) {

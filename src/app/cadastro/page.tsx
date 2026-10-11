@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { validarSenhaNova, problemaNaSenha } from "@/lib/seguranca/senha";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Mail, User, Lock, ArrowRight, MailCheck, Wallet } from "lucide-react";
@@ -46,7 +47,8 @@ function CadastroConteudo() {
   function validar(): string | null {
     if (nome.trim().length < 2) return "Digite seu nome completo.";
     if (!email.includes("@")) return "Digite um e-mail válido.";
-    if (senha.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
+    const fraca = problemaNaSenha(senha, email);
+    if (fraca) return fraca;
     if (senha !== confirmacao) return "As senhas não coincidem.";
     if (!aceitouTermos) return "Para criar a conta, marque que leu e aceita os Termos de uso e a Política de privacidade.";
     return null;
@@ -63,6 +65,13 @@ function CadastroConteudo() {
     }
 
     setEnviando(true);
+    // Item 6 da apuração: barra senha que já apareceu em vazamentos.
+    const vazada = await validarSenhaNova(senha, email);
+    if (vazada) {
+      setEnviando(false);
+      setErro(vazada);
+      return;
+    }
     const resultado = await signUp(nome.trim(), email.trim(), senha);
     setEnviando(false);
 
@@ -141,7 +150,7 @@ function CadastroConteudo() {
           label="Senha"
           type="password"
           leftIcon={Lock}
-          placeholder="Pelo menos 8 caracteres"
+          placeholder="8+ caracteres, com letras e números"
           value={senha}
           onChange={(e) => setSenha(e.target.value)}
           autoComplete="new-password"

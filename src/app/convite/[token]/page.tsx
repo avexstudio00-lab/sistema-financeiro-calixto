@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { validarSenhaNova } from "@/lib/seguranca/senha";
 import { useParams, useRouter } from "next/navigation";
 import { Mail, User, Lock, ArrowRight, Wallet, Users, ShieldCheck, LogOut, XCircle } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -75,16 +76,19 @@ export default function ConvitePage() {
       setErroForm("Digite seu nome completo.");
       return;
     }
-    if (senha.length < 6) {
-      setErroForm("A senha precisa ter pelo menos 6 caracteres.");
-      return;
-    }
     if (senha !== confirmacao) {
       setErroForm("As senhas não coincidem.");
       return;
     }
     setErroForm(null);
     setEnviando(true);
+    // Item 6 da apuração: força mínima + senha vazada.
+    const problema = await validarSenhaNova(senha, detalhe.email);
+    if (problema) {
+      setEnviando(false);
+      setErroForm(problema);
+      return;
+    }
     const resultado = await signUp(nome.trim(), detalhe.email, senha);
     setEnviando(false);
     if (resultado.error) {
@@ -261,7 +265,7 @@ export default function ConvitePage() {
                   label="Senha"
                   type="password"
                   leftIcon={Lock}
-                  placeholder="Pelo menos 6 caracteres"
+                  placeholder="8+ caracteres, com letras e números"
                   value={senha}
                   onChange={(e) => setSenha(e.target.value)}
                   autoComplete="new-password"

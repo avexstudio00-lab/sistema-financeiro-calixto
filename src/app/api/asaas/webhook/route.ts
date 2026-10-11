@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { segredoConfere } from "@/lib/seguranca/compararSegredo";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { processarPagamentoConfirmado, processarAssinaturaCancelada } from "@/lib/asaas/ativarAssinatura";
 import { notificarFalhaPagamento } from "@/lib/asaas/notificarFalhaPagamento";
@@ -38,8 +39,10 @@ interface EventoAsaas {
 export async function POST(request: Request) {
   const tokenEsperado = process.env.ASAAS_WEBHOOK_TOKEN;
   const tokenRecebido = request.headers.get("asaas-access-token");
-  if (!tokenEsperado || !tokenRecebido || tokenRecebido !== tokenEsperado) {
-    return NextResponse.json({ erro: "Token inválido." }, { status: 401 });
+  // Item 10 (apuração 10/out/2026): comparação em tempo constante e 401
+  // sem nenhum detalhe interno (nem se o token faltou ou só não bateu).
+  if (!segredoConfere(tokenRecebido, tokenEsperado)) {
+    return NextResponse.json({ erro: "Não autorizado." }, { status: 401 });
   }
 
   let evento: EventoAsaas;

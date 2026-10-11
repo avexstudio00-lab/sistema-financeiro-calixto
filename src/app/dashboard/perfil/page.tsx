@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { atualizarNome, atualizarTipoPerfil, deletarFotoPerfil, enviarFotoPerfil } from "@/lib/data/usuarios";
 import { supabase } from "@/lib/supabase/client";
 import Link from "next/link";
+import { problemaNaSenha } from "@/lib/seguranca/senha";
 
 type TipoPerfil = "clt" | "mei" | "me";
 
@@ -173,8 +174,9 @@ export default function PerfilPage() {
       setErroSenha("Digite sua senha atual.");
       return;
     }
-    if (novaSenha.length < 8) {
-      setErroSenha("A nova senha precisa ter pelo menos 8 caracteres.");
+    const fraca = problemaNaSenha(novaSenha, user?.email);
+    if (fraca) {
+      setErroSenha(fraca);
       return;
     }
     if (novaSenha !== confirmarNovaSenha) {
@@ -188,30 +190,26 @@ export default function PerfilPage() {
 
     setTrocandoSenha(true);
 
-    const { error: erroSenhaAtual } = await supabase.auth.signInWithPassword({
-      email: user.email,
-      password: senhaAtual,
-    });
-
-    if (erroSenhaAtual) {
+    // Item 6 da apuração (10/out/2026): a conferência da senha atual, a
+    // força mínima e o bloqueio de senha vazada agora acontecem no servidor
+    // (não dá para pular pelo console do navegador).
+    try {
+      const { data: sessaoAtual } = await supabase.auth.getSession();
+      const token = sessaoAtual.session?.access_token;
+      const resp = await fetch("/api/auth/trocar-senha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token ?? ""}` },
+        body: JSON.stringify({ senhaAtual, novaSenha }),
+      });
+      const corpo = (await resp.json().catch(() => ({}))) as { erro?: string };
       setTrocandoSenha(false);
-      // "Invalid login credentials" é a mensagem do Supabase Auth
-      // especificamente pra credencial errada — qualquer outro erro (rede,
-      // rate limit do próprio Supabase etc.) tem uma causa diferente e não
-      // deveria ser confundido com "você digitou a senha errada".
-      setErroSenha(
-        erroSenhaAtual.message.toLowerCase().includes("invalid login credentials")
-          ? "Senha atual incorreta."
-          : "Não foi possível confirmar sua senha atual agora. Tente novamente em instantes."
-      );
-      return;
-    }
-
-    const { error: erroAtualizar } = await supabase.auth.updateUser({ password: novaSenha });
-    setTrocandoSenha(false);
-
-    if (erroAtualizar) {
-      setErroSenha("Não foi possível trocar a senha. Tente novamente.");
+      if (!resp.ok) {
+        setErroSenha(corpo.erro ?? "Não foi possível trocar a senha. Tente novamente.");
+        return;
+      }
+    } catch {
+      setTrocandoSenha(false);
+      setErroSenha("Sem conexão. Tente novamente em instantes.");
       return;
     }
 
@@ -380,7 +378,7 @@ export default function PerfilPage() {
             label="Nova senha"
             type="password"
             leftIcon={Lock}
-            placeholder="Pelo menos 8 caracteres"
+            placeholder="8+ caracteres, com letras e números"
             value={novaSenha}
             onChange={(e) => setNovaSenha(e.target.value)}
             autoComplete="new-password"

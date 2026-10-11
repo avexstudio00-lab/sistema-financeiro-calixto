@@ -1,10 +1,13 @@
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+  // 'unsafe-eval' só no modo de desenvolvimento (o recarregamento ao vivo
+  // do Next precisa); em produção nenhum código do app usa eval — tirar
+  // reduz o estrago possível de um XSS (apuração de 10/out/2026, item 4).
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob: https://*.supabase.co",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.pwnedpasswords.com",
   "worker-src 'self'",
   "manifest-src 'self'",
   "object-src 'none'",

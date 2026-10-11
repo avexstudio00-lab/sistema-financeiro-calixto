@@ -9,11 +9,13 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { MODO_SESSAO_COOKIE } from "@/lib/supabase/sessaoCookie";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn, user, perfil, carregando, recuperacaoSenhaAtiva } = useAuth();
+  const { signIn, signOut, user, perfil, carregando, recuperacaoSenhaAtiva } = useAuth();
 
+  const sessaoAoAbrirRef = React.useRef<boolean | null>(null);
   const [email, setEmail] = React.useState("");
   const [senha, setSenha] = React.useState("");
   const [erro, setErro] = React.useState<string | null>(null);
@@ -30,10 +32,32 @@ export default function LoginPage() {
       router.replace("/redefinir-senha");
       return;
     }
-    if (user && perfil) {
-      router.replace(perfil.tipo_perfil ? "/dashboard" : "/onboarding");
+    // Sessão em cookie ligada e o servidor mandou para cá (?proximo=...)
+    // mesmo com sessão na memória: o cookie dela sumiu (ex.: apagado por um
+    // logout em outra aba). Encerra a sessão local em vez de voltar ao
+    // painel — senão ficaria indo e voltando entre /login e /dashboard.
+    // (Só vale para a sessão que já existia ao abrir esta tela — um login
+    // feito aqui mesmo segue o caminho normal abaixo.)
+    if (sessaoAoAbrirRef.current === null) sessaoAoAbrirRef.current = !!user;
+    if (sessaoAoAbrirRef.current && user && MODO_SESSAO_COOKIE && new URLSearchParams(window.location.search).has("proximo")) {
+      sessaoAoAbrirRef.current = false;
+      void signOut();
+      return;
     }
-  }, [carregando, user, perfil, recuperacaoSenhaAtiva, router]);
+    if (user && perfil) {
+      // Volta para a página que a pessoa tentou abrir antes do login (o
+      // middleware manda ?proximo=/dashboard/...). Só aceita caminho interno
+      // do painel — nunca um endereço de fora (evita redirecionamento aberto).
+      let proximo = "/dashboard";
+      try {
+        const p = new URLSearchParams(window.location.search).get("proximo");
+        if (p && /^\/dashboard(\/[A-Za-z0-9\-_/]*)?$/.test(p)) proximo = p;
+      } catch {
+        // sem parâmetro: vai para o painel
+      }
+      router.replace(perfil.tipo_perfil ? proximo : "/onboarding");
+    }
+  }, [carregando, user, perfil, recuperacaoSenhaAtiva, router, signOut]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,7 +73,7 @@ export default function LoginPage() {
     setEnviando(false);
 
     if (resultado.error) {
-      setErro("E-mail ou senha incorretos.");
+      setErro(resultado.error.includes("sessão segura") ? resultado.error : "E-mail ou senha incorretos.");
       return;
     }
     // O redirecionamento acontece pelo efeito acima assim que o perfil carregar.

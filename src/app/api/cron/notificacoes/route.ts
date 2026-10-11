@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { segredoConfere, valorBearer } from "@/lib/seguranca/compararSegredo";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { subtrairDiasUteis } from "@/lib/util/diasUteis";
 import { enviarPushParaUsuario, marcarAvisoSeNovo, aplicarPrivacidade, TEXTO_PRIVADO, type PayloadPush } from "@/lib/push/enviarPush";
@@ -49,8 +50,8 @@ function ultimoDiaDoMes(ano: number, mes: number): number {
 
 export async function GET(request: Request) {
   const segredo = process.env.CRON_SECRET;
-  const cabecalho = request.headers.get("authorization") ?? "";
-  if (!segredo || cabecalho !== `Bearer ${segredo}`) {
+  // Item 10 (apuração 10/out/2026): comparação em tempo constante.
+  if (!segredoConfere(valorBearer(request.headers.get("authorization")), segredo)) {
     return NextResponse.json({ erro: "Não autorizado." }, { status: 401 });
   }
 

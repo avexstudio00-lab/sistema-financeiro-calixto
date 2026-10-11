@@ -39,7 +39,9 @@ export type TipoEventoSeguranca =
   | "lgpd_conta_excluida"
   | "lgpd_exclusao_recusada"
   | "comprovante_enviado"
-  | "comprovante_recusado";
+  | "comprovante_recusado"
+  | "senha_trocada"
+  | "senha_troca_recusada";
 
 export async function registrarEventoSeguranca(
   usuarioId: string | null,

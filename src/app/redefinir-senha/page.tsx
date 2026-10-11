@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { validarSenhaNova } from "@/lib/seguranca/senha";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Lock, ArrowLeft, KeyRound, CheckCircle2 } from "lucide-react";
@@ -32,7 +33,7 @@ import { supabase } from "@/lib/supabase/client";
  */
 export default function RedefinirSenhaPage() {
   const router = useRouter();
-  const { carregando, recuperacaoSenhaAtiva, signOut } = useAuth();
+  const { carregando, recuperacaoSenhaAtiva, signOut, user } = useAuth();
 
   const [novaSenha, setNovaSenha] = React.useState("");
   const [confirmarSenha, setConfirmarSenha] = React.useState("");
@@ -44,16 +45,19 @@ export default function RedefinirSenhaPage() {
     e.preventDefault();
     setErro(null);
 
-    if (novaSenha.length < 8) {
-      setErro("A senha precisa ter pelo menos 8 caracteres.");
-      return;
-    }
     if (novaSenha !== confirmarSenha) {
       setErro("As senhas não coincidem.");
       return;
     }
 
     setSalvando(true);
+    // Item 6 da apuração: força mínima + senha vazada.
+    const problema = await validarSenhaNova(novaSenha, user?.email);
+    if (problema) {
+      setSalvando(false);
+      setErro(problema);
+      return;
+    }
     const { error } = await supabase.auth.updateUser({ password: novaSenha });
     setSalvando(false);
 
@@ -137,7 +141,7 @@ export default function RedefinirSenhaPage() {
                   label="Nova senha"
                   type="password"
                   leftIcon={Lock}
-                  placeholder="Pelo menos 8 caracteres"
+                  placeholder="8+ caracteres, com letras e números"
                   value={novaSenha}
                   onChange={(e) => setNovaSenha(e.target.value)}
                   autoComplete="new-password"
