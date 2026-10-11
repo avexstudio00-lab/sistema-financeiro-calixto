@@ -1,0 +1,79 @@
+# Pipeline de segurança (apuração 10/out/2026 — itens 1 e 9).
+# Roda a cada push na main e toda segunda-feira; o job de dependências
+# roda também em pull request.
+#
+# Para o job "rls" funcionar, cadastre UMA vez no GitHub:
+#   Settings → Secrets and variables → Actions → New repository secret
+#   Nome: SUPABASE_DB_URL
+#   Valor: a "Connection string" (URI) do Supabase → Project Settings →
+#          Database → Connection string → URI (modo "Session pooler"),
+#          com a senha do banco no lugar de [YOUR-PASSWORD].
+# O teste só CONTA linhas e termina em ROLLBACK: não grava nada no banco.
+# O job de RLS NÃO roda em pull request (um PR poderia alterar este arquivo
+# e ler o segredo do banco): só em push na main, no agendamento e manual.
+name: seguranca
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 11 * * 1"   # segunda, 08:00 de Brasília
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rls:
+    name: RLS — acesso cruzado e conferência com o repositório
+    if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Falta o segredo SUPABASE_DB_URL
+        if: env.SUPABASE_DB_URL == ''
+        run: |
+          echo "::error::Cadastre o segredo SUPABASE_DB_URL (ver topo deste arquivo) para o teste de RLS rodar."
+          exit 1
+      - name: Instala o cliente do Postgres
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Teste de acesso cruzado (usuário A x usuário B, e anônimo)
+        run: psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/rls_acesso_cruzado.sql
+      - name: Políticas do banco idênticas às do repositório
+        run: |
+          esperado=$(grep -oE 'Assinatura esperada \([^)]*\): [0-9a-f]{32}' supabase/tests/conferir_rls.sql | grep -oE '[0-9a-f]{32}$')
+          atual=$(psql "$SUPABASE_DB_URL" -At -v ON_ERROR_STOP=1 -c "select md5(string_agg(format('%s|%s|%s|%s|%s|%s|%s', schemaname, tablename, policyname, permissive, cmd, array_to_string(roles, ','), coalesce(qual, '') || '#' || coalesce(with_check, '')), E'\n' order by schemaname, tablename, policyname)) from pg_policies where schemaname in ('public','storage')")
+          sem_rls=$(psql "$SUPABASE_DB_URL" -At -v ON_ERROR_STOP=1 -c "select string_agg(c.relname, ',') from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity")
+          echo "esperado=$esperado atual=$atual"
+          if [ -n "$sem_rls" ]; then echo "::error::Tabelas sem RLS: $sem_rls"; exit 1; fi
+          if [ "$esperado" != "$atual" ]; then
+            echo "::error::As políticas do banco mudaram fora do repositório. Versione a mudança em supabase/migrations/ e atualize a assinatura em supabase/tests/conferir_rls.sql."
+            exit 1
+          fi
+
+  dependencias:
+    name: Dependências — npm audit (alta/crítica bloqueia)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Gera o lockfile se ainda não existir no repositório
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "::warning::package-lock.json ausente — gerando só para a auditoria. Baixe o artefato 'package-lock' e suba no repositório."
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          fi
+      - name: npm audit
+        run: npm audit --audit-level=high --omit=dev
+      - name: Guarda o lockfile gerado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-lock
+          path: package-lock.json
+          if-no-files-found: ignore
