@@ -10,12 +10,15 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { MODO_SESSAO_COOKIE } from "@/lib/supabase/sessaoCookie";
+import { supabase } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn, signOut, user, perfil, carregando, recuperacaoSenhaAtiva } = useAuth();
+  const { signIn, user, perfil, carregando, recuperacaoSenhaAtiva } = useAuth();
 
   const sessaoAoAbrirRef = React.useRef<boolean | null>(null);
+  const cookieConferidoRef = React.useRef(false);
+  const [cookieOk, setCookieOk] = React.useState(false);
   const [email, setEmail] = React.useState("");
   const [senha, setSenha] = React.useState("");
   const [erro, setErro] = React.useState<string | null>(null);
@@ -33,17 +36,32 @@ export default function LoginPage() {
       return;
     }
     // Sessão em cookie ligada e o servidor mandou para cá (?proximo=...)
-    // mesmo com sessão na memória: o cookie dela sumiu (ex.: apagado por um
-    // logout em outra aba). Encerra a sessão local em vez de voltar ao
-    // painel — senão ficaria indo e voltando entre /login e /dashboard.
-    // (Só vale para a sessão que já existia ao abrir esta tela — um login
-    // feito aqui mesmo segue o caminho normal abaixo.)
+    // com sessão já existente ao abrir a tela. Dois casos:
+    //  - migração (sessão antiga do localStorage acabou de ir para o
+    //    cookie): o cookie EXISTE → segue normal para o painel;
+    //  - o cookie sumiu (ex.: logout em outra aba): encerra só a sessão
+    //    DESTE aparelho, senão ficaria indo e voltando /login ↔ /dashboard.
+    // (Corrigido em 13/out/2026: antes saía sempre — e com escopo global —,
+    // o que deslogava quem estava só migrando.)
     if (sessaoAoAbrirRef.current === null) sessaoAoAbrirRef.current = !!user;
     if (sessaoAoAbrirRef.current && user && MODO_SESSAO_COOKIE && new URLSearchParams(window.location.search).has("proximo")) {
       sessaoAoAbrirRef.current = false;
-      void signOut();
-      return;
+      if (!cookieConferidoRef.current) {
+        cookieConferidoRef.current = true;
+        void fetch("/api/auth/sessao", { credentials: "same-origin", cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : { sessao: null }))
+          .then((corpo: { sessao: unknown }) => {
+            if (corpo.sessao) {
+              setCookieOk(true); // reexecuta o efeito e segue para o painel
+            } else {
+              void supabase.auth.signOut({ scope: "local" });
+            }
+          })
+          .catch(() => setCookieOk(true));
+        return;
+      }
     }
+    if (sessaoAoAbrirRef.current === false && MODO_SESSAO_COOKIE && user && !cookieOk && cookieConferidoRef.current) return;
     if (user && perfil) {
       // Volta para a página que a pessoa tentou abrir antes do login (o
       // middleware manda ?proximo=/dashboard/...). Só aceita caminho interno
@@ -57,7 +75,7 @@ export default function LoginPage() {
       }
       router.replace(perfil.tipo_perfil ? proximo : "/onboarding");
     }
-  }, [carregando, user, perfil, recuperacaoSenhaAtiva, router, signOut]);
+  }, [carregando, user, perfil, recuperacaoSenhaAtiva, router, cookieOk]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
