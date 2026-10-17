@@ -783,7 +783,7 @@ type DadosCalculo = Pick<
   | "titulo_tesouro"
   | "quantidade_cotas"
 > &
-  Partial<Pick<Investimento, "quitado" | "valor_quitado">>;
+  Partial<Pick<Investimento, "quitado" | "valor_quitado" | "preco_revenda">>;
 
 /**
  * Estima o valor atual de um investimento na data de hoje, a partir dos
@@ -889,12 +889,38 @@ export function calcularValorAtualEstimado(
   }
 }
 
+/** Seção 14.2: revenda sem preço de revenda preenchido — a rentabilidade
+ * não é confiável e a tela deve pedir o preço em vez de mostrar 0%. */
+export function revendaSemPreco(inv: Pick<Investimento, "tipo" | "preco_revenda">): boolean {
+  return inv.tipo === "revenda" && !(Number(inv.preco_revenda ?? 0) > 0);
+}
+
+/**
+ * Valor usado para medir o RESULTADO do ativo (ganho e rentabilidade).
+ * Seção 14.2 (15/out/2026): na revenda é o PREÇO DE REVENDA combinado —
+ * antes saía de `valor_atual`, que o fluxo de revenda não preenche, e a tela
+ * mostrava 0% como se fosse certo. Os demais tipos usam o valor estimado.
+ * (O patrimônio continua usando `calcularValorAtualEstimado`, sem mudança:
+ * o que já foi recebido da revenda entra pelas carteiras.)
+ */
+export function calcularValorDeResultado(
+  inv: DadosCalculo,
+  referencia: Date = new Date(),
+  cotacoes?: CotacoesMercado
+): number {
+  if (inv.tipo === "revenda") {
+    const preco = Number(inv.preco_revenda ?? 0);
+    if (preco > 0) return preco;
+  }
+  return calcularValorAtualEstimado(inv, referencia, cotacoes);
+}
+
 export function calcularGanhoEstimado(
   inv: DadosCalculo,
   referencia: Date = new Date(),
   cotacoes?: CotacoesMercado
 ): number {
-  return calcularValorAtualEstimado(inv, referencia, cotacoes) - Number(inv.valor_investido);
+  return calcularValorDeResultado(inv, referencia, cotacoes) - Number(inv.valor_investido);
 }
 
 /**
@@ -907,9 +933,11 @@ export function calcularPercentualGanho(
   inv: DadosCalculo,
   referencia: Date = new Date(),
   cotacoes?: CotacoesMercado
-): number {
+): number | null {
   const principal = Number(inv.valor_investido);
-  if (!principal) return 0;
+  // Seção 14.2: sem custo (ex.: item que veio de um rolo com custo zero) não
+  // existe percentual — devolver 0% enganava ("ganhou R$ 1.000 e 0%").
+  if (!(principal > 0)) return null;
   return (calcularGanhoEstimado(inv, referencia, cotacoes) / principal) * 100;
 }
 
@@ -1081,25 +1109,53 @@ export function calcularRecebidoNoPeriodo(
   return Number((dePagamentos + deParcelas).toFixed(2));
 }
 
+export interface RentabilidadeCarteira {
+  percentual: number;
+  /** "mes" = últimos 30 dias; "inicio" = desde a aplicação (nenhum ativo
+   * tem 30 dias de histórico ainda). */
+  periodo: "mes" | "inicio";
+}
+
 /**
- * Rentabilidade do mês ponderada pelo valor de cada ativo (item 4.8):
+ * Rentabilidade da carteira ponderada pelo valor de cada ativo (item 4.8):
  * (valor hoje − valor há 30 dias) / valor há 30 dias, somando a carteira
  * toda — equivale à média das rentabilidades individuais ponderada pelo
  * tamanho de cada posição. Ativos criados há menos de 30 dias entram a
  * partir do valor aplicado.
+ *
+ * Seção 14.2 (15/out/2026):
+ * - ativos sem custo (principal 0) ficam de fora — inflavam o número;
+ * - revenda sem preço de revenda fica de fora (rentabilidade desconhecida);
+ * - Bolsa/revenda não têm histórico: a "fatia do mês" seria uma reta
+ *   inventada entre a compra e hoje. Compradas nos últimos 30 dias entram
+ *   pelo resultado real (custo → valor de hoje); mais antigas entram só
+ *   pesando na carteira, sem inventar ganho no mês;
+ * - se nenhum ativo tem 30 dias, devolve a rentabilidade desde o início.
  */
-export function rentabilidadePonderadaMes(investimentos: Investimento[], cotacoes?: CotacoesMercado): number | null {
+export function rentabilidadeCarteira(investimentos: Investimento[], cotacoes?: CotacoesMercado): RentabilidadeCarteira | null {
   const hoje = new Date();
   const ha30 = new Date(hoje.getTime() - 30 * 86400000);
   let base = 0;
   let agora = 0;
+  let algumCom30Dias = false;
   for (const inv of investimentos) {
     if (inv.quitado) continue;
+    if (!(Number(inv.valor_investido) > 0)) continue;
+    if (revendaSemPreco(inv)) continue;
     const inicio = new Date(inv.data_inicio + "T00:00:00");
-    const valorBase = inicio > ha30 ? Number(inv.valor_investido) : calcularValorNaData(inv, ha30, cotacoes);
+    const semHistorico = !temCalculoAutomatico(inv.tipo);
+    if (inicio <= ha30 && !semHistorico) algumCom30Dias = true;
+    const valorHoje = calcularValorDeResultado(inv, hoje, cotacoes);
+    const valorBase =
+      inicio > ha30 ? Number(inv.valor_investido) : semHistorico ? valorHoje : calcularValorNaData(inv, ha30, cotacoes);
     base += valorBase;
-    agora += calcularValorAtualEstimado(inv, hoje, cotacoes);
+    agora += valorHoje;
   }
   if (base <= 0) return null;
-  return ((agora - base) / base) * 100;
+  return { percentual: ((agora - base) / base) * 100, periodo: algumCom30Dias ? "mes" : "inicio" };
+}
+
+/** Compatibilidade: só o número (ver `rentabilidadeCarteira`). */
+export function rentabilidadePonderadaMes(investimentos: Investimento[], cotacoes?: CotacoesMercado): number | null {
+  return rentabilidadeCarteira(investimentos, cotacoes)?.percentual ?? null;
 }

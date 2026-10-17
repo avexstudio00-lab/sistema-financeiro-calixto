@@ -117,6 +117,8 @@ export function mensagemFollowUp(o: Orcamento, nomeEmpresa: string): string {
  * digitado, sem estoque. */
 export async function registrarVendasDoOrcamento(o: Orcamento) {
   const hoje = new Date().toISOString().slice(0, 10);
+  // Seção 15.1: os itens do orçamento formam UMA venda (mesmo grupo).
+  const grupoVendaId = crypto.randomUUID();
   for (const item of o.itens) {
     // Item livre (digitado, sem cadastro) também entra no painel de vendas
     // (item 12.2: "fechado" alimenta as vendas sem lançamento duplicado),
@@ -139,6 +141,7 @@ export async function registrarVendasDoOrcamento(o: Orcamento) {
     await supabase.from("vendas").insert({
       ...(o.empresa_id ? { empresa_id: o.empresa_id } : campoEmpresa()),
       usuario_id: o.usuario_id,
+      grupo_venda_id: grupoVendaId,
       produto_id: !livre && item.tipo === "produto" ? item.ref_id : null,
       servico_id: !livre && item.tipo === "servico" ? item.ref_id : null,
       produto_nome: item.descricao,

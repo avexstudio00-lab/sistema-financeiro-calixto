@@ -22,6 +22,10 @@ import {
   registrarVenda,
   deletarVenda,
   resumirVendas,
+  totalDosItens,
+  agruparLinhasDeVenda,
+  type ItemVenda,
+  type CondicoesFiadoVenda,
   agruparVendasPorDia,
   agruparVendasPorSemana,
   agruparVendasPorMes,
@@ -30,6 +34,8 @@ import {
   type PagamentoVenda,
 } from "@/lib/data/vendas";
 import { formatarMoeda } from "@/lib/format";
+import { lerPadraoFiado, somarDias, somarMeses, validarCondicoesFiado } from "@/lib/util/fiado";
+import { CondicoesFiado, lerValorDigitado, type EstadoFiado } from "@/components/dashboard/vendas/CondicoesFiado";
 import type { Produto, Cliente, Conta, Venda, Servico } from "@/lib/data/tipos";
 
 const FORMAS_PAGAMENTO = [
@@ -47,6 +53,19 @@ function limitesDosUltimosMeses(meses: number) {
   return { inicio, fim };
 }
 
+type ItemCarrinho = {
+  chave: string;
+  tipo: "produto" | "servico";
+  refId: string;
+  nome: string;
+  quantidade: string;
+  valorUnitario: string;
+};
+
+function hojeMaisUmMes(base: string) {
+  return somarMeses(base, 1);
+}
+
 export default function VendasPage() {
   const { negocio } = useAuth();
   const { ramo } = useEmpresa();
@@ -56,13 +75,6 @@ export default function VendasPage() {
   const [servicos, setServicos] = React.useState<Servico[]>([]);
   const [tipoItem, setTipoItem] = React.useState<"produto" | "servico">(ramo === "servicos" ? "servico" : "produto");
   const [servicoId, setServicoId] = React.useState("");
-  const [fiado, setFiado] = React.useState(false);
-  const [parcelasFiado, setParcelasFiado] = React.useState("1");
-  const [vencimentoFiado, setVencimentoFiado] = React.useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + 1);
-    return d.toISOString().slice(0, 10);
-  });
   const [clientes, setClientes] = React.useState<Cliente[]>([]);
   const [contas, setContas] = React.useState<Conta[]>([]);
   const [vendas, setVendas] = React.useState<Venda[]>([]);
@@ -72,6 +84,9 @@ export default function VendasPage() {
   const [produtoId, setProdutoId] = React.useState("");
   const [quantidade, setQuantidade] = React.useState("1");
   const [valorUnitario, setValorUnitario] = React.useState("");
+  // Seção 15.1 (15/out/2026): carrinho — vários produtos e serviços na
+  // mesma venda, cada um com quantidade e valor unitário próprios.
+  const [carrinho, setCarrinho] = React.useState<ItemCarrinho[]>([]);
   const [formaPagamento, setFormaPagamento] = React.useState<(typeof FORMAS_PAGAMENTO)[number]["id"]>("pix");
   const [clienteId, setClienteId] = React.useState("");
   const [data, setData] = React.useState(() => hoje.toISOString().slice(0, 10));
@@ -87,6 +102,24 @@ export default function VendasPage() {
   // Checklist: várias formas de pagamento na mesma venda.
   const [dividirPagamento, setDividirPagamento] = React.useState(false);
   const [partes, setPartes] = React.useState<{ forma: (typeof FORMAS_PAGAMENTO)[number]["id"]; valor: string; contaId: string }[]>([]);
+  // Seção 15.2: fiado com termos em aberto, definidos a cada venda.
+  const [fiado, setFiado] = React.useState(false);
+  const [estadoFiado, setEstadoFiado] = React.useState<EstadoFiado>(() => estadoFiadoInicial(hoje.toISOString().slice(0, 10), ""));
+
+  function estadoFiadoInicial(dataVenda: string, carteira: string): EstadoFiado {
+    return {
+      temEntrada: false,
+      entradaValor: "",
+      entradaForma: "pix",
+      entradaContaId: carteira,
+      numeroParcelas: "1",
+      periodicidade: "mensal",
+      primeiroVencimento: hojeMaisUmMes(dataVenda),
+      parcelas: [],
+      parcelasEditadas: false,
+      salvarComoPadrao: true,
+    };
+  }
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
@@ -118,6 +151,8 @@ export default function VendasPage() {
   const produtoSelecionado = tipoItem === "produto" ? produtos.find((p) => p.id === produtoId) ?? null : null;
   const servicoSelecionado = tipoItem === "servico" ? servicos.find((sv) => sv.id === servicoId) ?? null : null;
   const temItens = produtos.length > 0 || servicos.length > 0;
+  const clienteSelecionado = clientes.find((c) => c.id === clienteId) ?? null;
+  const padraoCliente = React.useMemo(() => lerPadraoFiado(clienteSelecionado?.padrao_fiado), [clienteSelecionado]);
 
   function handleSelecionarServico(id: string) {
     setServicoId(id);
@@ -131,51 +166,159 @@ export default function VendasPage() {
     if (produto) setValorUnitario(String(produto.preco_venda).replace(".", ","));
   }
 
+  /** Item escolhido no seletor (ainda fora do carrinho), se estiver válido. */
+  function itemDoSeletor(): ItemCarrinho | null {
+    const escolhido = produtoSelecionado ?? servicoSelecionado;
+    if (!escolhido) return null;
+    return {
+      chave: `${produtoSelecionado ? "p" : "s"}:${escolhido.id}:${Date.now()}`,
+      tipo: produtoSelecionado ? "produto" : "servico",
+      refId: escolhido.id,
+      nome: escolhido.nome,
+      quantidade: quantidade || "1",
+      valorUnitario,
+    };
+  }
+
+  function limparSeletor() {
+    setProdutoId("");
+    setServicoId("");
+    setQuantidade("1");
+    setValorUnitario("");
+  }
+
+  function validarItem(item: ItemCarrinho): string | null {
+    const qtd = Number(item.quantidade);
+    const valor = lerValorDigitado(item.valorUnitario);
+    if (!Number.isInteger(qtd) || qtd <= 0) return `"${item.nome}": a quantidade precisa ser um número inteiro maior que zero.`;
+    if (!item.valorUnitario.trim() || !Number.isFinite(valor) || valor < 0) return `"${item.nome}": digite um valor de venda válido.`;
+    return null;
+  }
+
+  function handleAdicionarAoCarrinho() {
+    const item = itemDoSeletor();
+    if (!item) return;
+    const problema = validarItem(item);
+    if (problema) {
+      setErro(problema);
+      return;
+    }
+    setErro(null);
+    setCarrinho((lista) => [...lista, item]);
+    limparSeletor();
+  }
+
+  // O item que está no seletor e ainda não foi adicionado também entra na
+  // venda (evita "esqueci de tocar em Adicionar").
+  const itemPendente = itemDoSeletor();
+  const itensDaVenda = itemPendente ? [...carrinho, itemPendente] : carrinho;
+  const totalVenda = React.useMemo(
+    () =>
+      totalDosItens(
+        itensDaVenda.map((i) => ({ quantidade: Number(i.quantidade) || 0, valorUnitario: lerValorDigitado(i.valorUnitario) || 0 }))
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(itensDaVenda.map((i) => [i.quantidade, i.valorUnitario]))]
+  );
+
+  /** Liga/atualiza o fiado: usa o padrão do cliente (se houver) como ponto
+   * de partida — tudo continua editável. */
+  function aplicarPadraoFiado(ligar: boolean, padrao = padraoCliente) {
+    const carteiraPadrao = contaId || contas.find((c) => c.tipo !== "cartao_credito")?.id || "";
+    const base = estadoFiadoInicial(data, carteiraPadrao);
+    if (padrao) {
+      base.numeroParcelas = String(padrao.parcelas);
+      base.periodicidade = padrao.periodicidade;
+      base.primeiroVencimento = somarDias(data, padrao.dias_primeiro_vencimento);
+      if (padrao.entrada_percentual > 0 && totalVenda > 0) {
+        base.temEntrada = true;
+        base.entradaValor = ((totalVenda * padrao.entrada_percentual) / 100).toFixed(2).replace(".", ",");
+      }
+      base.salvarComoPadrao = false;
+    }
+    setEstadoFiado(base);
+    setFiado(ligar);
+  }
+
+  function montarFiado(): { condicoes: CondicoesFiadoVenda } | { erro: string } {
+    const entradaValor = estadoFiado.temEntrada ? lerValorDigitado(estadoFiado.entradaValor) : 0;
+    if (estadoFiado.temEntrada && !(entradaValor > 0)) return { erro: "Digite o valor da entrada (ou desmarque a entrada)." };
+    const parcelas = estadoFiado.parcelas.map((p) => ({ vencimento: p.vencimento, valor: lerValorDigitado(p.valor) }));
+    const problema = validarCondicoesFiado(totalVenda, entradaValor, parcelas, data);
+    if (problema) return { erro: problema };
+    return {
+      condicoes: {
+        entrada: entradaValor > 0 ? { valor: entradaValor, forma: estadoFiado.entradaForma, contaId: estadoFiado.entradaContaId || null } : null,
+        parcelas,
+        periodicidade: estadoFiado.periodicidade,
+        salvarComoPadrao: estadoFiado.salvarComoPadrao,
+      },
+    };
+  }
+
   async function handleRegistrarVenda(e: React.FormEvent) {
     e.preventDefault();
-    if (!negocio || (!produtoSelecionado && !servicoSelecionado)) return;
+    if (!negocio) return;
+    if (itensDaVenda.length === 0) {
+      setErro("Adicione pelo menos um produto ou serviço.");
+      return;
+    }
+    for (const item of itensDaVenda) {
+      const problema = validarItem(item);
+      if (problema) {
+        setErro(problema);
+        return;
+      }
+    }
     if (fiado && !clienteId) {
       setErro("Venda fiada precisa de um cliente identificado.");
       return;
     }
-    const qtd = Number(quantidade.replace(",", "."));
-    const valorUnit = Number(valorUnitario.replace(",", "."));
-    if (!qtd || qtd <= 0) {
-      setErro("Digite uma quantidade válida.");
-      return;
-    }
-    if (!valorUnit || valorUnit < 0) {
-      setErro("Digite um valor de venda válido.");
-      return;
+    let condicoesFiado: CondicoesFiadoVenda | null = null;
+    if (fiado) {
+      const r = montarFiado();
+      if ("erro" in r) {
+        setErro(r.erro);
+        return;
+      }
+      condicoesFiado = r.condicoes;
     }
     let pagamentos: PagamentoVenda[] | null = null;
     if (dividirPagamento && !fiado) {
       const lista = partes
-        .map((p) => ({ forma: p.forma, valor: Number(p.valor.replace(/\./g, "").replace(",", ".")), contaId: p.contaId || null }))
+        .map((p) => ({ forma: p.forma, valor: lerValorDigitado(p.valor), contaId: p.contaId || null }))
         .filter((p) => p.valor > 0);
       if (lista.length < 2) {
         setErro("Para dividir, informe pelo menos duas formas de pagamento com valor.");
         return;
       }
       const soma = lista.reduce((a, p) => a + p.valor, 0);
-      const total = Number((qtd * valorUnit).toFixed(2));
-      if (Math.abs(soma - total) > 0.009) {
-        setErro(`A soma das formas (${formatarMoeda(soma)}) precisa ser igual ao total da venda (${formatarMoeda(total)}).`);
+      if (Math.abs(soma - totalVenda) > 0.009) {
+        setErro(`A soma das formas (${formatarMoeda(soma)}) precisa ser igual ao total da venda (${formatarMoeda(totalVenda)}).`);
         return;
       }
       pagamentos = lista;
     }
+
+    const itens: ItemVenda[] = itensDaVenda.map((i) => ({
+      produto: i.tipo === "produto" ? produtos.find((p) => p.id === i.refId) ?? null : null,
+      servico: i.tipo === "servico" ? servicos.find((s) => s.id === i.refId) ?? null : null,
+      quantidade: Number(i.quantidade),
+      valorUnitario: lerValorDigitado(i.valorUnitario),
+    }));
+    if (itens.some((i) => !i.produto && !i.servico)) {
+      setErro("Um dos itens não está mais no catálogo. Remova-o e adicione de novo.");
+      return;
+    }
+
     setErro(null);
     setAviso(null);
     setSalvando(true);
     const resultado = await registrarVenda({
       pagamentos,
       usuarioId: negocio.usuarioId,
-      produto: produtoSelecionado,
-      servico: servicoSelecionado,
-      fiado: fiado ? { parcelas: Math.max(1, Number(parcelasFiado) || 1), primeiroVencimento: vencimentoFiado } : null,
-      quantidade: qtd,
-      valorUnitario: valorUnit,
+      itens,
+      fiado: condicoesFiado,
       formaPagamento,
       data,
       clienteId: clienteId || null,
@@ -184,24 +327,26 @@ export default function VendasPage() {
     setSalvando(false);
 
     if (resultado.error) {
-      setErro("Não foi possível registrar a venda. Tente novamente.");
+      setErro(resultado.error.message && !/fetch|network|JWT/i.test(resultado.error.message)
+        ? resultado.error.message
+        : "Não foi possível registrar a venda. Tente novamente.");
       return;
     }
-    if (resultado.estoqueInsuficiente && produtoSelecionado) {
-      setAviso(
-        `Atenção: você vendeu mais unidades de "${produtoSelecionado.nome}" do que tinha em estoque. O estoque desse produto ficou zerado.`
+    const avisos: string[] = [];
+    if (resultado.estoqueInsuficiente && resultado.estoqueInsuficiente.length > 0) {
+      avisos.push(
+        `Atenção: você vendeu mais unidades do que tinha em estoque de ${resultado.estoqueInsuficiente.map((n) => `"${n}"`).join(", ")}. O estoque ficou zerado.`
       );
-    } else if (fiado) {
-      setAviso("Venda fiada registrada: as parcelas estão em Contas → A receber (o valor entra no caixa quando você marcar como recebido).");
     }
-    setProdutoId("");
-    setServicoId("");
+    if (fiado) {
+      avisos.push("Venda fiada registrada: as parcelas estão em Contas → A receber (cada uma entra no caixa quando você marcar como recebida).");
+    }
+    setAviso(avisos.length ? avisos.join(" ") : null);
+    limparSeletor();
+    setCarrinho([]);
     setFiado(false);
     setDividirPagamento(false);
     setPartes([]);
-    setParcelasFiado("1");
-    setQuantidade("1");
-    setValorUnitario("");
     setClienteId("");
     setFormAberto(false);
     carregar();
@@ -214,7 +359,7 @@ export default function VendasPage() {
     setSalvando(false);
     setConfirmandoExclusaoId(null);
     if (error) {
-      setErro("Não foi possível apagar essa venda. Tente novamente.");
+      setErro(error.message?.startsWith("Esta venda") ? error.message : "Não foi possível apagar essa venda. Tente novamente.");
       return;
     }
     carregar();
@@ -231,6 +376,8 @@ export default function VendasPage() {
   );
 
   const resumo = React.useMemo(() => resumirVendas(vendasDoMes), [vendasDoMes]);
+  // Seção 15.1: as linhas da mesma venda (carrinho) aparecem juntas.
+  const vendasAgrupadas = React.useMemo(() => agruparLinhasDeVenda(vendas), [vendas]);
   // Ranking ABC de margem real (7.2) — últimos 6 meses carregados.
   const ranking = React.useMemo(() => rankingABC(vendas), [vendas]);
 
@@ -299,6 +446,61 @@ export default function VendasPage() {
             />
           )}
           <form onSubmit={handleRegistrarVenda} className="flex flex-col gap-4">
+            {/* Seção 15.1: carrinho de itens da venda. */}
+            {carrinho.length > 0 && (
+              <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+                <p className="text-small font-semibold text-foreground">
+                  Itens da venda ({carrinho.length})
+                </p>
+                {carrinho.map((item, i) => {
+                  const subtotal = (Number(item.quantidade) || 0) * (lerValorDigitado(item.valorUnitario) || 0);
+                  return (
+                    <div key={item.chave} className="flex flex-col gap-2 border-b border-border/60 pb-2 last:border-b-0 last:pb-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 break-words text-small font-medium text-foreground">
+                          {item.nome}
+                          <span className="ml-1 text-xs font-normal text-muted">{item.tipo === "produto" ? "· produto" : "· serviço"}</span>
+                        </p>
+                        <button
+                          type="button"
+                          aria-label={`Remover ${item.nome}`}
+                          onClick={() => setCarrinho((l) => l.filter((_, j) => j !== i))}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-rose-700"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-[1fr_1.4fr] items-end gap-2 min-[420px]:grid-cols-[1fr_1.4fr_auto]">
+                        <Input
+                          aria-label={`Quantidade de ${item.nome}`}
+                          label="Qtd"
+                          inputMode="numeric"
+                          value={item.quantidade}
+                          onChange={(e) =>
+                            setCarrinho((l) => l.map((x, j) => (j === i ? { ...x, quantidade: e.target.value.replace(/\D/g, "") } : x)))
+                          }
+                        />
+                        <Input
+                          aria-label={`Valor unitário de ${item.nome}`}
+                          label="Valor unitário"
+                          inputMode="decimal"
+                          value={item.valorUnitario}
+                          onChange={(e) => setCarrinho((l) => l.map((x, j) => (j === i ? { ...x, valorUnitario: e.target.value } : x)))}
+                          placeholder="0,00"
+                        />
+                        <p className="col-span-2 pb-1 text-right text-small font-semibold text-foreground min-[420px]:col-span-1 min-[420px]:pb-3">
+                          {formatarMoeda(subtotal)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <p className="text-small font-medium text-foreground">
+              {carrinho.length > 0 ? "Adicionar outro item" : "Item da venda"}
+            </p>
             {produtos.length > 0 && servicos.length > 0 && (
               <div className="flex gap-1 self-start rounded-full bg-muted/10 p-1">
                 {(["produto", "servico"] as const).map((t) => (
@@ -377,46 +579,60 @@ export default function VendasPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Quantidade"
-                inputMode="decimal"
-                value={quantidade}
-                onChange={(e) => setQuantidade(e.target.value)}
-              />
-              <Input
-                label="Valor de venda (unidade)"
-                inputMode="decimal"
-                value={valorUnitario}
-                onChange={(e) => setValorUnitario(e.target.value)}
-                placeholder="0,00"
-              />
-            </div>
+            {(produtoSelecionado || servicoSelecionado) && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Quantidade"
+                    inputMode="numeric"
+                    value={quantidade}
+                    onChange={(e) => setQuantidade(e.target.value.replace(/\D/g, ""))}
+                  />
+                  <Input
+                    label="Valor de venda (unidade)"
+                    inputMode="decimal"
+                    value={valorUnitario}
+                    onChange={(e) => setValorUnitario(e.target.value)}
+                    placeholder="0,00"
+                  />
+                </div>
+                <Button type="button" variant="tertiary" size="sm" onClick={handleAdicionarAoCarrinho} className="self-start">
+                  <PlusCircle size={16} />
+                  Adicionar à venda e escolher outro item
+                </Button>
+              </>
+            )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2">
               <DateMaskInput label="Data" value={data} onChange={(v) => setData(v)} />
-              <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Forma de pagamento</span>
-                <select
-                  value={formaPagamento}
-                  onChange={(e) => setFormaPagamento(e.target.value as typeof formaPagamento)}
-                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
-                >
-                  {FORMAS_PAGAMENTO.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!fiado && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-small font-medium text-foreground">Forma de pagamento</span>
+                  <select
+                    value={formaPagamento}
+                    onChange={(e) => setFormaPagamento(e.target.value as typeof formaPagamento)}
+                    className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+                  >
+                    {FORMAS_PAGAMENTO.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {clientes.length > 0 && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Cliente (opcional)</span>
+                <span className="text-small font-medium text-foreground">Cliente {fiado ? "" : "(opcional)"}</span>
                 <select
                   value={clienteId}
-                  onChange={(e) => setClienteId(e.target.value)}
+                  onChange={(e) => {
+                    setClienteId(e.target.value);
+                    const novo = clientes.find((c) => c.id === e.target.value);
+                    if (fiado) aplicarPadraoFiado(true, lerPadraoFiado(novo?.padrao_fiado));
+                  }}
                   className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
                 >
                   <option value="">Sem cliente identificado</option>
@@ -430,22 +646,33 @@ export default function VendasPage() {
             )}
 
             <label className="flex items-center gap-2 text-small text-foreground">
-              <input type="checkbox" checked={fiado} onChange={(e) => setFiado(e.target.checked)} className="h-4 w-4 accent-emerald-600" />
-              Venda fiada (o cliente paga depois, em parcelas)
+              <input
+                type="checkbox"
+                checked={fiado}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setDividirPagamento(false);
+                    aplicarPadraoFiado(true);
+                  } else setFiado(false);
+                }}
+                className="h-4 w-4 accent-emerald-600"
+              />
+              Venda fiada (o cliente paga depois, nas condições que vocês combinarem)
             </label>
+            {fiado && !clienteId && (
+              <p className="text-xs text-amber-800 dark:text-amber-200">Escolha o cliente acima — o fiado fica no nome dele.</p>
+            )}
+            {fiado && padraoCliente && (
+              <p className="text-xs text-muted">Condições preenchidas com o padrão de {clienteSelecionado?.nome}. Pode mudar à vontade.</p>
+            )}
             {fiado && (
-              <div className="grid grid-cols-2 gap-4 rounded-xl border border-border p-3">
-                <Input
-                  label="Parcelas"
-                  inputMode="numeric"
-                  value={parcelasFiado}
-                  onChange={(e) => setParcelasFiado(e.target.value.replace(/\D/g, ""))}
-                />
-                <DateMaskInput label="1º vencimento" value={vencimentoFiado} onChange={setVencimentoFiado} />
-                <p className="col-span-2 text-xs text-muted">
-                  Vira conta a receber no nome do cliente, com alerta quando estiver perto de vencer ou vencida.
-                </p>
-              </div>
+              <CondicoesFiado
+                total={totalVenda}
+                estado={estadoFiado}
+                onChange={setEstadoFiado}
+                contas={contas}
+                temPadraoCliente={!!padraoCliente}
+              />
             )}
 
             {!fiado && (
@@ -530,8 +757,8 @@ export default function VendasPage() {
                   <PlusCircle size={14} /> Adicionar forma
                 </button>
                 {(() => {
-                  const soma = partes.reduce((a, x) => a + (Number(x.valor.replace(/\./g, "").replace(",", ".")) || 0), 0);
-                  const total = Number(quantidade.replace(",", ".") || 0) * Number(valorUnitario.replace(",", ".") || 0);
+                  const soma = partes.reduce((a, x) => a + (lerValorDigitado(x.valor) || 0), 0);
+                  const total = totalVenda;
                   const falta = Number((total - soma).toFixed(2));
                   return (
                     <p className={`text-xs ${Math.abs(falta) < 0.01 ? "text-primary-700" : "text-amber-800"}`}>
@@ -543,21 +770,18 @@ export default function VendasPage() {
               </div>
             )}
 
-            {quantidade && valorUnitario && (
+            {itensDaVenda.length > 0 && (
               <p className="text-small text-muted">
-                Total da venda:{" "}
-                <strong className="text-foreground">
-                  {formatarMoeda(
-                    Number(quantidade.replace(",", ".") || 0) * Number(valorUnitario.replace(",", ".") || 0)
-                  )}
-                </strong>
+                Total da venda ({itensDaVenda.length} {itensDaVenda.length === 1 ? "item" : "itens"}):{" "}
+                <strong className="text-foreground">{formatarMoeda(totalVenda)}</strong>
+                {itemPendente && carrinho.length > 0 ? " · inclui o item selecionado acima" : ""}
               </p>
             )}
 
             {erro && <p className="text-small text-rose-600">{erro}</p>}
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={salvando || (!produtoSelecionado && !servicoSelecionado)} className="flex-1">
+              <Button type="submit" disabled={salvando || itensDaVenda.length === 0} className="flex-1">
                 {salvando ? "Salvando..." : "Registrar venda"}
               </Button>
               <Button type="button" variant="tertiary" onClick={() => setFormAberto(false)}>
@@ -698,29 +922,34 @@ export default function VendasPage() {
               </Card>
             ) : (
               <div className="flex flex-col gap-2">
-                {vendas.slice(0, 15).map((v) => (
-                  <Card key={v.id} padding="sm" className="flex flex-wrap items-center justify-between gap-4">
+                {vendasAgrupadas.slice(0, 15).map((g) => {
+                  const v = g.linhas[0];
+                  const titulo =
+                    g.linhas.length === 1
+                      ? `${v.produto_nome} · ${v.quantidade}x`
+                      : g.linhas.map((l) => `${l.quantidade}x ${l.produto_nome}`).join(" · ");
+                  return (
+                  <Card key={g.chave} padding="sm" className="flex flex-wrap items-center justify-between gap-4">
                     {/* `min-w-0` aqui (mesma causa raiz da seção 23 do
                         contexto do projeto) deixa o nome do produto/cliente
                         quebrar linha dentro do próprio espaço, em vez de
                         forçar a linha mais larga que a tela. */}
-                    <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
                         <ShoppingCart size={18} />
                       </span>
                       <div className="min-w-0">
-                        <p className="text-body font-medium text-foreground">
-                          {v.produto_nome} · {v.quantidade}x
-                        </p>
+                        <p className="break-words text-body font-medium text-foreground">{titulo}</p>
                         <p className="text-small text-muted">
-                          {new Date(v.data + "T00:00:00").toLocaleDateString("pt-BR")}
-                          {v.clientes?.nome ? ` · ${v.clientes.nome}` : ""}
+                          {new Date(g.data + "T00:00:00").toLocaleDateString("pt-BR")}
+                          {g.cliente?.nome ? ` · ${g.cliente.nome}` : ""}
+                          {g.linhas.length > 1 ? ` · ${g.linhas.length} itens` : ""}
                         </p>
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
-                      <p className="text-body font-semibold text-accent-600">{formatarMoeda(Number(v.valor_total))}</p>
-                      {confirmandoExclusaoId === v.id ? (
+                      <p className="text-body font-semibold text-accent-600">{formatarMoeda(g.total)}</p>
+                      {confirmandoExclusaoId === g.chave ? (
                         <div className="flex items-center gap-1">
                           <Button size="sm" variant="tertiary" onClick={() => setConfirmandoExclusaoId(null)}>
                             Não
@@ -731,22 +960,23 @@ export default function VendasPage() {
                             onClick={() => handleExcluir(v)}
                             className="bg-red-500 shadow-none hover:bg-red-600 active:bg-red-700"
                           >
-                            Apagar
+                            {g.linhas.length > 1 ? "Apagar venda inteira" : "Apagar"}
                           </Button>
                         </div>
                       ) : (
                         <button
                           type="button"
                           aria-label="Apagar venda"
-                          onClick={() => setConfirmandoExclusaoId(v.id)}
+                          onClick={() => setConfirmandoExclusaoId(g.chave)}
                           className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-rose-50 hover:text-red-500"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       )}
                     </div>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -2,7 +2,13 @@ import { supabase } from "@/lib/supabase/client";
 import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import { criarTransacao, deletarTransacao } from "./transacoes";
 import { ajustarEstoque } from "./produtos";
-import { criarContaReceberParcelada } from "./contasEmpresa";
+import {
+  diasEntreDatasIso,
+  validarCondicoesFiado,
+  type PadraoFiado,
+  type ParcelaFiado,
+  type PeriodicidadeFiado,
+} from "@/lib/util/fiado";
 import { NOMES_MES } from "@/lib/format";
 import type { Venda, Produto, Servico, Transacao } from "./tipos";
 
@@ -35,20 +41,37 @@ async function idCategoriaVendas(): Promise<string | null> {
   return data?.id ?? null;
 }
 
-export interface DadosVenda {
-  usuarioId: string;
-  /** Um dos dois: produto do estoque OU serviço do catálogo (item 5.6). */
+/** Um item do carrinho (seção 15.1): produto do estoque OU serviço do
+ * catálogo, com quantidade e valor unitário próprios. */
+export interface ItemVenda {
   produto?: Produto | null;
   servico?: Servico | null;
   quantidade: number;
   valorUnitario: number;
+}
+
+/** Fiado flexível (seção 15.2): termos definidos a cada venda. */
+export interface CondicoesFiadoVenda {
+  /** Entrada paga na hora (entra no caixa já). */
+  entrada?: { valor: number; forma: NonNullable<Transacao["forma_pagamento"]>; contaId: string | null } | null;
+  /** Parcelas com vencimento e valor de cada uma (podem ser diferentes). */
+  parcelas: ParcelaFiado[];
+  periodicidade: PeriodicidadeFiado;
+  /** Grava estas condições como padrão do cliente. */
+  salvarComoPadrao?: boolean;
+}
+
+export interface DadosVenda {
+  usuarioId: string;
+  /** Seção 15.1: vários itens (produtos e/ou serviços) na mesma venda. */
+  itens: ItemVenda[];
   formaPagamento: Transacao["forma_pagamento"];
   data: string;
   clienteId: string | null;
   contaId: string | null;
-  /** Venda fiada (a prazo, item 5.2): em vez de entrar no caixa agora, vira
-   * conta a receber parcelada no nome do cliente. */
-  fiado?: { parcelas: number; primeiroVencimento: string } | null;
+  /** Venda fiada (a prazo): em vez de entrar no caixa agora, vira conta a
+   * receber no nome do cliente, nas condições combinadas. */
+  fiado?: CondicoesFiadoVenda | null;
   /** Checklist (10/out/2026): várias formas de pagamento na mesma venda
    * (ex.: R$ 50 no Pix + R$ 30 em dinheiro). Com 2+ itens, gera um
    * lançamento de receita por forma, cada um na sua carteira. A soma precisa
@@ -74,25 +97,60 @@ async function empresaParaVenda(clienteId: string | null): Promise<{ empresa_id?
   return id ? { empresa_id: id } : {};
 }
 
+/** Nome curto da venda para o extrato: "Corte" ou "Corte + 2 itens". */
+export function descricaoDaVenda(nomes: string[]): string {
+  if (nomes.length === 0) return "Venda";
+  if (nomes.length === 1) return nomes[0];
+  return `${nomes[0]} + ${nomes.length - 1} ${nomes.length - 1 === 1 ? "item" : "itens"}`;
+}
+
+/** Total da venda = soma dos subtotais (quantidade × valor unitário). */
+export function totalDosItens(itens: Pick<ItemVenda, "quantidade" | "valorUnitario">[]): number {
+  return Number(itens.reduce((acc, i) => acc + Number((i.quantidade * i.valorUnitario).toFixed(2)), 0).toFixed(2));
+}
+
+async function apagarTransacoesPorId(ids: (string | null | undefined)[]) {
+  for (const id of ids) {
+    if (!id) continue;
+    // eslint-disable-next-line no-await-in-loop -- sequencial: cada uma ajusta saldo
+    const { data: t } = await supabase.from("transacoes").select("*").eq("id", id).maybeSingle();
+    // eslint-disable-next-line no-await-in-loop
+    if (t) await deletarTransacao(t as Transacao);
+  }
+}
+
 /**
- * Registra uma venda: cria a linha em `vendas`, gera a transação de receita
- * correspondente (pra entrar no faturamento/fluxo de caixa da empresa) e dá
- * baixa no estoque do produto. Se a quantidade vendida for maior que o
- * estoque disponível, o estoque só é zerado (nunca fica negativo) — a venda
- * não é bloqueada por isso, só o produto fica com estoque zerado.
+ * Registra uma venda (seção 15.1: com 1 ou mais itens): grava uma linha em
+ * `vendas` por item, todas com o mesmo `grupo_venda_id`; gera o lançamento
+ * de receita pelo TOTAL (ou um por forma de pagamento, ou só a entrada no
+ * fiado) — preso à 1ª linha — e dá baixa no estoque de cada produto. Se a
+ * quantidade vendida for maior que o estoque, o estoque só é zerado (nunca
+ * fica negativo) — a venda não é bloqueada por isso.
  */
 export async function registrarVenda(dados: DadosVenda) {
-  const item = dados.produto ?? dados.servico;
-  if (!item) return { data: null, error: new Error("Escolha um produto ou serviço.") };
-  const nomeItem = item.nome;
-  const valorTotal = Number((dados.quantidade * dados.valorUnitario).toFixed(2));
-  const categoriaId = await idCategoriaVendas();
+  const itens = dados.itens.filter((i) => (i.produto || i.servico) && i.quantidade > 0);
+  if (itens.length === 0) return { data: null, error: new Error("Adicione pelo menos um produto ou serviço.") };
+  if (itens.some((i) => !Number.isInteger(i.quantidade))) {
+    return { data: null, error: new Error("A quantidade de cada item precisa ser um número inteiro.") };
+  }
+  const nomes = itens.map((i) => (i.produto ?? i.servico)!.nome);
+  const descricao = descricaoDaVenda(nomes);
+  const valorTotal = totalDosItens(itens);
   const fiado = dados.fiado && dados.clienteId ? dados.fiado : null;
-
+  if (fiado) {
+    const erroFiado = validarCondicoesFiado(valorTotal, fiado.entrada?.valor ?? 0, fiado.parcelas, dados.data);
+    if (erroFiado) return { data: null, error: new Error(erroFiado) };
+  }
+  const categoriaId = await idCategoriaVendas();
   const empresa = await empresaParaVenda(dados.clienteId);
+  const grupoVendaId = crypto.randomUUID();
+
   let transacao: Transacao | null = null;
   const dividida = !fiado && dados.pagamentos && dados.pagamentos.length >= 2 ? dados.pagamentos : null;
   const pagamentosGravados: PagamentoVenda[] = [];
+  const desfazerCaixa = () =>
+    apagarTransacoesPorId(dividida ? pagamentosGravados.map((p) => p.transacao_id) : [transacao?.id]);
+
   if (dividida) {
     for (const pg of dividida) {
       // eslint-disable-next-line no-await-in-loop -- sequencial: cada um ajusta saldo
@@ -102,34 +160,31 @@ export async function registrarVenda(dados: DadosVenda) {
         categoria_id: categoriaId,
         tipo: "receita",
         valor: Number(pg.valor.toFixed(2)),
-        descricao: `${nomeItem} (${pg.forma})`,
+        descricao: `${descricao} (${pg.forma})`,
         data: dados.data,
         forma_pagamento: pg.forma,
         tipo_negocio: "negocio",
         ...empresa,
       });
       if (erroT || !t) {
-        for (const feito of pagamentosGravados) {
-          // eslint-disable-next-line no-await-in-loop
-          const { data: tt } = await supabase.from("transacoes").select("*").eq("id", feito.transacao_id).maybeSingle();
-          // eslint-disable-next-line no-await-in-loop
-          if (tt) await deletarTransacao(tt as Transacao);
-        }
+        await desfazerCaixa();
         return { data: null, error: erroT };
       }
       pagamentosGravados.push({ ...pg, transacao_id: (t as Transacao).id });
       if (!transacao) transacao = t as Transacao;
     }
-  } else if (!fiado) {
+  } else if (!fiado || (fiado.entrada && fiado.entrada.valor > 0)) {
+    // À vista: o total. Fiado com entrada: só a entrada entra no caixa agora.
+    const entrada = fiado?.entrada ?? null;
     const { data: t, error: erroTransacao } = await criarTransacao({
       usuario_id: dados.usuarioId,
-      conta_id: dados.contaId,
+      conta_id: entrada ? entrada.contaId : dados.contaId,
       categoria_id: categoriaId,
       tipo: "receita",
-      valor: valorTotal,
-      descricao: nomeItem,
+      valor: entrada ? Number(entrada.valor.toFixed(2)) : valorTotal,
+      descricao: entrada ? `Entrada (fiado): ${descricao}` : descricao,
       data: dados.data,
-      forma_pagamento: dados.formaPagamento,
+      forma_pagamento: entrada ? entrada.forma : dados.formaPagamento,
       tipo_negocio: "negocio",
       ...empresa,
     });
@@ -139,110 +194,178 @@ export async function registrarVenda(dados: DadosVenda) {
     transacao = t as Transacao;
   }
 
-  const custoUnitario = dados.produto ? Number(dados.produto.custo) : Number(dados.servico?.custo ?? 0);
-  const { data: venda, error: erroVenda } = await supabase
-    .from("vendas")
-    .insert({
+  const linhas = itens.map((item, i) => {
+    const custoUnitario = item.produto ? Number(item.produto.custo) : Number(item.servico?.custo ?? 0);
+    return {
       ...empresa,
       usuario_id: dados.usuarioId,
-      pagamentos: dividida ? pagamentosGravados : null,
-      produto_id: dados.produto?.id ?? null,
-      servico_id: dados.produto ? null : dados.servico?.id ?? null,
-      produto_nome: nomeItem,
-      quantidade: dados.quantidade,
-      valor_unitario: dados.valorUnitario,
+      grupo_venda_id: grupoVendaId,
+      // O caixa (lançamento e formas de pagamento) fica preso à 1ª linha.
+      pagamentos: i === 0 && dividida ? pagamentosGravados : null,
+      transacao_id: i === 0 ? transacao?.id ?? null : null,
+      produto_id: item.produto?.id ?? null,
+      servico_id: item.produto ? null : item.servico?.id ?? null,
+      produto_nome: nomes[i],
+      quantidade: item.quantidade,
+      valor_unitario: item.valorUnitario,
       custo_unitario: custoUnitario,
-      valor_total: valorTotal,
-      forma_pagamento: dados.formaPagamento,
+      valor_total: Number((item.quantidade * item.valorUnitario).toFixed(2)),
+      forma_pagamento: fiado ? null : dados.formaPagamento,
       cliente_id: dados.clienteId,
       data: dados.data,
-      transacao_id: transacao?.id ?? null,
-    })
-    .select()
-    .single();
+    };
+  });
+  const { data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(linhas).select();
 
-  if (erroVenda) {
-    // A transação de receita já foi criada — desfaz pra não deixar um
-    // lançamento órfão (e seu efeito no saldo da conta) caso a venda em si
-    // não possa ser salva.
-    if (dividida) {
-      for (const pg of pagamentosGravados) {
-        // eslint-disable-next-line no-await-in-loop
-        const { data: tt } = await supabase.from("transacoes").select("*").eq("id", pg.transacao_id).maybeSingle();
-        // eslint-disable-next-line no-await-in-loop
-        if (tt) await deletarTransacao(tt as Transacao);
-      }
-    } else if (transacao) await deletarTransacao(transacao);
+  if (erroVenda || !vendasGravadas) {
+    // O lançamento de receita já foi criado — desfaz pra não deixar um
+    // lançamento órfão (e seu efeito no saldo da conta).
+    await desfazerCaixa();
     return { data: null, error: erroVenda };
   }
 
   if (fiado) {
-    await criarContaReceberParcelada(
-      {
-        usuario_id: dados.usuarioId,
-        cliente_id: dados.clienteId,
-        descricao: `Fiado: ${nomeItem}`,
-        valor: valorTotal,
-        vencimento: fiado.primeiroVencimento,
-        origem: "fiado",
-      },
-      Math.max(1, fiado.parcelas)
-    );
+    const n = fiado.parcelas.length;
+    const titulos = fiado.parcelas.map((p, i) => ({
+      ...empresa,
+      usuario_id: dados.usuarioId,
+      cliente_id: dados.clienteId,
+      descricao: n > 1 ? `Fiado: ${descricao} (${i + 1}/${n})` : `Fiado: ${descricao}`,
+      valor: Number(p.valor.toFixed(2)),
+      vencimento: p.vencimento,
+      origem: "fiado",
+      venda_grupo_id: grupoVendaId,
+      grupo_parcela_id: n > 1 ? grupoVendaId : null,
+      parcela_numero: n > 1 ? i + 1 : null,
+      parcela_total: n > 1 ? n : null,
+    }));
+    const { error: erroFiado } = await supabase.from("contas_receber").insert(titulos);
+    if (erroFiado) {
+      await supabase.from("vendas").delete().eq("grupo_venda_id", grupoVendaId);
+      await desfazerCaixa();
+      return { data: null, error: erroFiado };
+    }
+    if (fiado.salvarComoPadrao && dados.clienteId) {
+      const entradaPct = fiado.entrada && fiado.entrada.valor > 0 ? Number(((fiado.entrada.valor / valorTotal) * 100).toFixed(2)) : 0;
+      const padrao: PadraoFiado = {
+        parcelas: n,
+        periodicidade: fiado.periodicidade,
+        dias_primeiro_vencimento: Math.max(0, diasEntreDatasIso(dados.data, fiado.parcelas[0].vencimento)),
+        entrada_percentual: entradaPct,
+      };
+      // Falhar aqui não desfaz a venda: é só uma preferência.
+      await supabase.from("clientes").update({ padrao_fiado: padrao }).eq("id", dados.clienteId);
+    }
   }
 
-  if (!dados.produto) {
-    return { data: venda, error: null, novoEstoque: null, estoqueInsuficiente: false };
+  // Baixa de estoque por produto (somando se o mesmo produto aparece em
+  // mais de uma linha). Lê o estoque atual do banco em vez de confiar no
+  // formulário, pra não perder baixas concorrentes.
+  const porProduto = new Map<string, { produto: Produto; quantidade: number }>();
+  for (const item of itens) {
+    if (!item.produto) continue;
+    const atual = porProduto.get(item.produto.id);
+    porProduto.set(item.produto.id, { produto: item.produto, quantidade: (atual?.quantidade ?? 0) + item.quantidade });
+  }
+  const estoqueInsuficiente: string[] = [];
+  for (const { produto, quantidade } of porProduto.values()) {
+    // eslint-disable-next-line no-await-in-loop
+    const { data: produtoAtual } = await supabase.from("produtos").select("quantidade_estoque").eq("id", produto.id).maybeSingle();
+    const antes = produtoAtual ? Number(produtoAtual.quantidade_estoque) : Number(produto.quantidade_estoque);
+    // eslint-disable-next-line no-await-in-loop
+    await ajustarEstoque(produto.id, antes, -quantidade);
+    if (quantidade > antes) estoqueInsuficiente.push(produto.nome);
   }
 
-  // Lê o estoque atual direto do banco (em vez de confiar no valor que veio
-  // no formulário) pra evitar perder baixas concorrentes de outra venda do
-  // mesmo produto feita entre a abertura da tela e o salvamento.
-  const { data: produtoAtual } = await supabase
-    .from("produtos")
-    .select("quantidade_estoque")
-    .eq("id", dados.produto.id)
-    .maybeSingle();
-  const estoqueAntesDaBaixa = produtoAtual
-    ? Number(produtoAtual.quantidade_estoque)
-    : Number(dados.produto.quantidade_estoque);
-  const novoEstoque = await ajustarEstoque(dados.produto.id, estoqueAntesDaBaixa, -dados.quantidade);
-  const estoqueInsuficiente = dados.quantidade > estoqueAntesDaBaixa;
-
-  return { data: venda, error: null, novoEstoque, estoqueInsuficiente };
+  return { data: vendasGravadas as Venda[], error: null, estoqueInsuficiente };
 }
 
-/** Apaga a venda, devolve a quantidade ao estoque do produto (se ele ainda
- * existir) e remove a transação de receita vinculada, desfazendo o efeito
- * dela no saldo da conta — mesmo padrão de `deletarTransacao`. Retorna um
- * erro se qualquer uma dessas etapas falhar, pra tela avisar o usuário em
- * vez de dar como concluído silenciosamente. */
+/** Linhas que formam a mesma venda (carrinho). Vendas antigas, sem grupo,
+ * são só a própria linha. */
+export function chaveDaVenda(v: Pick<Venda, "id" | "grupo_venda_id">): string {
+  return v.grupo_venda_id ?? v.id;
+}
+
+export interface VendaAgrupada {
+  chave: string;
+  linhas: Venda[];
+  total: number;
+  data: string;
+  criado_em: string;
+  cliente: Venda["clientes"];
+}
+
+/** Junta as linhas da mesma venda, mantendo a ordem da lista. */
+export function agruparLinhasDeVenda(vendas: Venda[]): VendaAgrupada[] {
+  const mapa = new Map<string, VendaAgrupada>();
+  for (const v of vendas) {
+    const chave = chaveDaVenda(v);
+    const atual = mapa.get(chave);
+    if (atual) {
+      atual.linhas.push(v);
+      atual.total = Number((atual.total + Number(v.valor_total)).toFixed(2));
+    } else {
+      mapa.set(chave, { chave, linhas: [v], total: Number(v.valor_total), data: v.data, criado_em: v.criado_em, cliente: v.clientes ?? null });
+    }
+  }
+  return Array.from(mapa.values());
+}
+
+/** Apaga a venda INTEIRA (todas as linhas do carrinho): remove os
+ * lançamentos de caixa (desfazendo o efeito no saldo), as parcelas do fiado
+ * ainda não recebidas e devolve as quantidades ao estoque. Se alguma
+ * parcela do fiado já foi recebida, não apaga (a pessoa desfaz o
+ * recebimento antes) — senão o dinheiro recebido ficaria sem origem. */
 export async function deletarVenda(venda: Venda) {
+  let linhas: Venda[] = [venda];
+  if (venda.grupo_venda_id) {
+    const { data } = await supabase.from("vendas").select("*").eq("grupo_venda_id", venda.grupo_venda_id);
+    if (data && data.length > 0) linhas = data as Venda[];
+  }
+
+  if (venda.grupo_venda_id) {
+    const { data: titulos } = await supabase
+      .from("contas_receber")
+      .select("id, status")
+      .eq("venda_grupo_id", venda.grupo_venda_id);
+    const lista = (titulos as { id: string; status: string }[] | null) ?? [];
+    if (lista.some((t) => t.status === "recebido")) {
+      return { error: new Error("Esta venda tem parcelas do fiado já recebidas. Desfaça o recebimento em Contas → A receber antes de apagar.") };
+    }
+    if (lista.length > 0) {
+      const { error: e } = await supabase.from("contas_receber").delete().eq("venda_grupo_id", venda.grupo_venda_id);
+      if (e) return { error: e };
+    }
+  }
+
   // Ordem pensada para tentativa repetida não duplicar nada: primeiro os
   // lançamentos (idempotente — o que já foi apagado não é achado de novo),
-  // depois a linha da venda e, SÓ por último, a devolução do estoque.
-  const ids = [
-    ...(Array.isArray(venda.pagamentos) ? venda.pagamentos.map((p) => p.transacao_id) : []),
-    venda.transacao_id,
-  ].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
+  // depois as linhas da venda e, SÓ por último, a devolução do estoque.
+  const ids = linhas
+    .flatMap((l) => [...(Array.isArray(l.pagamentos) ? l.pagamentos.map((p) => p.transacao_id) : []), l.transacao_id])
+    .filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
   for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
     const { data: t } = await supabase.from("transacoes").select("*").eq("id", id).maybeSingle();
     if (t) {
+      // eslint-disable-next-line no-await-in-loop
       const { error: e } = await deletarTransacao(t as Transacao);
       if (e) return { error: e };
     }
   }
 
-  const { error } = await supabase.from("vendas").delete().eq("id", venda.id);
+  const { error } = venda.grupo_venda_id
+    ? await supabase.from("vendas").delete().eq("grupo_venda_id", venda.grupo_venda_id)
+    : await supabase.from("vendas").delete().eq("id", venda.id);
   if (error) return { error };
 
-  if (venda.produto_id) {
-    const { data: produto } = await supabase
-      .from("produtos")
-      .select("quantidade_estoque")
-      .eq("id", venda.produto_id)
-      .maybeSingle();
+  for (const l of linhas) {
+    if (!l.produto_id) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const { data: produto } = await supabase.from("produtos").select("quantidade_estoque").eq("id", l.produto_id).maybeSingle();
     if (produto) {
-      await ajustarEstoque(venda.produto_id, Number(produto.quantidade_estoque), venda.quantidade);
+      // eslint-disable-next-line no-await-in-loop
+      await ajustarEstoque(l.produto_id, Number(produto.quantidade_estoque), l.quantidade);
     }
   }
   return { error: null };
@@ -261,11 +384,13 @@ export function resumirVendas(vendas: Venda[]): ResumoVendas {
     (acc, v) => acc + (Number(v.valor_unitario) - Number(v.custo_unitario)) * v.quantidade,
     0
   );
+  // Seção 15.1: uma venda com vários itens conta como UMA venda.
+  const quantidadeVendas = new Set(vendas.map(chaveDaVenda)).size;
   return {
     totalVendido,
     lucroReal,
-    quantidadeVendas: vendas.length,
-    ticketMedio: vendas.length > 0 ? totalVendido / vendas.length : 0,
+    quantidadeVendas,
+    ticketMedio: quantidadeVendas > 0 ? totalVendido / quantidadeVendas : 0,
   };
 }
 
@@ -352,7 +477,7 @@ export interface ResumoVendasHoje {
 export function resumirVendasHoje(vendas: Venda[], hojeIso: string): ResumoVendasHoje {
   const limite24h = Date.now() - 24 * 60 * 60 * 1000;
   const totalHoje = vendas.filter((v) => v.data === hojeIso).reduce((acc, v) => acc + Number(v.valor_total), 0);
-  const quantidade24h = vendas.filter((v) => new Date(v.criado_em).getTime() >= limite24h).length;
+  const quantidade24h = new Set(vendas.filter((v) => new Date(v.criado_em).getTime() >= limite24h).map(chaveDaVenda)).size;
   const ultimos = [...vendas].sort((a, b) => (a.criado_em < b.criado_em ? 1 : -1)).slice(0, 3);
   return { totalHoje, quantidade24h, ultimos };
 }
@@ -411,7 +536,8 @@ export function ticketMedioPorMes(vendas: Venda[], meses = 6): PontoTicketMedio[
     const prefixo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const doMes = vendas.filter((v) => v.data.startsWith(prefixo));
     const total = doMes.reduce((acc, v) => acc + Number(v.valor_total), 0);
-    pontos.push({ rotulo: NOMES_MES[d.getMonth()], ticketMedio: doMes.length ? total / doMes.length : 0, vendas: doMes.length });
+    const qtd = new Set(doMes.map(chaveDaVenda)).size;
+    pontos.push({ rotulo: NOMES_MES[d.getMonth()], ticketMedio: qtd ? total / qtd : 0, vendas: qtd });
   }
   return pontos;
 }

@@ -287,7 +287,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
   const valorInvestidoNumero = parsearValorDigitado(valorInvestido);
   const valorRetornavelNumero = parsearValorDigitado(valorRetornavel);
   const precoRevendaNumero = tipo === "revenda" ? parsearValorDigitado(precoRevenda) : 0;
-  const lucroRevenda = tipo === "revenda" ? calcularLucroRevenda(valorInvestidoNumero, precoRevendaNumero) : null;
+  const lucroRevenda = tipo === "revenda" && valorInvestidoNumero > 0 ? calcularLucroRevenda(valorInvestidoNumero, precoRevendaNumero) : null;
   // Revenda parcelada: quem paga em parcelas é o comprador, sobre o PREÇO DE
   // REVENDA (sem ele definido, cai no custo como antes).
   const valorParaParcelas = ehEmprestimo

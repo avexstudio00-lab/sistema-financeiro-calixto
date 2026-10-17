@@ -1,8 +1,22 @@
 import { supabase } from "@/lib/supabase/client";
 import { detectarTipoImagem } from "@/lib/seguranca/arquivos";
 
+/**
+ * Grava o tipo de perfil e devolve a linha salva. Com RLS, um UPDATE que não
+ * casa nenhuma linha não dá erro — por isso o `.select()`: se o banco não
+ * devolver o valor pedido, tratamos como falha (seção 13, 15/out/2026).
+ */
 export async function atualizarTipoPerfil(usuarioId: string, tipo: "clt" | "mei" | "me") {
-  return supabase.from("usuarios").update({ tipo_perfil: tipo }).eq("id", usuarioId);
+  const resp = await supabase
+    .from("usuarios")
+    .update({ tipo_perfil: tipo })
+    .eq("id", usuarioId)
+    .select("tipo_perfil")
+    .maybeSingle();
+  if (!resp.error && (resp.data as { tipo_perfil: string } | null)?.tipo_perfil !== tipo) {
+    return { ...resp, error: { message: "O tipo de perfil não foi gravado." } };
+  }
+  return resp;
 }
 
 export async function atualizarNome(usuarioId: string, nome: string) {

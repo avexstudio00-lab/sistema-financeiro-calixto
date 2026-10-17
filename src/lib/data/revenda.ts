@@ -10,20 +10,24 @@ import type { Investimento, PagamentoInvestimento, ParcelaInvestimento } from ".
 
 export interface LucroRevenda {
   lucro: number;
-  /** % sobre o custo: (revenda − custo) / custo × 100. */
-  margem: number;
+  /** % sobre o custo: (revenda − custo) / custo × 100. `null` quando o
+   * custo é zero (não existe percentual sobre zero). */
+  margem: number | null;
 }
 
 export function calcularLucroRevenda(custo: number, precoRevenda: number | null | undefined): LucroRevenda | null {
-  if (precoRevenda == null || !Number.isFinite(precoRevenda) || precoRevenda <= 0 || !(custo > 0)) return null;
+  if (precoRevenda == null || !Number.isFinite(precoRevenda) || precoRevenda <= 0 || !(custo >= 0)) return null;
   const lucro = precoRevenda - custo;
-  return { lucro, margem: (lucro / custo) * 100 };
+  // Seção 14.2 (15/out/2026): custo zero (item que veio de um rolo) tem
+  // lucro, mas não tem margem % — antes caía em "preço pendente".
+  return { lucro, margem: custo > 0 ? (lucro / custo) * 100 : null };
 }
 
 /** Texto do badge: "Lucro de 30% (R$ 300,00)". */
 export function textoLucroRevenda(l: LucroRevenda): string {
-  const pct = l.margem.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
   const valor = Math.abs(l.lucro).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  if (l.margem == null) return l.lucro >= 0 ? `Lucro de ${valor} (sem custo de entrada)` : `Prejuízo de ${valor}`;
+  const pct = l.margem.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
   return l.lucro >= 0 ? `Lucro de ${pct}% (${valor})` : `Prejuízo de ${pct.replace("-", "")}% (${valor})`;
 }
 

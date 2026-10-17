@@ -164,17 +164,17 @@ export function PainelRevenda({
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-3 py-3">
       <div className="grid grid-cols-2 gap-2 text-small sm:grid-cols-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-muted">Preço de custo</p>
-          <p className="font-semibold text-foreground">{formatarMoeda(custo)}</p>
+          <p className="break-words font-semibold text-foreground">{formatarMoeda(custo)}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-muted">Preço de revenda</p>
-          <p className="font-semibold text-foreground">{preco != null ? formatarMoeda(preco) : "—"}</p>
+          <p className="break-words font-semibold text-foreground">{preco != null ? formatarMoeda(preco) : "—"}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-muted">Recebido</p>
-          <p className="font-semibold text-foreground">
+          <p className="break-words font-semibold text-foreground">
             {formatarMoeda(recebido)}
             {faltaReceber != null && faltaReceber > 0 ? <span className="block text-xs font-normal text-muted">falta {formatarMoeda(faltaReceber)}</span> : null}
           </p>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { PieChart as IconePizza, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { classeDoInvestimento } from "@/components/dashboard/InvestimentoCard";
-import { calcularValorAtualEstimado, rentabilidadePonderadaMes } from "@/lib/data/investimentos";
+import { calcularValorAtualEstimado, rentabilidadeCarteira, revendaSemPreco } from "@/lib/data/investimentos";
 import { investimentosPessoais } from "@/lib/data/patrimonio";
 import { formatarMoeda } from "@/lib/format";
 import type { Compromisso } from "@/lib/data/compromissos";
@@ -39,7 +39,9 @@ export function ResumoInvestimentosPainel({ investimentos, cotacoes, proximos }:
       .sort((a, b) => b.valor - a.valor);
   }, [pessoais, cotacoes]);
   const total = porClasse.reduce((a, c) => a + c.valor, 0);
-  const rentabilidade = React.useMemo(() => rentabilidadePonderadaMes(pessoais, cotacoes), [pessoais, cotacoes]);
+  const resultado = React.useMemo(() => rentabilidadeCarteira(pessoais, cotacoes), [pessoais, cotacoes]);
+  const rentabilidade = resultado?.percentual ?? null;
+  const revendasSemPreco = pessoais.filter((i) => !i.quitado && revendaSemPreco(i)).length;
   const limite15 = React.useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 15);
@@ -61,19 +63,33 @@ export function ResumoInvestimentosPainel({ investimentos, cotacoes, proximos }:
           <ChevronRight size={14} />
         </Link>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
+      {/* Seção 14.3: min-w-0 + quebra de linha — em 320–360px os números
+          grandes não podem estourar a coluna. */}
+      <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
+        <div className="min-w-0">
           <p className="text-small text-muted">Patrimônio em ativos</p>
-          <p className="text-h2 text-foreground">{formatarMoeda(total)}</p>
+          <p className="break-words text-h3 text-foreground sm:text-h2">{formatarMoeda(total)}</p>
         </div>
-        <div>
-          <p className="text-small text-muted">Rentabilidade no mês</p>
-          <p className={`text-h2 ${rentabilidade == null || rentabilidade >= 0 ? "text-primary-700" : "text-rose-700"}`}>
+        <div className="min-w-0">
+          <p className="text-small text-muted">
+            {resultado?.periodo === "inicio" ? "Rentabilidade desde o início" : "Rentabilidade no mês"}
+          </p>
+          <p className={`break-words text-h3 sm:text-h2 ${rentabilidade == null || rentabilidade >= 0 ? "text-primary-700" : "text-rose-700"}`}>
             {rentabilidade == null ? "—" : `${rentabilidade >= 0 ? "+" : ""}${rentabilidade.toFixed(2).replace(".", ",")}%`}
           </p>
-          <p className="text-xs text-muted">ponderada pelo valor de cada ativo, últimos 30 dias</p>
+          <p className="text-xs text-muted">
+            {resultado?.periodo === "inicio"
+              ? "seus ativos ainda não têm 30 dias; ponderada pelo valor de cada um"
+              : "ponderada pelo valor de cada ativo, últimos 30 dias"}
+          </p>
         </div>
       </div>
+      {revendasSemPreco > 0 && (
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          {revendasSemPreco === 1 ? "1 revenda está" : `${revendasSemPreco} revendas estão`} sem preço de revenda e
+          {revendasSemPreco === 1 ? " ficou" : " ficaram"} fora da rentabilidade. Preencha o preço de revenda em Investimentos.
+        </p>
+      )}
       {total > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted/10">

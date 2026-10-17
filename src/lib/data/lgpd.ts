@@ -23,17 +23,33 @@ let consentimentoEmAndamento = false;
 
 /** Registra no servidor (com IP e hora UTC) o aceite feito no cadastro, se
  * ainda não registrado. Idempotente; nunca lança erro. */
-export async function registrarConsentimentoPendente(): Promise<void> {
+export async function registrarConsentimentoPendente(usuarioId?: string): Promise<void> {
+  // Seção 14.1 (15/out/2026): antes isto ia ao servidor a CADA abertura do
+  // app. Agora fica marcado no aparelho depois da primeira resposta boa —
+  // o servidor continua idempotente, então perder a marca só repete 1 envio.
+  const marca = usuarioId ? `calixto:consentimento:${usuarioId}:${VERSAO_DOCUMENTOS_LEGAIS}` : null;
+  try {
+    if (marca && localStorage.getItem(marca) === "1") return;
+  } catch {
+    /* sem localStorage: segue e envia */
+  }
   if (consentimentoEmAndamento) return;
   consentimentoEmAndamento = true;
   try {
     const token = await tokenAtual();
     if (!token) return;
-    await fetch("/api/lgpd/consentimento", {
+    const resp = await fetch("/api/lgpd/consentimento", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ versao: VERSAO_DOCUMENTOS_LEGAIS, origem: "automatico" }),
     });
+    if (resp.ok && marca) {
+      try {
+        localStorage.setItem(marca, "1");
+      } catch {
+        /* ignora */
+      }
+    }
   } catch (erro) {
     console.error("Falha ao registrar consentimento LGPD:", erro);
   } finally {

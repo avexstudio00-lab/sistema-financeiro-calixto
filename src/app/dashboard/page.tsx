@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -45,19 +46,37 @@ import { FilaPendenteBanner } from "@/components/dashboard/FilaPendenteBanner";
 import { Sparkline } from "@/components/dashboard/graficos/Sparkline";
 import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
 import { HeatmapMensal } from "@/components/dashboard/graficos/HeatmapMensal";
-import { GraficoDonutCategorias } from "@/components/dashboard/graficos/GraficoDonutCategorias";
 import { GraficoRankingGastos } from "@/components/dashboard/graficos/GraficoRankingGastos";
-import { GraficoColunasComparativo } from "@/components/dashboard/graficos/GraficoColunasComparativo";
-import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
 import { EVENTO_LANCAMENTO_SALVO } from "@/components/dashboard/BotaoLancamentoGlobal";
 import { AtalhosLancamento } from "@/components/dashboard/AtalhosLancamento";
 import { VisaoHoje } from "@/components/dashboard/VisaoHoje";
-import { ProjecaoLiquidez } from "@/components/dashboard/ProjecaoLiquidez";
 import { ResumoInvestimentosPainel } from "@/components/dashboard/ResumoInvestimentosPainel";
 import { calcularPatrimonioEmpresa, dividirCarteirasPessoalEmpresa, investimentosPessoais } from "@/lib/data/patrimonio";
 import { listarCompromissosPessoais, type Compromisso } from "@/lib/data/compromissos";
 import { hojeIso } from "@/lib/util/texto";
 import type { Categoria, Transacao, Meta, LimiteCategoria, ContaFixa, Investimento, CotacoesMercado } from "@/lib/data/tipos";
+
+// Seção 14.1 (15/out/2026): os gráficos com Recharts (biblioteca pesada)
+// ficam abaixo da dobra e carregam sob demanda, sem travar a primeira pintura.
+function EsqueletoGrafico() {
+  return <div className="h-56 w-full animate-pulse rounded-xl bg-muted/10" aria-hidden="true" />;
+}
+const GraficoDonutCategorias = dynamic(
+  () => import("@/components/dashboard/graficos/GraficoDonutCategorias").then((m) => m.GraficoDonutCategorias),
+  { ssr: false, loading: EsqueletoGrafico }
+);
+const GraficoColunasComparativo = dynamic(
+  () => import("@/components/dashboard/graficos/GraficoColunasComparativo").then((m) => m.GraficoColunasComparativo),
+  { ssr: false, loading: EsqueletoGrafico }
+);
+const ProjecaoLiquidez = dynamic(
+  () => import("@/components/dashboard/ProjecaoLiquidez").then((m) => m.ProjecaoLiquidez),
+  { ssr: false, loading: EsqueletoGrafico }
+);
+const GraficoLinhaEvolucao = dynamic(
+  () => import("@/components/dashboard/graficos/GraficoLinhaEvolucao").then((m) => m.GraficoLinhaEvolucao),
+  { ssr: false, loading: EsqueletoGrafico }
+);
 
 const FORMAS_PAGAMENTO_FILTRO = [
   { id: "pix", label: "Pix" },
@@ -119,6 +138,7 @@ interface PatrimonioResumo {
 export default function DashboardPage() {
   const { user, perfil, papel, negocio, podeAcessarMinhaEmpresa } = useAuth();
   const temEmpresaPropria = papel === "dono" && podeAcessarMinhaEmpresa && !!negocio;
+  const negocioId = negocio?.usuarioId ?? null;
   const [transacoes, setTransacoes] = React.useState<Transacao[]>([]);
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
   const [evolucaoMensal, setEvolucaoMensal] = React.useState<PontoEvolucaoMensal[]>([]);
@@ -128,6 +148,9 @@ export default function DashboardPage() {
   // Spinner só na 1ª carga ou ao trocar de mês; recarregar depois de
   // salvar é silencioso, sem pular pro topo (05/out/2026).
   const chaveCarregadaRef = React.useRef<string | null>(null);
+  // Seção 14.1: geração de contas fixas só uma vez por abertura do painel.
+  const geracaoContasFixasRef = React.useRef<Promise<number> | null>(null);
+  const contasFixasRelidasRef = React.useRef(false);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [bloqueado, setBloqueado] = React.useState(false);
   const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
@@ -145,6 +168,11 @@ export default function DashboardPage() {
   const [cotacoesMercado, setCotacoesMercado] = React.useState<CotacoesMercado | undefined>(undefined);
   const [compromissos, setCompromissos] = React.useState<Compromisso[]>([]);
   const [recarga, setRecarga] = React.useState(0);
+  // Seção 14.1: cotações guardadas para não serem buscadas de novo a cada
+  // recarga do patrimônio; `cotacoesAtrasadas` refaz o cálculo quando elas
+  // chegam depois do limite de espera.
+  const cotacoesRef = React.useRef<CotacoesMercado | null>(null);
+  const [cotacoesAtrasadas, setCotacoesAtrasadas] = React.useState(0);
 
   // Modo offline: quando não dá pra buscar do servidor, mostra o último
   // "retrato" bom que a gente tinha salvo. `offlineDesde` guarda a hora
@@ -188,17 +216,29 @@ export default function DashboardPage() {
     chaveCarregadaRef.current = chaveCache;
     // Lança automaticamente (se ainda não lançou este mês) as contas fixas
     // recorrentes cujo dia de vencimento já chegou -- ver
-    // src/lib/data/contasFixas.ts e /dashboard/contas-fixas. Roda antes de
-    // buscar as transações do mês, pra qualquer lançamento novo já aparecer
-    // no painel nesta mesma carga.
-    await gerarLancamentosPendentes(user.id);
+    // src/lib/data/contasFixas.ts e /dashboard/contas-fixas.
+    // Seção 14.1 (15/out/2026): roda UMA vez por abertura do painel e em
+    // paralelo com as buscas (antes segurava tudo, e rodava de novo a cada
+    // recarga). Só quando lançou algo é que as transações são relidas.
+    const geracao = geracaoContasFixasRef.current ?? gerarLancamentosPendentes(user.id).catch(() => 0);
+    geracaoContasFixasRef.current = geracao;
     const { inicio, fim } = limitesDoMesAtual();
-    const [lista, cats, evolucao, lims] = await Promise.all([
-      listarTransacoes(user.id, { inicio, fim }),
+    const [geradasAgora, cats, lims, primeiraLista, primeiraEvolucao] = await Promise.all([
+      geracao,
       listarCategorias(user.id),
-      listarEvolucaoMensal(user.id, 6, "pessoal"),
       listarLimites(user.id),
+      listarTransacoes(user.id, { inicio, fim }),
+      listarEvolucaoMensal(user.id, 6, "pessoal"),
     ]);
+    let lista = primeiraLista;
+    let evolucao = primeiraEvolucao;
+    if (geradasAgora > 0 && !contasFixasRelidasRef.current) {
+      contasFixasRelidasRef.current = true;
+      [lista, evolucao] = await Promise.all([
+        listarTransacoes(user.id, { inicio, fim }),
+        listarEvolucaoMensal(user.id, 6, "pessoal"),
+      ]);
+    }
 
     if (!navigator.onLine) {
       // A conexão caiu durante a busca — não troca o que já tava na tela por
@@ -295,12 +335,29 @@ export default function DashboardPage() {
     if (!user) return;
     let cancelado = false;
     (async () => {
+      // Seção 14.1: as cotações vêm de uma API externa; se demorarem mais
+      // de 2,5 s, o patrimônio sai sem elas (cálculo pela taxa digitada) e é
+      // refeito quando chegarem — nunca seguram a tela.
+      const promessaCotacoes = cotacoesRef.current ? Promise.resolve(cotacoesRef.current) : obterCotacoesMercado();
+      const cotacoesRapidas = Promise.race([
+        promessaCotacoes,
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2500)),
+      ]);
       const [contas, investimentos, dividas, cotacoes] = await Promise.all([
         listarContas(user.id),
         listarInvestimentos(user.id),
         listarDividasComProgresso(user.id),
-        obterCotacoesMercado(),
+        cotacoesRapidas,
       ]);
+      if (cotacoes) {
+        // Só guarda se vieram dados de verdade (falha devolve tudo vazio).
+        if (cotacoes.cdi != null || cotacoes.usd != null || cotacoes.titulosTesouro.length > 0) cotacoesRef.current = cotacoes;
+      } else {
+        void promessaCotacoes.then((c) => {
+          cotacoesRef.current = c;
+          if (!cancelado) setCotacoesAtrasadas((n) => n + 1);
+        });
+      }
       if (cancelado) return;
       setInvestimentosLista(investimentos);
       setCotacoesMercado(cotacoes);
@@ -354,7 +411,10 @@ export default function DashboardPage() {
     return () => {
       cancelado = true;
     };
-  }, [user, recarga, temEmpresaPropria, negocio]);
+    // `negocioId` em vez do objeto `negocio`: o objeto é recriado a cada
+    // recarga do perfil e refazia estas 4+ buscas sem necessidade (14.1).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, recarga, temEmpresaPropria, negocioId, cotacoesAtrasadas]);
 
   // Contas fixas (usadas só pra estimar o "custo médio mensal" abaixo, ver
   // `custoMedioMensal`) -- lista completa, independente do `carregar()`.
@@ -406,8 +466,11 @@ export default function DashboardPage() {
   // "Aguardando envio" enquanto isso. Some da fila (e passa a vir do
   // servidor como as outras) assim que `sincronizarFila` conseguir enviar.
   const filaPendente = useFilaPendente();
-  const transacoesPendentesExibicao: TransacaoExibida[] = filaPendente
-    .filter((item) => item.dados.usuario_id === user?.id && item.dados.tipo_negocio !== "negocio")
+  // Seção 14.1: memorizado — antes era um array novo a cada render, o que
+  // fazia o heatmap e os alertas de orçamento recalcularem o tempo todo.
+  const usuarioId = user?.id;
+  const transacoesPendentesExibicao: TransacaoExibida[] = React.useMemo(() => filaPendente
+    .filter((item) => item.dados.usuario_id === usuarioId && item.dados.tipo_negocio !== "negocio")
     .map((item) => ({
       id: `pendente:${item.idLocal}`,
       usuario_id: item.dados.usuario_id,
@@ -432,16 +495,16 @@ export default function DashboardPage() {
       parcela_total: null,
       categorias: categorias.find((c) => c.id === item.dados.categoria_id) ?? null,
       __pendente: true,
-    }));
+    })), [filaPendente, usuarioId, categorias]);
 
   // O Painel pessoal só mostra dados pessoais — o "sem tipo" cobre lançamentos
   // antigos sem tipo_negocio definido; tudo do negócio vive em "Minha empresa".
   // Pendentes entram primeiro (são sempre "agora") e somam no saldo/totais
   // abaixo igual a uma anotação já confirmada.
-  const transacoesPessoais: TransacaoExibida[] = [
-    ...transacoesPendentesExibicao,
-    ...transacoes.filter((t) => t.tipo_negocio !== "negocio"),
-  ];
+  const transacoesPessoais: TransacaoExibida[] = React.useMemo(
+    () => [...transacoesPendentesExibicao, ...transacoes.filter((t) => t.tipo_negocio !== "negocio")],
+    [transacoesPendentesExibicao, transacoes]
+  );
 
   const entradas = transacoesPessoais.filter((t) => t.tipo === "receita").reduce((acc, t) => acc + Number(t.valor), 0);
   const saidas = transacoesPessoais.filter((t) => t.tipo === "despesa").reduce((acc, t) => acc + Number(t.valor), 0);

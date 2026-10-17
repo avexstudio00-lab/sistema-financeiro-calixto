@@ -379,6 +379,8 @@ export interface Cliente {
   email: string | null;
   criado_em: string;
   empresa_id?: string;
+  /** Seção 15.2: condições de fiado preferidas (ver src/lib/util/fiado.ts). */
+  padrao_fiado?: unknown;
 }
 
 export interface Fornecedor {
@@ -508,6 +510,8 @@ export interface Venda {
   servico_id?: string | null;
   /** Pagamento dividido em várias formas (cada uma com seu lançamento). */
   pagamentos?: { forma: string; valor: number; contaId: string | null; transacao_id?: string | null }[] | null;
+  /** Seção 15.1: linhas da mesma venda (carrinho). Nulo em vendas antigas. */
+  grupo_venda_id?: string | null;
 }
 
 export interface ContaPagar {
@@ -550,6 +554,8 @@ export interface ContaReceber {
   transacao_id?: string | null;
   /** Item 6.4: última vez que o lembrete de cobrança foi usado. */
   ultima_cobranca_em?: string | null;
+  /** Seção 15.2: parcelas do fiado ligadas à venda (vendas.grupo_venda_id). */
+  venda_grupo_id?: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -105,29 +105,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setNegocio(mestre ? { usuarioId: mestre.id, nome: mestre.nome, plano: mestre.plano as Plano } : null);
   }, []);
 
-  const carregarPerfil = React.useCallback(
+  // Carga do perfil em andamento (por usuário). O `getSession()` inicial e o
+  // evento INITIAL_SESSION do Supabase podem chegar juntos ao abrir o app;
+  // sem isto o perfil era buscado duas vezes em paralelo (seção 14.1).
+  const cargaPerfilRef = React.useRef<{ userId: string; promessa: Promise<void> } | null>(null);
+  // Número da carga mais recente: uma resposta antiga que chegue depois de
+  // uma mais nova (ex.: perfil lido antes de salvar o tipo) é descartada.
+  const sequenciaPerfilRef = React.useRef(0);
+
+  const carregarPerfilAgora = React.useCallback(
     async (userId: string) => {
-      const { data } = await supabase.from("usuarios").select("*").eq("id", userId).maybeSingle();
+      const minhaVez = ++sequenciaPerfilRef.current;
+      // Seção 14.1 (15/out/2026): perfil e conferência do trial saem em
+      // paralelo — antes eram 3 idas ao banco em fila antes de liberar a tela.
+      const [{ data }, trialExpirouAgora] = await Promise.all([
+        supabase.from("usuarios").select("*").eq("id", userId).maybeSingle(),
+        verificarExpiracaoTrial(userId),
+      ]);
       let perfilCarregado = data as Perfil | null;
 
       // Verificação preguiçosa do trial (mesmo padrão de contas fixas):
       // se o trial grátis desse usuário já venceu, rebaixa pra "gratis"
       // agora e relê o perfil atualizado antes de publicar no estado.
-      if (perfilCarregado) {
-        const trialExpirouAgora = await verificarExpiracaoTrial(userId);
-        if (trialExpirouAgora) {
-          const { data: atualizado } = await supabase.from("usuarios").select("*").eq("id", userId).maybeSingle();
-          perfilCarregado = atualizado as Perfil | null;
-        }
+      if (perfilCarregado && trialExpirouAgora) {
+        const { data: atualizado } = await supabase.from("usuarios").select("*").eq("id", userId).maybeSingle();
+        perfilCarregado = atualizado as Perfil | null;
       }
 
+      if (minhaVez !== sequenciaPerfilRef.current) {
+        // Há uma leitura mais nova: espera por ela em vez de publicar esta.
+        await cargaPerfilRef.current?.promessa;
+        return;
+      }
       setPerfil(perfilCarregado);
       await carregarPapelENegocio(userId, perfilCarregado);
       // Grava o aceite dos termos (feito no cadastro) se ainda não foi
       // registrado no servidor. Não bloqueia nada: falha só vira log.
-      if (perfilCarregado) void registrarConsentimentoPendente();
+      if (perfilCarregado) void registrarConsentimentoPendente(userId);
     },
     [carregarPapelENegocio]
+  );
+
+  const carregarPerfil = React.useCallback(
+    (userId: string, forcar = false) => {
+      const atual = cargaPerfilRef.current;
+      // `forcar` (recarregarPerfil, depois de salvar algo) sempre relê do
+      // banco — nunca reaproveita uma leitura que começou antes da gravação.
+      if (!forcar && atual && atual.userId === userId) return atual.promessa;
+      const promessa = carregarPerfilAgora(userId).finally(() => {
+        if (cargaPerfilRef.current?.promessa === promessa) cargaPerfilRef.current = null;
+      });
+      cargaPerfilRef.current = { userId, promessa };
+      return promessa;
+    },
+    [carregarPerfilAgora]
   );
 
   React.useEffect(() => {
@@ -172,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (novaSessao?.user) {
         await carregarPerfil(novaSessao.user.id);
       } else {
+        sequenciaPerfilRef.current++; // descarta leitura de perfil ainda em andamento
         setPerfil(null);
         setPapel("dono");
         setNegocio(null);
@@ -185,7 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [carregarPerfil]);
 
   const recarregarPerfil = React.useCallback(async () => {
-    if (user) await carregarPerfil(user.id);
+    if (user) await carregarPerfil(user.id, true);
   }, [user, carregarPerfil]);
 
   const podeAcessarMinhaEmpresa = React.useMemo(

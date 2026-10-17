@@ -33,6 +33,7 @@ export default function PerfilPage() {
   const [nome, setNome] = React.useState("");
   const [tipoPerfil, setTipoPerfil] = React.useState<TipoPerfil | null>(null);
   const [salvando, setSalvando] = React.useState(false);
+  const [salvandoTipo, setSalvandoTipo] = React.useState(false);
   const [enviandoFoto, setEnviandoFoto] = React.useState(false);
   const [mensagem, setMensagem] = React.useState<string | null>(null);
   const [erro, setErro] = React.useState<string | null>(null);
@@ -144,6 +145,31 @@ export default function PerfilPage() {
     await recarregarPerfil();
     setSalvando(false);
     setMensagem("Perfil atualizado.");
+  }
+
+  /**
+   * Seção 13 (15/out/2026): o tipo de perfil é salvo NA HORA do toque. Antes
+   * ele só ia para o banco pelo botão "Salvar alterações", lá no fim da
+   * página — quem escolhia MEI e saía da tela voltava a ver CLT.
+   */
+  async function handleEscolherTipo(novo: TipoPerfil) {
+    if (!user || !perfil || salvandoTipo || novo === tipoPerfil) return;
+    const anterior = tipoPerfil;
+    setTipoPerfil(novo);
+    setErro(null);
+    setMensagem(null);
+    setSalvandoTipo(true);
+    const { error } = await atualizarTipoPerfil(user.id, novo);
+    if (error) {
+      setTipoPerfil(anterior);
+      setSalvandoTipo(false);
+      setErro("Não foi possível salvar o tipo de perfil. Tente novamente.");
+      return;
+    }
+    // Atualiza o contexto para todas as telas (menu, área da empresa etc.).
+    await recarregarPerfil();
+    setSalvandoTipo(false);
+    setMensagem("Tipo de perfil salvo.");
   }
 
   async function handleSignOut() {
@@ -312,7 +338,8 @@ export default function PerfilPage() {
           <h2 className="text-h3 text-foreground">Tipo de perfil</h2>
           <p className="text-small text-muted">
             Isso deixa o app com a cara certa pro seu dia a dia. A área &quot;Minha empresa&quot;
-            é liberada pra qualquer perfil que estiver no plano Avançado.
+            é liberada pra qualquer perfil que estiver no plano Avançado. A escolha é salva
+            assim que você toca.
           </p>
         </div>
         <div className="flex flex-col gap-3">
@@ -320,7 +347,9 @@ export default function PerfilPage() {
             <button
               key={p.id}
               type="button"
-              onClick={() => setTipoPerfil(p.id)}
+              onClick={() => void handleEscolherTipo(p.id)}
+              disabled={salvandoTipo}
+              aria-pressed={tipoPerfil === p.id}
               className={cn(
                 "flex items-center gap-4 rounded-2xl border-2 p-4 text-left transition-all duration-200",
                 tipoPerfil === p.id
@@ -340,7 +369,12 @@ export default function PerfilPage() {
                 <span className="block text-body font-semibold text-foreground">{p.titulo}</span>
                 <span className="block text-small text-muted">{p.texto}</span>
               </span>
-              {tipoPerfil === p.id && <Check size={20} className="text-primary-600" />}
+              {tipoPerfil === p.id &&
+                (salvandoTipo ? (
+                  <Loader2 size={20} className="animate-spin text-primary-600" />
+                ) : (
+                  <Check size={20} className="text-primary-600" />
+                ))}
             </button>
           ))}
         </div>

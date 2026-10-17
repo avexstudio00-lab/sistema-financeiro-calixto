@@ -27,9 +27,10 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import {
-  calcularValorAtualEstimado,
   calcularGanhoEstimado,
   calcularPercentualGanho,
+  calcularValorDeResultado,
+  revendaSemPreco,
   temCalculoAutomatico,
   ehTipoRevenda,
 } from "@/lib/data/investimentos";
@@ -151,7 +152,12 @@ export function InvestimentoCard({
 
   const ganho = calcularGanhoEstimado(inv, undefined, cotacoes);
   const percentual = calcularPercentualGanho(inv, undefined, cotacoes);
-  const valorAtual = calcularValorAtualEstimado(inv, undefined, cotacoes);
+  // Seção 14.2: "Valor de venda" da revenda = preço de revenda combinado.
+  const valorAtual = calcularValorDeResultado(inv, undefined, cotacoes);
+  // Seção 14.2: revenda sem preço de revenda não tem rentabilidade confiável.
+  const semPrecoRevenda = revendaSemPreco(inv);
+  // Empréstimo em andamento: o ganho é o acumulado até hoje, não o total.
+  const ganhoParcialEmprestimo = inv.tipo === "emprestimo" && !inv.quitado;
   const Icone = TIPO_META[inv.tipo].icone;
   const automatico = temCalculoAutomatico(inv.tipo);
   const revenda = ehTipoRevenda(inv.tipo);
@@ -234,12 +240,12 @@ export function InvestimentoCard({
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
             <Icone size={18} />
           </span>
-          <div>
-            <p className="text-body font-semibold text-foreground">{inv.nome}</p>
+          <div className="min-w-0">
+            <p className="break-words text-body font-semibold text-foreground">{inv.nome}</p>
             <p className="text-xs text-muted">
               {TIPO_META[inv.tipo].label}
               {inv.forma_pagamento === "parcelado" && inv.numero_parcelas ? ` · ${inv.numero_parcelas}x` : ""}
@@ -250,30 +256,45 @@ export function InvestimentoCard({
         </div>
       </div>
 
-      <div className={emprestimoNovoEstilo ? "grid grid-cols-2 gap-2 text-small" : "grid grid-cols-3 gap-2 text-small"}>
-        <div>
+      {/* Seção 14.3 (15/out/2026): em 320–414px o ganho e o percentual
+          ficavam na mesma linha e eram cortados. Agora cada coluna tem
+          min-w-0, o valor quebra linha e o percentual fica embaixo. Em
+          telas bem estreitas a grade cai para 2 colunas. */}
+      <div
+        className={
+          emprestimoNovoEstilo
+            ? "grid grid-cols-2 gap-x-3 gap-y-2 text-small"
+            : "grid grid-cols-2 gap-x-3 gap-y-2 text-small min-[400px]:grid-cols-3"
+        }
+      >
+        <div className="min-w-0">
           <p className="text-xs text-muted">{inv.tipo === "emprestimo" ? "Emprestado" : revenda ? "Custo" : "Investido"}</p>
-          <p className="font-semibold text-foreground">{formatarMoeda(Number(inv.valor_investido))}</p>
+          <p className="break-words font-semibold text-foreground">{formatarMoeda(Number(inv.valor_investido))}</p>
         </div>
-        <div>
-          <p className="text-xs text-muted">Ganho até agora</p>
-          <p className={`font-semibold ${ganho >= 0 ? "text-primary-600" : "text-red-500"}`}>
-            {ganho >= 0 ? "+" : ""}
-            {formatarMoeda(ganho)}
-            <span className="ml-1 text-xs font-normal">
-              ({percentual >= 0 ? "+" : ""}
-              {percentual.toFixed(1)}%)
-            </span>
-          </p>
+        <div className="min-w-0">
+          <p className="text-xs text-muted">{ganhoParcialEmprestimo ? "Ganho acumulado até hoje" : "Ganho até agora"}</p>
+          {semPrecoRevenda ? (
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Preencha o preço de revenda</p>
+          ) : (
+            <>
+              <p className={`break-words font-semibold ${ganho >= 0 ? "text-primary-600" : "text-red-500"}`}>
+                {ganho >= 0 ? "+" : ""}
+                {formatarMoeda(ganho)}
+              </p>
+              <p className="text-xs text-muted">
+                {percentual == null ? "sem custo de entrada" : `${percentual >= 0 ? "+" : ""}${percentual.toFixed(1).replace(".", ",")}%`}
+              </p>
+            </>
+          )}
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-muted">{revenda ? "Valor de venda" : "Valor atual"}</p>
-          <p className="font-semibold text-secondary">{formatarMoeda(valorAtual)}</p>
+          <p className="break-words font-semibold text-secondary">{semPrecoRevenda ? "—" : formatarMoeda(valorAtual)}</p>
         </div>
         {emprestimoNovoEstilo && (
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-muted">Valor retornável</p>
-            <p className="font-semibold text-foreground">{formatarMoeda(Number(inv.valor_retornavel))}</p>
+            <p className="break-words font-semibold text-foreground">{formatarMoeda(Number(inv.valor_retornavel))}</p>
           </div>
         )}
       </div>
