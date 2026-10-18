@@ -31,11 +31,9 @@ jobs:
         run: npm run build
       - name: TypeScript (tsc --noEmit)
         run: npx tsc --noEmit
-      - name: Lint
-        continue-on-error: true
+      - name: Lint (0 erros; avisos permitidos)
         run: npm run lint
-      - name: npm audit (alta/crítica)
-        continue-on-error: true
+      - name: npm audit (alta/crítica bloqueia)
         run: npm audit --audit-level=high --omit=dev
       - name: Segredos no bundle do navegador
         run: |
