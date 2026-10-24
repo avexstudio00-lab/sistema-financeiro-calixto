@@ -17,7 +17,11 @@ import { COOKIE_AT, COOKIE_RT, cabecalhosApagarSessao, modoSessaoCookieAtivo, ve
  * Os DADOS continuam protegidos pelo RLS do banco em qualquer caso — isto
  * impede que a casca do painel seja entregue a quem não está logado.
  */
-export async function middleware(request: NextRequest) {
+// Next.js 16: o arquivo "middleware" passou a se chamar "proxy" (mesma função,
+// mesmo matcher). Diferença: o proxy roda no runtime Node.js (o middleware
+// rodava no Edge). Este código só usa APIs Web (fetch, crypto.subtle), que
+// existem nos dois — o comportamento de segurança é o mesmo.
+export async function proxy(request: NextRequest) {
   if (!modoSessaoCookieAtivo()) return NextResponse.next();
 
   const at = request.cookies.get(COOKIE_AT)?.value;

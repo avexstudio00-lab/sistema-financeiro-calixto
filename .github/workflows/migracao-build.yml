@@ -1,0 +1,52 @@
+# Migração Next.js 14 -> 16 (documento de 15/out/2026).
+# Roda SÓ na branch migracao-nextjs16: instala, compila, confere tipos,
+# lint e npm audit, e guarda o package-lock.json gerado como artefato.
+# Não usa nenhum segredo e não grava nada no repositório nem no banco.
+name: migracao-build
+
+# Depois do merge na main passa a ser o CI geral de build (sem segredos,
+# por isso é seguro rodar também em pull request).
+on:
+  push:
+    branches: [main, migracao-nextjs16]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Versões do ambiente
+        run: node -v && npm -v
+      - name: Instala dependências
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+      - name: Versões instaladas
+        run: npm ls next react react-dom @types/react @supabase/supabase-js recharts lucide-react zod web-push typescript eslint eslint-config-next --depth=0 || true
+      - name: Build de produção
+        run: npm run build
+      - name: TypeScript (tsc --noEmit)
+        run: npx tsc --noEmit
+      - name: Lint (0 erros; avisos permitidos)
+        run: npm run lint
+      - name: npm audit (alta/crítica bloqueia)
+        run: npm audit --audit-level=high --omit=dev
+      - name: Segredos no bundle do navegador
+        run: |
+          if grep -rlE "service_role|SUPABASE_SERVICE_ROLE_KEY|VAPID_PRIVATE_KEY|ASAAS_API_KEY|\\\$aact_" .next/static; then
+            echo "::error::Possível segredo no bundle do navegador"; exit 1
+          else
+            echo "Nenhum segredo encontrado em .next/static"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-lock
+          path: package-lock.json

@@ -2,35 +2,38 @@
   "name": "sistema-financeiro-calixto",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
-    "next": "14.2.35",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "next": "16.4.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.5.2",
     "class-variance-authority": "^0.7.0",
     "lucide-react": "^0.436.0",
     "@supabase/supabase-js": "^2.45.4",
     "recharts": "2.15.4",
-    "zod": "^3.23.8",
+    "zod": "^4.6.7",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
     "typescript": "^5.5.4",
     "@types/node": "^20.14.15",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "@types/web-push": "^3.6.4",
     "tailwindcss": "^3.4.7",
     "postcss": "^8.4.41",
     "autoprefixer": "^10.4.19",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.35"
+    "eslint": "^9.39.0",
+    "eslint-config-next": "16.4.2"
   }
 }
