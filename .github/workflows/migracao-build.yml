@@ -4,9 +4,12 @@
 # Não usa nenhum segredo e não grava nada no repositório nem no banco.
 name: migracao-build
 
+# Depois do merge na main passa a ser o CI geral de build (sem segredos,
+# por isso é seguro rodar também em pull request).
 on:
   push:
-    branches: [migracao-nextjs16]
+    branches: [main, migracao-nextjs16]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -19,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - name: Versões do ambiente
         run: node -v && npm -v
       - name: Instala dependências
