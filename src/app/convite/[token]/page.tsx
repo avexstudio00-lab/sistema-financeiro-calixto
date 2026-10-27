@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { validarSenhaNova } from "@/lib/seguranca/senha";
 import { useParams, useRouter } from "next/navigation";
 import { Mail, User, Lock, ArrowRight, Wallet, Users, ShieldCheck, LogOut, XCircle } from "lucide-react";
@@ -37,6 +38,9 @@ export default function ConvitePage() {
   const [nome, setNome] = React.useState("");
   const [senha, setSenha] = React.useState("");
   const [confirmacao, setConfirmacao] = React.useState("");
+  // LGPD: aceite obrigatório também no cadastro feito pelo convite (antes o
+  // signUp gravava o aceite nos metadados sem a pessoa ver os termos).
+  const [aceitouTermos, setAceitouTermos] = React.useState(false);
   const [erroForm, setErroForm] = React.useState<string | null>(null);
   const [enviando, setEnviando] = React.useState(false);
   const [aceitando, setAceitando] = React.useState(false);
@@ -78,6 +82,10 @@ export default function ConvitePage() {
     }
     if (senha !== confirmacao) {
       setErroForm("As senhas não coincidem.");
+      return;
+    }
+    if (!aceitouTermos) {
+      setErroForm("Para criar a conta, marque que leu e aceita os Termos de uso e a Política de privacidade.");
       return;
     }
     setErroForm(null);
@@ -279,8 +287,28 @@ export default function ConvitePage() {
                   onChange={(e) => setConfirmacao(e.target.value)}
                   autoComplete="new-password"
                 />
+                <label className="flex items-start gap-3 rounded-xl border border-border p-3 text-small text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={aceitouTermos}
+                    onChange={(e) => setAceitouTermos(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-700"
+                    required
+                  />
+                  <span>
+                    Li e aceito os{" "}
+                    <Link href="/termos" target="_blank" className="font-semibold text-primary-700 underline">
+                      Termos de uso
+                    </Link>{" "}
+                    e a{" "}
+                    <Link href="/privacidade" target="_blank" className="font-semibold text-primary-700 underline">
+                      Política de privacidade
+                    </Link>
+                    , incluindo o tratamento dos meus dados para prestação do serviço.
+                  </span>
+                </label>
                 {erroForm && <p className="text-small text-rose-600">{erroForm}</p>}
-                <Button type="submit" size="lg" disabled={enviando} className="w-full">
+                <Button type="submit" size="lg" disabled={enviando || !aceitouTermos} className="w-full">
                   {enviando ? "Criando conta..." : "Criar minha conta"}
                   {!enviando && <ArrowRight size={18} />}
                 </Button>
