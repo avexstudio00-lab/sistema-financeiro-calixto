@@ -9,6 +9,7 @@ import { EmpresaProvider, useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { BotaoLancamentoGlobal } from "@/components/dashboard/BotaoLancamentoGlobal";
 import { PinGate } from "@/components/auth/PinGate";
 import { SincronizarPush } from "@/components/dashboard/SincronizarPush";
+import { TermosGate } from "@/components/auth/TermosGate";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -45,10 +46,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Fase 1: PIN/biometria. Enquanto bloqueado, nada do painel é montado.
   return (
     <PinGate>
-      <EmpresaProvider>
-        <ConteudoDashboard>{children}</ConteudoDashboard>
-      </EmpresaProvider>
-      <SincronizarPush />
+      {/* LGPD: quem ainda não aceitou a versão vigente dos termos (ex.: contas
+          criadas antes de 10/out/2026) aceita aqui antes de usar o app. */}
+      <TermosGate>
+        <EmpresaProvider>
+          <ConteudoDashboard>{children}</ConteudoDashboard>
+        </EmpresaProvider>
+        <SincronizarPush />
+      </TermosGate>
     </PinGate>
   );
 }
