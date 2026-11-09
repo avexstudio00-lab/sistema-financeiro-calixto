@@ -202,3 +202,21 @@ export function precisaDesbloquear(uid: string): boolean {
   const toleranciaMs = c.minutos <= 0 ? 5 * 60 * 1000 : c.minutos * 60 * 1000;
   return Date.now() - ultima > toleranciaMs;
 }
+
+/**
+ * Último usuário que abriu o app NESTE aparelho com PIN ligado (10/nov/2026).
+ * Serve só pra mostrar a tela de PIN na hora em que o app abre, sem esperar
+ * a sessão voltar do servidor. Nada do painel é montado antes da sessão
+ * confirmar o MESMO usuário: se for outro, a tela de PIN reabre pra ele.
+ */
+const CHAVE_ULTIMO_UID = "calixto:seg-ultimo";
+
+export function lembrarUltimoUid(uid: string) {
+  if (lerConfigPin(uid)) gravar(CHAVE_ULTIMO_UID, uid);
+  else apagar(CHAVE_ULTIMO_UID);
+}
+
+export function ultimoUidComPin(): string | null {
+  const uid = ler<string>(CHAVE_ULTIMO_UID);
+  return uid && typeof uid === "string" && lerConfigPin(uid) ? uid : null;
+}

@@ -63,7 +63,7 @@ const REGRAS_CATEGORIA: { categoria: string; tipo: "despesa" | "receita"; termos
   { categoria: "Alimentação", tipo: "despesa", termos: ["ifood", "restaur", "lanchon", "padaria", "pizzar", "burger", "mcdonald", "bk ", "habibs", "subway", "rappi", "aiqfome", "acai", "cafeteria", "churrasc", "bar e ", "lanches"] },
   { categoria: "Transporte", tipo: "despesa", termos: ["uber", "99app", "99 pop", "99pop", "cabify", "posto", "combust", "shell", "ipiranga", "petrobras", " br mania", "estacion", "pedagio", "sem parar", "conectcar", "veloe", "metro", "bilhete unico", "sptrans", "recarga transp", "onibus", "auto pecas"] },
   { categoria: "Saúde", tipo: "despesa", termos: ["farmac", "drogar", "droga ", "raia", "pacheco", "pague menos", "panvel", "hospital", "clinica", "laborat", "odonto", "unimed", "amil", "hapvida", "sulamerica saude", "medic"] },
-  { categoria: "Moradia", tipo: "despesa", termos: ["aluguel", "condomin", "enel", "light ", "cemig", "copel", "celesc", "sabesp", "copasa", "cedae", "sanepar", "comgas", "energia", "agua e esgoto", "iptu", "claro net", "vivo fibra", "internet"] },
+  { categoria: "Moradia", tipo: "despesa", termos: ["aluguel", "condomin", "enel", "light ", "cemig", "copel", "celesc", "sabesp", "copasa", "cedae", "sanepar", "comgas", "energia", "agua e esgoto", "iptu", "claro net", "vivo fibra", "vivo fixo", "internet"] },
   { categoria: "Lazer", tipo: "despesa", termos: ["netflix", "spotify", "disney", "hbo", "max.com", "prime video", "amazon prime", "deezer", "youtube premium", "globoplay", "cinema", "ingresso", "sympla", "steam", "playstation", "xbox", "nintendo", "parque"] },
   { categoria: "Impostos", tipo: "despesa", termos: ["das simples", "pgmei", "receita federal", "darf", "ipva", "licenciamento", "detran", "gps inss", "simples nacional"] },
   { categoria: "Salário", tipo: "receita", termos: ["salario", "pagto salario", "folha pag", "proventos", "remuneracao", "credito de salario", "pro labore", "pro-labore"] },
@@ -121,6 +121,10 @@ export function classificarLancamento(l: LancamentoLido, ehCartao: boolean): Cla
   } else if (tem(k, "rend pago", "rendimento", "rend.", "juros poup", "remuneracao basica", "dividendo", "jcp ")) {
     natureza = "rendimento";
     categoria = "Resgates e rendimentos";
+  } else if (tem(k, "dinheiro retirado", "retirado do cofrinho", "retirada da caixinha", "resgate caixinha")) {
+    // Mercado Pago/PicPay: tirou da "caixinha"/reserva de volta pra conta.
+    natureza = "resgate";
+    categoria = "Resgates e rendimentos";
   } else if (tem(k, "aplicacao", "aplic ", "aplic.", "invest", "cdb", "lci", "lca", "tesouro", "poupanca", "caixinha", "cofrinho", "porquinho", "guardar dinheiro", "reserva")) {
     natureza = l.tipo === "despesa" ? "aplicacao" : "resgate";
     categoria = l.tipo === "despesa" ? "Investimentos" : "Resgates e rendimentos";
@@ -138,7 +142,7 @@ export function classificarLancamento(l: LancamentoLido, ehCartao: boolean): Cla
   } else if (tem(k, "pix")) {
     natureza = "pix";
     forma = "pix";
-  } else if (tem(k, "boleto", "pag titulo", "pagamento de titulo", "pagto titulo", "cobranca", "convenio", "pag conta")) {
+  } else if (tem(k, "boleto", "pag titulo", "pagamento de titulo", "pagto titulo", "cobranca", "convenio", "pag conta", "pagamento de conta")) {
     natureza = "boleto";
     forma = "boleto";
   } else if (tem(k, "ted", " doc ", "transf", "transferencia")) {

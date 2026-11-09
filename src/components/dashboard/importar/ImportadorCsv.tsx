@@ -36,7 +36,8 @@ import { MapeamentoColunas } from "./MapeamentoColunas";
 import { ConferenciaImportacao } from "./ConferenciaImportacao";
 import { ResultadoImportacao, type ResumoResultado } from "./ResultadoImportacao";
 import { pareceXlsx, xlsxParaCsv } from "@/lib/util/xlsx";
-import { anoDoExtrato, interpretarLinhasPdf, lancamentosPdfParaCsv, lerLinhasPdf, parecePdf } from "@/lib/util/pdfExtrato";
+import { anoDoExtrato, interpretarLinhasPdf, lancamentosPdfParaCsv, parecePdf, type LinhasDoPdf } from "@/lib/util/pdfExtrato";
+import { lerLinhasPdf } from "@/lib/util/pdfExtratoCliente";
 
 type Etapa = "upload" | "mapear" | "conferir" | "resultado";
 
@@ -130,7 +131,7 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
       let cartaoPdf = false;
       if (parecePdf(bytes)) {
         // PDF: texto extraído aqui no aparelho e interpretado linha a linha.
-        let lidas: { linhas: string[]; ehCartao: boolean };
+        let lidas: LinhasDoPdf;
         try {
           lidas = await lerLinhasPdf(bytes, senha);
         } catch (e) {
@@ -140,11 +141,12 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
             throw new ErroArquivo(motivo === "SENHA" ? "Esse PDF tem senha. Digite a senha abaixo (muitos bancos usam os primeiros dígitos do CPF)." : "Senha incorreta. Tente de novo.");
           }
           console.error("[importar] PDF não abriu:", e);
+          if (motivo === "GRANDE_DEMAIS") throw new ErroArquivo("Esse PDF é grande demais pra ler por aqui (até 4 MB). Exporte um período menor ou o extrato em OFX, CSV ou Excel.");
           throw new ErroArquivo("Não consegui abrir esse PDF. Se puder, exporte o extrato em OFX, CSV ou Excel.");
         }
         setPdfComSenha(null);
         setSenhaPdf("");
-        const lancamentos = interpretarLinhasPdf(lidas.linhas, anoDoExtrato(lidas.linhas));
+        const lancamentos = interpretarLinhasPdf(lidas.linhas, anoDoExtrato(lidas.linhas), lidas.posicoes);
         if (lancamentos.length === 0) {
           throw new ErroArquivo(
             "Abri o PDF, mas não achei lançamentos com data e valor. Se for um PDF escaneado (foto), exporte o extrato em OFX, CSV ou Excel no app do banco."
