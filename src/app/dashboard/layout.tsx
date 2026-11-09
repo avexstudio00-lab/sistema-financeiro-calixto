@@ -35,25 +35,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [carregando, user, perfil, recuperacaoSenhaAtiva, router]);
 
-  if (carregando || recuperacaoSenhaAtiva || !user || !perfil || !perfil.tipo_perfil) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="animate-spin text-primary-500" size={28} />
-      </main>
-    );
-  }
+  const girando = (
+    <main className="flex min-h-screen items-center justify-center bg-background">
+      <Loader2 className="animate-spin text-primary-500" size={28} />
+    </main>
+  );
+
+  if (recuperacaoSenhaAtiva || !user) return girando;
 
   // Fase 1: PIN/biometria. Enquanto bloqueado, nada do painel é montado.
+  // A tela de PIN/Face ID aparece assim que a sessão do aparelho é lida —
+  // sem esperar o perfil/plano carregar do banco (antes a pessoa ficava
+  // olhando a rodinha até o Face ID aparecer; achado de 09/nov/2026). O
+  // perfil continua carregando por trás enquanto ela desbloqueia.
   return (
     <PinGate>
-      {/* LGPD: quem ainda não aceitou a versão vigente dos termos (ex.: contas
-          criadas antes de 10/out/2026) aceita aqui antes de usar o app. */}
-      <TermosGate>
-        <EmpresaProvider>
-          <ConteudoDashboard>{children}</ConteudoDashboard>
-        </EmpresaProvider>
-        <SincronizarPush />
-      </TermosGate>
+      {carregando || !perfil || !perfil.tipo_perfil ? (
+        girando
+      ) : (
+        /* LGPD: quem ainda não aceitou a versão vigente dos termos (ex.: contas
+           criadas antes de 10/out/2026) aceita aqui antes de usar o app. */
+        <TermosGate>
+          <EmpresaProvider>
+            <ConteudoDashboard>{children}</ConteudoDashboard>
+          </EmpresaProvider>
+          <SincronizarPush />
+        </TermosGate>
+      )}
     </PinGate>
   );
 }

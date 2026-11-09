@@ -607,7 +607,8 @@ export default function DashboardPage() {
   const agora = new Date();
   const hojeStr = hojeIso();
   const itensHoje = compromissos.filter((c) => c.data <= hojeStr);
-  const proximosRecebimentos = compromissos.filter((c) => c.id.startsWith("iv-"));
+  // Recebimentos de empréstimo/revenda: parcelas (iv-) e à vista (ev-/rv-).
+  const proximosRecebimentos = compromissos.filter((c) => /^(iv|ev|rv)-/.test(c.id));
   const movimentosPrevistos = [
     ...compromissos.map((c) => ({ data: c.data, valor: c.sentido === "entrada" ? c.valor : -c.valor })),
     // Fatura de cartão em aberto sai das contas no próximo vencimento — entra
