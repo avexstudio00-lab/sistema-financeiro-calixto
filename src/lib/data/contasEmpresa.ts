@@ -127,8 +127,24 @@ export async function editarContaPagar(
 export async function deletarContaPagar(id: string) {
   // Item 6.3: se essa conta deu entrada de mercadoria no estoque, apagar a
   // conta tira as unidades de volta (sem deixar estoque negativo).
-  const { data } = await supabase.from("contas_pagar").select("itens_estoque, estoque_lancado, grupo_parcela_id").eq("id", id).maybeSingle();
-  const linha = data as { itens_estoque: ItemCompraEstoque[] | null; estoque_lancado: boolean; grupo_parcela_id: string | null } | null;
+  const { data } = await supabase
+    .from("contas_pagar")
+    .select("itens_estoque, estoque_lancado, grupo_parcela_id, transacao_id")
+    .eq("id", id)
+    .maybeSingle();
+  const linha = data as {
+    itens_estoque: ItemCompraEstoque[] | null;
+    estoque_lancado: boolean;
+    grupo_parcela_id: string | null;
+    transacao_id: string | null;
+  } | null;
+  // 09/nov/2026: conta já paga tem lançamento de saída ligado (o dinheiro
+  // saiu de uma carteira). Apagar a conta desfaz esse lançamento, igual
+  // ao Contas a receber — senão o saldo ficava descontado sem origem.
+  if (linha?.transacao_id) {
+    const { data: t } = await supabase.from("transacoes").select("*").eq("id", linha.transacao_id).maybeSingle();
+    if (t) await deletarTransacao(t as Transacao);
+  }
   // Compra parcelada: os itens ficam numa parcela só. Se ainda existem
   // outras parcelas do grupo, os itens "mudam" para uma delas (o estoque só
   // volta quando a ÚLTIMA parcela da compra for apagada).
