@@ -24,6 +24,10 @@ export interface ItemHoje {
 export function VisaoHoje({ itens, cor = "primary" }: { itens: ItemHoje[]; cor?: "primary" | "accent" }) {
   const entradas = itens.filter((i) => i.sentido === "entrada").reduce((a, i) => a + i.valor, 0);
   const saidas = itens.filter((i) => i.sentido === "saida").reduce((a, i) => a + i.valor, 0);
+  // Mostra 8 e deixa abrir o resto (antes o "+ N itens" não abria nada e
+  // escondia o que passasse disso — 09/nov/2026).
+  const [todos, setTodos] = React.useState(false);
+  const visiveis = todos ? itens : itens.slice(0, 8);
 
   return (
     <Card className="flex flex-col gap-3">
@@ -43,7 +47,7 @@ export function VisaoHoje({ itens, cor = "primary" }: { itens: ItemHoje[]; cor?:
         <p className="text-small text-muted">Nada vencendo hoje. Dia tranquilo.</p>
       ) : (
         <div className="flex flex-col gap-1">
-          {itens.slice(0, 8).map((i) => {
+          {visiveis.map((i) => {
             const conteudo = (
               <div className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 hover:bg-muted/5">
                 <div className="flex min-w-0 items-center gap-2">
@@ -70,7 +74,15 @@ export function VisaoHoje({ itens, cor = "primary" }: { itens: ItemHoje[]; cor?:
               <div key={i.id}>{conteudo}</div>
             );
           })}
-          {itens.length > 8 && <p className="px-2 text-xs text-muted">+ {itens.length - 8} item(ns)</p>}
+          {itens.length > 8 && (
+            <button
+              type="button"
+              onClick={() => setTodos((v) => !v)}
+              className="self-start rounded-lg px-2 py-1 text-xs font-medium text-primary-700 hover:bg-muted/10 dark:text-primary-300"
+            >
+              {todos ? "Mostrar menos" : `Ver mais ${itens.length - 8} ${itens.length - 8 === 1 ? "item" : "itens"}`}
+            </button>
+          )}
         </div>
       )}
     </Card>

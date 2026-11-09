@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowLeftRight, Pencil, Trash2, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, CalendarClock, Pencil, Trash2, Wallet } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
@@ -14,6 +14,7 @@ import {
   ehRecebimentoEmBem,
   registrarPermutaRevenda,
   registrarRecebimentoRevenda,
+  salvarDataRecebimentoRevenda,
   salvarPrecoRevenda,
   textoLucroRevenda,
   totalRecebidoRevenda,
@@ -63,6 +64,23 @@ export function PainelRevenda({
   const [dinheiroTexto, setDinheiroTexto] = React.useState("");
   const [destinarRevenda, setDestinarRevenda] = React.useState(true);
   const [aviso, setAviso] = React.useState<string | null>(null);
+  // Revenda à vista: data combinada pra receber (aparece na Visão de hoje).
+  const [editandoData, setEditandoData] = React.useState(false);
+  const [dataCombinada, setDataCombinada] = React.useState("");
+  const aVista = inv.forma_pagamento !== "parcelado";
+
+  async function salvarDataCombinada(valor: string | null) {
+    setSalvando(true);
+    setErro(null);
+    const { error } = await salvarDataRecebimentoRevenda(inv.id, valor);
+    setSalvando(false);
+    if (error) {
+      setErro("Não foi possível salvar a data agora.");
+      return;
+    }
+    setEditandoData(false);
+    onAlterado();
+  }
 
   const precoDigitado = parsear(precoTexto);
   const lucroPrevia = editandoPreco ? calcularLucroRevenda(custo, precoDigitado) : null;
@@ -195,6 +213,46 @@ export function PainelRevenda({
         </span>
       )}
 
+      {aVista && !inv.quitado && !editandoData && (
+        <p className="flex items-center gap-1.5 text-xs text-muted">
+          <CalendarClock size={13} className="shrink-0" />
+          {inv.data_vencimento_final ? (
+            <>
+              Combinado pra receber em {new Date(inv.data_vencimento_final + "T00:00:00").toLocaleDateString("pt-BR")}
+              {inv.data_vencimento_final < new Date().toISOString().slice(0, 10) ? <span className="font-medium text-red-600"> · atrasado</span> : null}
+            </>
+          ) : (
+            "Sem data combinada pra receber"
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setEditandoData(true);
+              setDataCombinada(inv.data_vencimento_final ?? "");
+            }}
+            className="ml-1 font-medium text-primary-700 underline-offset-2 hover:underline dark:text-primary-300"
+          >
+            {inv.data_vencimento_final ? "alterar" : "definir"}
+          </button>
+        </p>
+      )}
+      {editandoData && (
+        <div className="flex flex-wrap items-end gap-2">
+          <DateMaskInput label="Data combinada pra receber" value={dataCombinada} onChange={setDataCombinada} />
+          <Button size="sm" disabled={salvando || !dataCombinada} onClick={() => void salvarDataCombinada(dataCombinada)}>
+            Salvar
+          </Button>
+          {inv.data_vencimento_final && (
+            <Button size="sm" variant="tertiary" disabled={salvando} onClick={() => void salvarDataCombinada(null)}>
+              Tirar data
+            </Button>
+          )}
+          <Button size="sm" variant="tertiary" onClick={() => setEditandoData(false)}>
+            Cancelar
+          </Button>
+        </div>
+      )}
+
       {editandoPreco ? (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-end gap-2">
@@ -274,7 +332,7 @@ export function PainelRevenda({
           >
             <Pencil size={12} /> {preco != null ? "Editar preço de revenda" : "Definir preço de revenda"}
           </button>
-          {inv.forma_pagamento !== "parcelado" && (
+          {aVista && (
             <button
               type="button"
               onClick={() => {

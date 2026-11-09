@@ -470,8 +470,12 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
     // completo: pra empréstimo parcelado é sempre o vencimento da última
     // parcela (mesmo se as datas foram editadas manualmente e ficaram fora
     // de ordem); pra empréstimo à vista é a própria data de pagamento.
+    // Revenda à vista: data combinada pra receber (opcional) — entra na
+    // Visão de hoje e no aviso por push, igual ao empréstimo à vista.
     const dataVencimentoFinalCalculada = !ehEmprestimo
-      ? null
+      ? tipo === "revenda" && !parcelando && dataVencimentoFinal
+        ? dataVencimentoFinal
+        : null
       : parcelando
         ? datasParcelas.reduce((maisTarde, d) => (d > maisTarde ? d : maisTarde), datasParcelas[0])
         : dataVencimentoFinal;
@@ -858,6 +862,17 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
                     value={dataVencimentoFinal}
                     onChange={setDataVencimentoFinal}
                     helperText="A data combinada pra receber o valor com juros de volta."
+                  />
+                </div>
+              )}
+
+              {tipo === "revenda" && formaPagamento === "vista" && (
+                <div className="pt-1">
+                  <DateMaskInput
+                    label="Data combinada pra receber (opcional)"
+                    value={dataVencimentoFinal}
+                    onChange={setDataVencimentoFinal}
+                    helperText="Se o comprador vai pagar depois, coloque a data — ela aparece na Visão de hoje e você recebe um aviso."
                   />
                 </div>
               )}
