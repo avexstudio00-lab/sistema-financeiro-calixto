@@ -17,7 +17,7 @@ import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { Badge } from "@/components/ui/Badge";
 
 import { listarClientes } from "@/lib/data/clientes";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import {
   listarVendas,
   registrarVenda,
@@ -138,7 +138,7 @@ export default function VendasPage() {
     setProdutos(listaProdutos);
     setServicos(listaServicos);
     setClientes(listaClientes);
-    setContas(listaContas);
+    setContas(carteirasDoAmbiente(listaContas, "empresa"));
     setVendas(listaVendas);
     if (!contaId && listaContas[0]) setContaId(listaContas[0].id);
     setCarregando(false);
