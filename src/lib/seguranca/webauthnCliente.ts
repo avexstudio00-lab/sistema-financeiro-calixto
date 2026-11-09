@@ -107,13 +107,29 @@ export async function cadastrarBiometria(apelido?: string): Promise<string> {
   return resultado.credentialId as string;
 }
 
-/** Pede a biometria e confirma no servidor. Lança ErroBiometria se falhar. */
-export async function autenticarComBiometria(credenciaisDoAparelho: string[]): Promise<void> {
+function cancelada(): ErroBiometria {
+  return new ErroBiometria("Leitura cancelada.", true);
+}
+
+/**
+ * Pede a biometria e confirma no servidor. Lança ErroBiometria se falhar.
+ *
+ * `sinal` (09/nov/2026): a tela de bloqueio cancela a leitura quando a pessoa
+ * entra pelo PIN antes do Face ID aparecer — sem isso o pedido ao servidor
+ * terminava depois e o Face ID "pulava" por cima do app já aberto, e era
+ * preciso apertar no X. O sinal é conferido entre cada etapa e também vai
+ * pro `navigator.credentials.get`, que fecha a janela do Face ID se ela já
+ * estiver na tela.
+ */
+export async function autenticarComBiometria(credenciaisDoAparelho: string[], sinal?: AbortSignal): Promise<void> {
   if (!navegadorSuportaWebAuthn()) throw new ErroBiometria("Este navegador não suporta biometria.");
+  if (sinal?.aborted) throw cancelada();
   const op = await chamarApi("/api/auth/webauthn/verify", { etapa: "opcoes", credenciais: credenciaisDoAparelho });
+  if (sinal?.aborted) throw cancelada();
   let credencial: PublicKeyCredential;
   try {
     credencial = (await navigator.credentials.get({
+      signal: sinal,
       publicKey: {
         challenge: deB64url(op.challenge),
         rpId: op.rpId,
@@ -129,7 +145,7 @@ export async function autenticarComBiometria(credenciaisDoAparelho: string[]): P
   } catch (e) {
     throw traduzirErro(e);
   }
-  if (!credencial) throw new ErroBiometria("Leitura cancelada.", true);
+  if (!credencial || sinal?.aborted) throw cancelada();
   const resp = credencial.response as AuthenticatorAssertionResponse;
   await chamarApi("/api/auth/webauthn/verify", {
     etapa: "verificar",
@@ -140,6 +156,7 @@ export async function autenticarComBiometria(credenciaisDoAparelho: string[]): P
       signature: paraB64url(resp.signature),
     },
   });
+  if (sinal?.aborted) throw cancelada();
 }
 
 /** Remove a credencial do servidor (o dono pode apagar as próprias via RLS). */
