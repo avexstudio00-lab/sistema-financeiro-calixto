@@ -10,7 +10,7 @@ import { ComprovanteTransacao } from "@/components/dashboard/ComprovanteTransaca
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarCategorias, buscarCategoriaPadraoPorNome } from "@/lib/data/categorias";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import { listarDividasComProgresso, NOME_CATEGORIA_DIVIDA } from "@/lib/data/dividas";
 import {
   criarTransacao,
@@ -202,6 +202,22 @@ export function NovaTransacaoModal({
     );
   }, [categorias, categoriaId, editando, tipo, mundo, user, usuarioEfetivoId]);
   const [carteiraProLabore, setCarteiraProLabore] = React.useState("");
+
+  // 09/nov/2026: carteiras da empresa x pessoais. Lançamento da empresa
+  // mostra as carteiras da empresa; pessoal, as pessoais (sem nenhuma
+  // daquele lado, mostra todas). Editando, a carteira atual sempre aparece.
+  const contasDoMundo = React.useMemo(() => {
+    const lista = carteirasDoAmbiente(contas, mundo === "negocio" ? "empresa" : "pessoal");
+    const atual = contas.find((c) => c.id === contaId);
+    return atual && !lista.some((c) => c.id === atual.id) ? [atual, ...lista] : lista;
+  }, [contas, mundo, contaId]);
+  const contasPessoaisProLabore = React.useMemo(() => carteirasDoAmbiente(contas, "pessoal"), [contas]);
+  React.useEffect(() => {
+    if (editando || contas.length === 0) return;
+    const lista = carteirasDoAmbiente(contas, mundo === "negocio" ? "empresa" : "pessoal");
+    if (!lista.some((c) => c.id === contaId)) setContaId(lista[0]?.id ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contas, mundo]);
 
   // Em mundo "negocio" a categoria "Dívida" não aparece nem como opção --
   // dívida é conceito só de "Minha vida" (ver nota acima em `dividas`).
@@ -576,7 +592,7 @@ export function NovaTransacaoModal({
                   className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
                 >
                   <option value="">Escolha...</option>
-                  {contas
+                  {contasPessoaisProLabore
                     .filter((c) => c.tipo !== "cartao_credito" && c.id !== contaId)
                     .map((c) => (
                       <option key={c.id} value={c.id}>
@@ -699,15 +715,15 @@ export function NovaTransacaoModal({
               )
             )}
 
-            {contas.length > 1 && (
+            {contasDoMundo.length > 1 && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Conta</span>
+                <span className="text-small font-medium text-foreground">{mundo === "negocio" ? "Carteira da empresa" : "Conta"}</span>
                 <select
                   value={contaId}
                   onChange={(e) => setContaId(e.target.value)}
                   className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
                 >
-                  {contas.map((c) => (
+                  {contasDoMundo.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nome}
                     </option>

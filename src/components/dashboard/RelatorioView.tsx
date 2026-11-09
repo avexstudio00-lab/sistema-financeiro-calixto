@@ -112,6 +112,16 @@ function ConteudoRelatorio({ escopoFixo }: { escopoFixo?: "empresa" }) {
         </select>
       </div>
 
+      <Card className="flex flex-col gap-3 border-primary-200 bg-primary-50/60 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-small text-foreground">
+          Faltou lançar alguma coisa? Jogue o extrato do banco ou a fatura do cartão dos últimos dias — o app lança tudo sozinho e o
+          relatório fica completo.
+        </p>
+        <Link href={escopo === "empresa" ? "/dashboard/importar?mundo=negocio" : "/dashboard/importar"} className="shrink-0">
+          <Button size="sm">Importar extrato</Button>
+        </Link>
+      </Card>
+
       {carregando ? (
         <p className="py-8 text-center text-body text-muted">Montando seu relatório...</p>
       ) : (
