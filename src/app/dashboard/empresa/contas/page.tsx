@@ -16,7 +16,7 @@ import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } 
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarFornecedores } from "@/lib/data/fornecedores";
 import { listarClientes } from "@/lib/data/clientes";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import {
   listarContasPagar,
   criarContaPagar,
@@ -120,7 +120,7 @@ export default function ContasEmpresaPage() {
     setClientes(c);
     setContasPagar(pagar.filter((cp) => cp.categoria !== "das"));
     setContasReceber(receber);
-    setCarteiras(cts);
+    setCarteiras(carteirasDoAmbiente(cts, "empresa"));
     setCarregando(false);
   }, [negocio]);
 

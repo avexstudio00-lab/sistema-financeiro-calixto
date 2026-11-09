@@ -23,7 +23,7 @@ export function AreaUpload({ lendo, onArquivo }: { lendo: boolean; onArquivo: (a
       <div
         role="button"
         tabIndex={0}
-        aria-label="Escolher arquivo CSV"
+        aria-label="Escolher arquivo do extrato"
         onClick={() => inputRef.current?.click()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -48,13 +48,13 @@ export function AreaUpload({ lendo, onArquivo }: { lendo: boolean; onArquivo: (a
       >
         {lendo ? <Loader2 size={32} className="animate-spin text-primary-700" /> : <FileUp size={32} className="text-primary-700 dark:text-primary-300" />}
         <div>
-          <p className="text-body font-semibold text-foreground">{lendo ? "Lendo o arquivo..." : "Solte o arquivo .csv aqui ou toque para escolher"}</p>
-          <p className="text-small text-muted">Extrato do banco (Nubank, Itaú, Inter, Bradesco, Santander, BB, Caixa, C6, Mercado Pago) ou o CSV exportado pelo próprio app. Até 5 MB e 5.000 linhas.</p>
+          <p className="text-body font-semibold text-foreground">{lendo ? "Lendo o extrato..." : "Solte o extrato (.ofx ou .csv) aqui ou toque para escolher"}</p>
+          <p className="text-small text-muted">Extrato da conta ou fatura do cartão (Nubank, Itaú, Inter, Bradesco, Santander, BB, Caixa, C6, Mercado Pago) em OFX ou CSV. A gente separa PIX, cartão, boleto e fatura, sugere a categoria e liga às suas dívidas. Até 5 MB e 5.000 linhas.</p>
         </div>
         <input
           ref={inputRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.ofx,.qfx,text/csv,application/x-ofx"
           className="hidden"
           onChange={(e) => {
             escolher(e.target.files);

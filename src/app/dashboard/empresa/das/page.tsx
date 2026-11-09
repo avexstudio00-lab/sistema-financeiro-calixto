@@ -20,7 +20,7 @@ import {
 import { gerarResumoEmpresa, faturamentoAnualPorMes, calcularReservaSugerida } from "@/lib/data/empresa";
 import { formatarMoeda } from "@/lib/format";
 import type { Conta, ContaPagar } from "@/lib/data/tipos";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
 
 /** Limite de receita bruta anual do MEI usado no acompanhamento da DASN.
@@ -115,7 +115,7 @@ export default function DasPage() {
   const [pagandoGuia, setPagandoGuia] = React.useState<ContaPagar | null>(null);
   const [carteiras, setCarteiras] = React.useState<Conta[]>([]);
   React.useEffect(() => {
-    if (negocio) listarContas(negocio.usuarioId).then(setCarteiras);
+    if (negocio) listarContas(negocio.usuarioId).then((c) => setCarteiras(carteirasDoAmbiente(c, "empresa")));
   }, [negocio]);
 
   async function handleMarcarPaga(guia: ContaPagar, pago: boolean) {

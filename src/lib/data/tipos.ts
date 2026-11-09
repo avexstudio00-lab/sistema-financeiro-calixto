@@ -13,6 +13,9 @@ export interface Conta {
    * como o saldo em si é calculado. */
   dia_fechamento: number | null;
   dia_vencimento: number | null;
+  /** 09/nov/2026: carteira da vida pessoal ou da empresa. Ausente (antes do
+   * SQL rodar) = "pessoal". */
+  ambiente?: "pessoal" | "empresa";
 }
 
 export interface Categoria {
@@ -108,6 +111,9 @@ export interface ContaFixa {
   criado_em: string;
   categorias?: Categoria | null;
   contas?: Conta | null;
+  /** 09/nov/2026: conta fixa da empresa (aluguel do ponto etc.). Ausente = pessoal. */
+  tipo_negocio?: "pessoal" | "negocio";
+  empresa_id?: string | null;
 }
 
 export interface Meta {

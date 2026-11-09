@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, FileText } from "lucide-react";
+import Link from "next/link";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
 import { Container } from "@/components/ui/Container";
@@ -16,7 +17,7 @@ import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { Badge } from "@/components/ui/Badge";
 
 import { listarClientes } from "@/lib/data/clientes";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import {
   listarVendas,
   registrarVenda,
@@ -137,7 +138,7 @@ export default function VendasPage() {
     setProdutos(listaProdutos);
     setServicos(listaServicos);
     setClientes(listaClientes);
-    setContas(listaContas);
+    setContas(carteirasDoAmbiente(listaContas, "empresa"));
     setVendas(listaVendas);
     if (!contaId && listaContas[0]) setContaId(listaContas[0].id);
     setCarregando(false);
@@ -949,6 +950,16 @@ export default function VendasPage() {
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                       <p className="text-body font-semibold text-accent-600">{formatarMoeda(g.total)}</p>
+                      {/* 09/nov/2026: liga a venda à nota fiscal (já abre a
+                          nota preenchida com cliente, itens e valor). */}
+                      <Link
+                        href={`/dashboard/empresa/notas-fiscais?venda=${encodeURIComponent(v.grupo_venda_id ?? v.id)}`}
+                        aria-label="Fazer nota fiscal desta venda"
+                        title="Fazer nota fiscal desta venda"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
+                      >
+                        <FileText size={16} />
+                      </Link>
                       {confirmandoExclusaoId === g.chave ? (
                         <div className="flex items-center gap-1">
                           <Button size="sm" variant="tertiary" onClick={() => setConfirmandoExclusaoId(null)}>

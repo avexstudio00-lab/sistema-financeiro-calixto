@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import type { Conta } from "@/lib/data/tipos";
 
 /** Carteiras do usuário (cache simples por montagem). */
@@ -14,7 +14,7 @@ export function useCarteiras() {
   const [contas, setContas] = React.useState<Conta[]>([]);
   React.useEffect(() => {
     if (!user) return;
-    listarContas(user.id).then(setContas);
+    listarContas(user.id).then((c) => setContas(carteirasDoAmbiente(c, "pessoal")));
   }, [user]);
   return contas;
 }

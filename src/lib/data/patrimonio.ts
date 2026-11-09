@@ -63,6 +63,10 @@ export async function dividirCarteirasPessoalEmpresa(usuarioId: string, contas: 
     .filter((c) => c.tipo !== "cartao_credito")
     .map((conta) => {
       const saldoTotal = Number(conta.saldo_atual);
+      // 09/nov/2026: carteira marcada "da empresa" é 100% empresa.
+      if (conta.ambiente === "empresa") {
+        return { conta, saldoTotal, parteEmpresa: saldoTotal, partePessoal: 0, mista: false };
+      }
       const parteEmpresa = Number((liquidoPorConta.get(conta.id) ?? 0).toFixed(2));
       return {
         conta,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
+  FileUp,
   LayoutDashboard,
   Sparkles,
   PiggyBank,
@@ -72,6 +73,7 @@ const HREFS_PRINCIPAIS_MOBILE_EMPRESA = [
 const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard", label: "Painel", icon: LayoutDashboard },
   { href: "/dashboard/extrato", label: "Extrato", icon: ScrollText },
+  { href: "/dashboard/importar", label: "Importar extrato", icon: FileUp },
   { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
   { href: "/dashboard/meu-relatorio", label: "Meu relatório", icon: BarChart3 },
   { href: "/dashboard/relatorio", label: "Relatório PDF", icon: FileDown },
@@ -95,6 +97,7 @@ const LINK_EQUIPE: LinkNav = { href: "/dashboard/equipe", label: "Minha equipe",
 // pode ver/mexer em estoque e vendas (o RLS já bloqueia essas telas por
 // trás, isso aqui só evita mostrar um link que vai dar em tela vazia).
 const LINKS_EMPRESA_FINANCEIRO = new Set([
+  "/dashboard/empresa/contas-fixas",
   "/dashboard/empresa/relatorio",
   "/dashboard/empresa/contas",
   "/dashboard/empresa/das",
@@ -129,6 +132,7 @@ const LINKS_EMPRESA: LinkNav[] = [
   { href: "/dashboard/empresa/estoque", label: "Estoque", icon: Boxes },
   { href: "/dashboard/empresa/clientes-fornecedores", label: "Clientes", icon: Users },
   { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
+  { href: "/dashboard/empresa/contas-fixas", label: "Contas fixas", icon: Repeat },
   { href: "/dashboard/empresa/extrato", label: "Extrato", icon: ScrollText },
   { href: "/dashboard/empresa/notas-fiscais", label: "Notas fiscais", icon: FileSpreadsheet },
   { href: "/dashboard/empresa/das", label: "DAS / Impostos", icon: FileText },

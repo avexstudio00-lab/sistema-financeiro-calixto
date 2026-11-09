@@ -401,7 +401,7 @@ export default function DashboardPage() {
         totalInvestimentos,
         totalDividas,
         totalFaturaAberta,
-        saldoDisponivel: contas.filter((c) => c.tipo !== "cartao_credito").reduce((acc, c) => acc + Number(c.saldo_atual), 0),
+        saldoDisponivel: contas.filter((c) => c.tipo !== "cartao_credito" && c.ambiente !== "empresa").reduce((acc, c) => acc + Number(c.saldo_atual), 0),
         liquido,
         parteEmpresaContas,
         plEmpresa: plEmpresa ? plEmpresa.liquido : null,

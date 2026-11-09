@@ -715,6 +715,83 @@ export async function excluirPagamentoInvestimento(pagamento: PagamentoInvestime
   return { data: null, error: null };
 }
 
+/**
+ * Resgatar (sacar) um investimento de renda fixa, bolsa ou cripto
+ * (09/nov/2026). Antes não existia: só dava pra apagar, o que devolvia só o
+ * valor aplicado e perdia o rendimento.
+ *
+ * - `valor` entra na carteira escolhida (receita "Resgates e rendimentos",
+ *   fora de renda nos relatórios);
+ * - resgate TOTAL (valor ≥ valor atual, ou `total`): o investimento fica
+ *   "resgatado" (quitado) e sai dos totais;
+ * - resgate PARCIAL: o valor aplicado (e cotas/valor atual manual) diminui na
+ *   mesma proporção do que saiu, então o que sobra continua rendendo certo;
+ * - o evento fica em investimento_pagamentos com `valor_juros` = quanto do
+ *   resgate é lucro (resgatado − parte do valor aplicado), usado no "Lucro
+ *   recebido". Se der errado no meio, o lançamento na carteira é desfeito.
+ */
+export async function registrarResgateInvestimento(params: {
+  investimento: Investimento;
+  usuarioId: string;
+  valor: number;
+  valorAtual: number;
+  contaId: string;
+  data: string;
+  total?: boolean;
+}): Promise<{ error: { message: string } | null }> {
+  const inv = params.investimento;
+  const valor = Number(params.valor.toFixed(2));
+  if (!(valor > 0)) return { error: { message: "Digite quanto vai resgatar." } };
+  if (!params.contaId) return { error: { message: "Escolha em qual carteira o dinheiro entra." } };
+  const atual = params.valorAtual > 0 ? params.valorAtual : Number(inv.valor_investido);
+  const total = !!params.total || valor >= atual - 0.005;
+  const proporcao = total ? 1 : Math.min(1, valor / atual);
+  const principal = Number(inv.valor_investido);
+  const principalResgatado = Number((principal * proporcao).toFixed(2));
+  const lucro = Number((valor - principalResgatado).toFixed(2));
+
+  const transacaoId = await lancarMovimentoInvestimento({
+    usuarioId: params.usuarioId,
+    contaId: params.contaId,
+    sentido: "resgate",
+    valor,
+    data: params.data,
+    descricao: `${total ? "Resgate" : "Resgate parcial"}: ${inv.nome}`,
+    tipoNegocio: inv.tipo_ambiente === "NEGOCIO" ? "negocio" : "pessoal",
+  });
+  if (!transacaoId) return { error: { message: "Não foi possível lançar na carteira." } };
+
+  const { error: erroPag } = await supabase.from("investimento_pagamentos").insert({
+    investimento_id: inv.id,
+    usuario_id: params.usuarioId,
+    parcela_id: null,
+    tipo: total ? "quitacao" : "recebimento",
+    data_pagamento: params.data,
+    dias_atraso: 0,
+    valor_juros: lucro,
+    valor_diaria: null,
+    valor_pago: valor,
+    vencimento_referencia: null,
+    proximo_vencimento: null,
+    conta_id: params.contaId,
+    transacao_id: transacaoId,
+  });
+  if (erroPag) {
+    await estornarMovimento(transacaoId);
+    return { error: { message: "Não foi possível registrar o resgate." } };
+  }
+
+  const atualizacao: Record<string, unknown> = total
+    ? { quitado: true, valor_quitado: valor, data_quitacao: params.data }
+    : {
+        valor_investido: Number((principal - principalResgatado).toFixed(2)),
+        ...(inv.quantidade_cotas != null ? { quantidade_cotas: Number(inv.quantidade_cotas) * (1 - proporcao) } : {}),
+        ...(inv.valor_atual != null ? { valor_atual: Number((Number(inv.valor_atual) * (1 - proporcao)).toFixed(2)) } : {}),
+      };
+  const { error } = await supabase.from("investimentos").update(atualizacao).eq("id", inv.id);
+  return { error: error ? { message: "O dinheiro entrou na carteira, mas não consegui atualizar o investimento. Confira e tente de novo." } : null };
+}
+
 export async function atualizarValorAtualInvestimento(id: string, valorAtual: number) {
   return supabase.from("investimentos").update({ valor_atual: valorAtual }).eq("id", id);
 }
@@ -828,6 +905,9 @@ export function calcularValorAtualEstimado(
   if (inv.tipo === "emprestimo" && inv.quitado && inv.valor_quitado != null) {
     return Number(inv.valor_quitado);
   }
+  // 09/nov/2026: renda fixa/bolsa/cripto RESGATADO não vale mais nada
+  // aplicado (o dinheiro já voltou pra carteira) — sai do patrimônio.
+  if (inv.quitado && inv.tipo !== "emprestimo" && inv.tipo !== "revenda") return 0;
 
   switch (inv.tipo) {
     case "cdi": {
@@ -1169,6 +1249,12 @@ export function calcularLucroRecebidoEntre(
   let lucro = 0;
   for (const p of pagamentos) {
     if (!porId.has(p.investimento_id) || !dentro(p.data_pagamento)) continue;
+    const inv = porId.get(p.investimento_id);
+    if (inv && inv.tipo !== "emprestimo" && inv.tipo !== "revenda") {
+      // Resgate de renda fixa/bolsa/cripto: o lucro já vem calculado no evento.
+      lucro += Number(p.valor_juros ?? 0);
+      continue;
+    }
     lucro += p.tipo === "juros" ? Number(p.valor_pago) : Number(p.valor_pago) * (fracaoLucro.get(p.investimento_id) ?? 0);
   }
   for (const p of parcelas) {

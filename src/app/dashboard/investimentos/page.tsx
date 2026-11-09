@@ -29,6 +29,7 @@ import {
   registrarPagamentoJuros,
   registrarQuitacaoEmprestimo,
   registrarQuitacaoAntecipadaParcelado,
+  registrarResgateInvestimento,
 } from "@/lib/data/investimentos";
 import { formatarMoeda } from "@/lib/format";
 import { obterCotacoesMercado } from "@/lib/data/mercado";
@@ -198,10 +199,13 @@ export default function InvestimentosPage() {
     // X meses (3/6/12). "Desde o início" projeta 12 meses.
     const mesesProjecao = periodoMeses ?? 12;
     const projetado = totalProjetado(lista, mesesProjecao, cotacoes);
-    return { rotuloInvestido: lista.length !== listaRecebidos.length ? "Total em aberto (ainda não voltou)" : "Total investido", totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo, recebidoPeriodo, ganhoEstimadoPeriodo, projetado, mesesProjecao };
+    return { rotuloInvestido: lista.length !== listaRecebidos.length ? "Total em aberto agora" : "Total investido", totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo, recebidoPeriodo, ganhoEstimadoPeriodo, projetado, mesesProjecao };
   }
 
-  const resumoGeral = React.useMemo(() => calcularResumo(investimentos), [investimentos, periodoMeses, cotacoes, parcelas, pagamentos]);
+  const resumoGeral = React.useMemo(
+    () => calcularResumo(investimentos.filter((i) => !(i.quitado && !TIPOS_OPERACAO.includes(i.tipo))), investimentos),
+    [investimentos, periodoMeses, cotacoes, parcelas, pagamentos]
+  );
 
   const linhaEvolucao = React.useMemo(() => {
     return calcularEvolucaoInvestimentos(investimentos, periodoMeses ?? 12, cotacoes).map((p) => ({
@@ -211,6 +215,23 @@ export default function InvestimentosPage() {
   }, [investimentos, periodoMeses, cotacoes]);
 
   const labelGanho = periodoMeses == null ? "Lucro recebido desde o início" : `Lucro recebido nos últimos ${periodoMeses} meses`;
+
+  async function handleResgatar(
+    inv: Investimento,
+    dados: { valor: number; valorAtual: number; contaId: string; data: string; total: boolean }
+  ): Promise<string | null> {
+    if (!user) return "Sessão expirada.";
+    setSalvandoAcao(true);
+    const { error } = await registrarResgateInvestimento({ investimento: inv, usuarioId: user.id, ...dados });
+    setSalvandoAcao(false);
+    carregar();
+    return error ? error.message : null;
+  }
+
+  // Renda fixa/bolsa/cripto já resgatados saem dos totais e da lista
+  // (aparecem no botão "Resgatados").
+  const resgatado = (i: Investimento) => i.quitado && !TIPOS_OPERACAO.includes(i.tipo);
+  const [verResgatados, setVerResgatados] = React.useState(false);
 
   async function handleSalvarTaxa(inv: Investimento, novaTaxa: number) {
     setSalvandoAcao(true);
@@ -543,6 +564,7 @@ export default function InvestimentosPage() {
             onRegistrarQuitacao={handleRegistrarQuitacao}
             onRegistrarQuitacaoAntecipada={handleRegistrarQuitacaoAntecipada}
             onRegistrarJurosParcela={handleRegistrarJurosParcela}
+            onResgatar={handleResgatar}
           />
           </div>
         ))}
@@ -674,8 +696,11 @@ export default function InvestimentosPage() {
                 const ehOperacao = TIPOS_OPERACAO.includes(tipo);
                 const abaOperacao = abaPorTipo[tipo] ?? "vista";
                 const verQuitadas = quitadasPorTipo[tipo] ?? false;
-                const visiveis = ehOperacao ? filtrarOperacoes(itens, abaOperacao, verQuitadas) : itens;
-                const resumo = calcularResumo(ehOperacao ? itens.filter((i) => !estaQuitado(i)) : itens, itens);
+                const visiveis = ehOperacao
+                  ? filtrarOperacoes(itens, abaOperacao, verQuitadas)
+                  : itens.filter((i) => resgatado(i) === verResgatados);
+                const totalResgatados = ehOperacao ? 0 : itens.filter(resgatado).length;
+                const resumo = calcularResumo(ehOperacao ? itens.filter((i) => !estaQuitado(i)) : itens.filter((i) => !resgatado(i)), itens);
                 const totalQuitadas = itens.filter((i) => estaQuitado(i)).length;
                 return (
                   <div key={tipo} className="flex flex-col gap-4">
@@ -719,6 +744,15 @@ export default function InvestimentosPage() {
                           totalQuitadas={totalQuitadas}
                         />
                       </div>
+                    )}
+                    {!ehOperacao && totalResgatados > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setVerResgatados((v) => !v)}
+                        className="self-start rounded-full border border-border px-3 py-1.5 text-small font-semibold text-foreground hover:bg-muted/10"
+                      >
+                        {verResgatados ? "Ver os que estão aplicados" : `Ver resgatados (${totalResgatados})`}
+                      </button>
                     )}
                     {visiveis.length === 0 ? (
                       <p className="rounded-xl border border-dashed border-border py-6 text-center text-small text-muted">

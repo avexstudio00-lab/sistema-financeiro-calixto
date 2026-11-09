@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { SeletorCarteira } from "@/components/dashboard/SeletorCarteira";
 import {
   Trash2,
   Pencil,
@@ -121,6 +122,9 @@ export interface InvestimentoCardProps {
    * o modelo do produto aparece primeiro, os números depois). Quando
    * presente, a grade genérica de números é omitida pra não repetir. */
   blocoTopo?: React.ReactNode;
+  /** 09/nov/2026: resgatar (sacar) renda fixa/bolsa/cripto. Devolve uma
+   * mensagem de erro, ou null se deu certo. */
+  onResgatar?: (inv: Investimento, dados: { valor: number; valorAtual: number; contaId: string; data: string; total: boolean }) => Promise<string | null>;
 }
 
 export function InvestimentoCard({
@@ -142,6 +146,7 @@ export function InvestimentoCard({
   onRegistrarJurosParcela,
   onPagamentosAlterados,
   blocoTopo,
+  onResgatar,
 }: InvestimentoCardProps) {
   const [editandoTaxa, setEditandoTaxa] = React.useState(false);
   const [taxaEmEdicao, setTaxaEmEdicao] = React.useState("");
@@ -167,6 +172,28 @@ export function InvestimentoCard({
   const Icone = TIPO_META[inv.tipo].icone;
   const automatico = temCalculoAutomatico(inv.tipo);
   const revenda = ehTipoRevenda(inv.tipo);
+  // Resgate (09/nov/2026): só renda fixa, bolsa e cripto ainda não resgatados.
+  const podeResgatar = !!onResgatar && inv.tipo !== "emprestimo" && !revenda && !inv.quitado;
+  const [resgatando, setResgatando] = React.useState(false);
+  const [resgateValor, setResgateValor] = React.useState("");
+  const [resgateConta, setResgateConta] = React.useState("");
+  const [resgateData, setResgateData] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [resgateErro, setResgateErro] = React.useState<string | null>(null);
+  const [resgateSalvando, setResgateSalvando] = React.useState(false);
+  async function confirmarResgate(total: boolean) {
+    if (!onResgatar) return;
+    const valor = total ? valorAtual : Number(resgateValor.trim().replace(/\./g, "").replace(",", "."));
+    if (!(valor > 0)) return setResgateErro("Digite quanto vai resgatar.");
+    if (!total && valor > valorAtual + 0.005) return setResgateErro(`O máximo é ${formatarMoeda(valorAtual)} (tudo).`);
+    if (!resgateConta) return setResgateErro("Escolha em qual carteira o dinheiro entra.");
+    setResgateErro(null);
+    setResgateSalvando(true);
+    const erro = await onResgatar(inv, { valor, valorAtual, contaId: resgateConta, data: resgateData, total });
+    setResgateSalvando(false);
+    if (erro) return setResgateErro(erro);
+    setResgatando(false);
+    setResgateValor("");
+  }
   // CDI e Poupança são sempre automáticos (taxa/rendimento ao vivo do Banco
   // Central) -- não tem o que editar manualmente, então nem mostra o botão
   // de taxa, só um badge informativo. CDB/LCI/LCA também são automáticos,
@@ -268,7 +295,7 @@ export function InvestimentoCard({
           telas bem estreitas a grade cai para 2 colunas. */}
       {blocoTopo}
 
-      {!blocoTopo && (
+      {!blocoTopo && !(inv.quitado && inv.tipo !== "emprestimo" && !revenda) && (
       <div
         className={
           emprestimoNovoEstilo
@@ -343,6 +370,44 @@ export function InvestimentoCard({
       <p className="text-xs text-muted">
         Desde {new Date(inv.data_inicio + "T00:00:00").toLocaleDateString("pt-BR")}
       </p>
+
+      {inv.quitado && inv.tipo !== "emprestimo" && !revenda && (
+        <div className="flex items-center gap-1.5 text-xs font-medium text-primary-600">
+          <CheckCircle2 size={13} className="shrink-0" />
+          Resgatado{inv.data_quitacao ? ` em ${new Date(inv.data_quitacao + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
+          {inv.valor_quitado != null ? ` · ${formatarMoeda(Number(inv.valor_quitado))}` : ""}
+        </div>
+      )}
+
+      {podeResgatar && !resgatando && (
+        <Button size="sm" variant="secondary" className="self-start" onClick={() => setResgatando(true)}>
+          <Banknote size={14} />
+          Resgatar
+        </Button>
+      )}
+      {podeResgatar && resgatando && (
+        <div className="flex flex-col gap-3 rounded-xl bg-muted/5 p-3">
+          <p className="text-small font-medium text-foreground">Resgatar · hoje vale ~{formatarMoeda(valorAtual)}</p>
+          <SeletorCarteira valor={resgateConta} onChange={setResgateConta} rotulo="Entra em qual carteira?" ajuda="Entra como resgate (não conta como renda nova)." />
+          <DateMaskInput label="Data do resgate" value={resgateData} onChange={setResgateData} />
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-36">
+              <Input label="Resgatar uma parte" inputMode="decimal" value={resgateValor} onChange={(e) => setResgateValor(e.target.value)} placeholder="0,00" />
+            </div>
+            <Button size="sm" variant="secondary" disabled={resgateSalvando} onClick={() => confirmarResgate(false)}>
+              Resgatar essa parte
+            </Button>
+            <Button size="sm" disabled={resgateSalvando} onClick={() => confirmarResgate(true)}>
+              Resgatar tudo
+            </Button>
+          </div>
+          <p className="text-xs text-muted">Use o valor que caiu de verdade na conta (o banco pode descontar IR/IOF) — digite em &quot;uma parte&quot; se for diferente.</p>
+          {resgateErro && <p className="text-xs text-rose-700">{resgateErro}</p>}
+          <button type="button" onClick={() => setResgatando(false)} className="self-start text-xs font-medium text-muted hover:underline">
+            Cancelar
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2 border-t border-border pt-3">
         {podeEditarEmprestimo && editandoEmprestimo && erroEmprestimo && (

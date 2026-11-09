@@ -74,8 +74,8 @@ async function enviarPushRelatorio(admin: SupabaseClient, usuarioId: string, ago
   const saiu = pessoais.filter((t) => t.tipo === "despesa").reduce((a, t) => a + Number(t.valor), 0);
   const corpo =
     entrou + saiu > 0
-      ? `Entrou ${moeda(entrou)} e saiu ${moeda(saiu)}. Toque pra ver onde dá pra melhorar e quanto seus investimentos renderam.`
-      : "Veja o resumo do período, seus investimentos e as dicas do mês.";
+      ? `Entrou ${moeda(entrou)} e saiu ${moeda(saiu)}. Toque pra ver as dicas — e jogue o extrato do banco pra deixar tudo em dia.`
+      : "Jogue o extrato do banco dos últimos dias e veja seu relatório completo, com as dicas do período.";
   const payload = await aplicarPrivacidade(admin, usuarioId, {
     titulo: `Seu relatório de ${periodo.rotulo} está pronto`,
     corpo,

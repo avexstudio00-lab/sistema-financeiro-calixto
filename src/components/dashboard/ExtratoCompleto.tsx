@@ -166,7 +166,7 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
             className={buttonVariants({ variant: "tertiary", size: "lg", className: "w-full sm:w-auto" })}
           >
             <FileUp size={18} />
-            Importar CSV
+            Importar extrato
           </Link>
           <Button size="lg" variant={mundo === "negocio" ? "secondary" : "primary"} onClick={handleAbrirModalNova}>
             <Plus size={18} />

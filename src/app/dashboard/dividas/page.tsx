@@ -28,7 +28,7 @@ import {
   type OpcoesParcelamentoDivida,
 } from "@/lib/data/dividas";
 import { adicionarMeses, gerarValoresSugeridosParcelas, gerarDatasSugeridasParcelas } from "@/lib/data/investimentos";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import { listarCategorias } from "@/lib/data/categorias";
 import { AnelProgresso } from "@/components/dashboard/graficos/AnelProgresso";
 import { ParcelasDivida } from "@/components/dashboard/ParcelasDivida";
@@ -101,7 +101,7 @@ export default function DividasPage() {
       listarParcelasDivida(user.id),
     ]);
     setDividas(listaDividas);
-    setContas(listaContas);
+    setContas(carteirasDoAmbiente(listaContas, "pessoal"));
     setCategoriaDividaId(listaCategorias.find((c) => c.nome === NOME_CATEGORIA_DIVIDA)?.id ?? null);
     setParcelas(listaParcelas);
     setCarregando(false);
