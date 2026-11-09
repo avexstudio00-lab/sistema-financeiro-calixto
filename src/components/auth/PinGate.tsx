@@ -160,7 +160,7 @@ function TelaBloqueio({ uid, email, onDesbloquear }: { uid: string; email: strin
   const [erro, setErro] = React.useState<string | null>(null);
   const [agora, setAgora] = React.useState(() => Date.now());
   const [tentativas, setTentativas] = React.useState(() => lerTentativas(uid));
-  const [temBiometria, setTemBiometria] = React.useState(false);
+  const [temBiometria, setTemBiometria] = React.useState(() => !!config && config.biometria.length > 0);
   const [lendoBiometria, setLendoBiometria] = React.useState(false);
   const [esqueci, setEsqueci] = React.useState(false);
   const [senha, setSenha] = React.useState("");
@@ -182,32 +182,66 @@ function TelaBloqueio({ uid, email, onDesbloquear }: { uid: string; email: strin
     return () => window.clearInterval(t);
   }, [congelado]);
 
+  // Leitura de biometria em andamento + "já entrou": se a pessoa entra pelo
+  // PIN antes do Face ID aparecer, a leitura é cancelada e qualquer resposta
+  // atrasada é ignorada — o Face ID não pula mais depois de entrar
+  // (achado do usuário em 09/nov/2026).
+  const leituraRef = React.useRef<AbortController | null>(null);
+  const entrouRef = React.useRef(false);
+
+  const entrar = React.useCallback(() => {
+    if (entrouRef.current) return;
+    entrouRef.current = true;
+    leituraRef.current?.abort();
+    leituraRef.current = null;
+    zerarTentativas(uid);
+    onDesbloquear();
+  }, [uid, onDesbloquear]);
+
+  // Saiu da tela (desbloqueou por outro caminho, trocou de conta...): cancela.
+  React.useEffect(
+    () => () => {
+      leituraRef.current?.abort();
+    },
+    []
+  );
+
   const usarBiometria = React.useCallback(async () => {
-    if (!config || config.biometria.length === 0) return;
+    if (!config || config.biometria.length === 0 || entrouRef.current) return;
+    leituraRef.current?.abort();
+    const leitura = new AbortController();
+    leituraRef.current = leitura;
     setLendoBiometria(true);
     setErro(null);
     try {
-      await autenticarComBiometria(config.biometria);
-      zerarTentativas(uid);
-      onDesbloquear();
+      await autenticarComBiometria(config.biometria, leitura.signal);
+      if (leitura.signal.aborted) return;
+      entrar();
     } catch (e) {
+      if (leitura.signal.aborted || entrouRef.current) return;
       // Cancelou ou não reconheceu: volta pro PIN em silêncio.
       if (!(e instanceof ErroBiometria && e.cancelado)) {
         setErro(e instanceof Error ? e.message : "Não foi possível usar a biometria.");
       }
     } finally {
-      setLendoBiometria(false);
+      if (leituraRef.current === leitura) leituraRef.current = null;
+      if (!entrouRef.current) setLendoBiometria(false);
     }
-  }, [config, uid, onDesbloquear]);
+  }, [config, entrar]);
 
   // Ao abrir a tela, se este aparelho tem biometria cadastrada e suportada,
-  // já chama o Face ID/digital/Windows Hello sozinho (uma vez).
+  // já chama o Face ID/digital/Windows Hello sozinho (uma vez). O botão de
+  // biometria aparece na hora (sem esperar a checagem), pra quem preferir
+  // tocar nele.
   React.useEffect(() => {
     let cancelado = false;
     if (!config || config.biometria.length === 0) return;
     biometriaDisponivel().then((ok) => {
-      if (cancelado || !ok) return;
-      setTemBiometria(true);
+      if (cancelado) return;
+      if (!ok) {
+        setTemBiometria(false);
+        return;
+      }
       if (!tentouAuto.current) {
         tentouAuto.current = true;
         void usarBiometria();
@@ -225,8 +259,7 @@ function TelaBloqueio({ uid, email, onDesbloquear }: { uid: string; email: strin
       const ok = await conferirPin(uid, valor);
       setConferindo(false);
       if (ok) {
-        zerarTentativas(uid);
-        onDesbloquear();
+        entrar();
         return;
       }
       const novo = registrarFalha(uid);
@@ -241,7 +274,7 @@ function TelaBloqueio({ uid, email, onDesbloquear }: { uid: string; email: strin
         setErro(`PIN incorreto. ${restam} ${restam === 1 ? "tentativa" : "tentativas"} antes de uma pausa.`);
       }
     },
-    [uid, onDesbloquear]
+    [uid, entrar]
   );
 
   const digitar = React.useCallback(
@@ -291,7 +324,7 @@ function TelaBloqueio({ uid, email, onDesbloquear }: { uid: string; email: strin
       return;
     }
     removerPin(uid);
-    onDesbloquear();
+    entrar();
   }
 
   const teclas = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
