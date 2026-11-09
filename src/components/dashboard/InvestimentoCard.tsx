@@ -278,7 +278,14 @@ export function InvestimentoCard({
             <Icone size={18} />
           </span>
           <div className="min-w-0">
-            <p className="break-words text-body font-semibold text-foreground">{inv.nome}</p>
+            <p className="break-words text-body font-semibold text-foreground">
+              {inv.codigo ? (
+                <span className="mr-1.5 rounded-md bg-primary-50 px-1.5 py-0.5 align-middle text-xs font-bold text-primary-800 dark:text-primary-200">
+                  {inv.codigo}
+                </span>
+              ) : null}
+              {inv.nome}
+            </p>
             <p className="text-xs text-muted">
               {TIPO_META[inv.tipo].label}
               {inv.forma_pagamento === "parcelado" && inv.numero_parcelas ? ` · ${inv.numero_parcelas}x` : ""}
