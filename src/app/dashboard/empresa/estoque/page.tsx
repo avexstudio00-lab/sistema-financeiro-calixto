@@ -15,7 +15,7 @@ import { listarFornecedores } from "@/lib/data/fornecedores";
 import { calcularSugestoesReposicao, valorDoEstoque } from "@/lib/data/estoque";
 import { formatarMoeda } from "@/lib/format";
 import type { Conta, Fornecedor, Produto, Venda } from "@/lib/data/tipos";
-import { listarContas } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import { criarContaPagar, darEntradaEstoqueDaCompra, marcarContaPagarPaga } from "@/lib/data/contasEmpresa";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import type { ContaPagar } from "@/lib/data/tipos";
@@ -76,7 +76,7 @@ export default function EstoquePage() {
       listarVendas(negocio.usuarioId, { inicio: inicio.toISOString().slice(0, 10) }),
       listarFornecedores(negocio.usuarioId),
     ]);
-    listarContas(negocio.usuarioId).then((c) => setCarteiras(c.filter((x) => x.tipo !== "cartao_credito")));
+    listarContas(negocio.usuarioId).then((c) => setCarteiras(carteirasDoAmbiente(c, "empresa").filter((x) => x.tipo !== "cartao_credito")));
     setProdutos(p);
     setVendas(v);
     setFornecedores(f);
