@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Sparkles, Trash2, Home, Building2, CalendarClock, Layers } from "lucide-react";
+import { X, Plus, Sparkles, Trash2, Home, Building2, CalendarClock, Layers, ArrowDownToLine } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
@@ -449,6 +450,24 @@ export function NovaTransacaoModal({
             <X size={20} />
           </button>
         </div>
+
+        {/* 09/nov/2026: atalho pra importar o extrato logo de cara, em vez
+            de anotar um por um (antes só existia no Extrato completo). */}
+        {!editando && (
+          <Link
+            href={mundo === "negocio" ? "/dashboard/importar?mundo=negocio" : "/dashboard/importar"}
+            onClick={onFechar}
+            className="mb-4 flex items-center gap-3 rounded-2xl border border-primary-200 bg-primary-50/60 px-3 py-2.5 text-left transition-colors hover:bg-primary-50"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-700 text-white">
+              <ArrowDownToLine size={18} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-small font-semibold text-foreground">Importar extrato do banco</span>
+              <span className="block text-xs text-muted">Joga o arquivo do banco ou da fatura e o app lança tudo de uma vez.</span>
+            </span>
+          </Link>
+        )}
 
         {confirmandoExclusao ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">

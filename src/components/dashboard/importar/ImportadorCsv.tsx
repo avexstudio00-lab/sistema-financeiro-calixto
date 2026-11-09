@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Download, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -21,7 +21,6 @@ import { classificarLancamento, chaveDescricao, desmarcadoPorPadrao, type Classi
 import type { Categoria } from "@/lib/data/tipos";
 import {
   ErroArquivo,
-  MODELO_CSV,
   analisarEstrutura,
   decodificarArquivo,
   interpretarLinhas,
@@ -36,7 +35,8 @@ import { AreaUpload } from "./AreaUpload";
 import { MapeamentoColunas } from "./MapeamentoColunas";
 import { ConferenciaImportacao } from "./ConferenciaImportacao";
 import { ResultadoImportacao, type ResumoResultado } from "./ResultadoImportacao";
-import { baixarCsv } from "./baixarCsv";
+import { pareceXlsx, xlsxParaCsv } from "@/lib/util/xlsx";
+import { anoDoExtrato, interpretarLinhasPdf, lancamentosPdfParaCsv, lerLinhasPdf, parecePdf } from "@/lib/util/pdfExtrato";
 
 type Etapa = "upload" | "mapear" | "conferir" | "resultado";
 
@@ -114,14 +114,57 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
     setSugestoes([]);
   }
 
-  async function receberArquivo(arquivo: File) {
+  // PDF com senha (muitos bancos protegem com parte do CPF).
+  const [pdfComSenha, setPdfComSenha] = React.useState<File | null>(null);
+  const [senhaPdf, setSenhaPdf] = React.useState("");
+
+  async function receberArquivo(arquivo: File, senha?: string) {
     setErro(null);
     setIncompativel(false);
     try {
       validarArquivoAntesDeLer(arquivo);
       setLendo(true);
       const bytes = await lerBytes(arquivo);
-      const { texto } = decodificarArquivo(bytes);
+      // Excel (.xlsx): lê a primeira aba como dados e vira CSV.
+      let texto: string;
+      let cartaoPdf = false;
+      if (parecePdf(bytes)) {
+        // PDF: texto extraído aqui no aparelho e interpretado linha a linha.
+        let lidas: { linhas: string[]; ehCartao: boolean };
+        try {
+          lidas = await lerLinhasPdf(bytes, senha);
+        } catch (e) {
+          const motivo = e instanceof Error ? e.message : "";
+          if (motivo === "SENHA" || motivo === "SENHA_ERRADA") {
+            setPdfComSenha(arquivo);
+            throw new ErroArquivo(motivo === "SENHA" ? "Esse PDF tem senha. Digite a senha abaixo (muitos bancos usam os primeiros dígitos do CPF)." : "Senha incorreta. Tente de novo.");
+          }
+          throw new ErroArquivo("Não consegui abrir esse PDF. Se puder, exporte o extrato em OFX, CSV ou Excel.");
+        }
+        setPdfComSenha(null);
+        setSenhaPdf("");
+        const lancamentos = interpretarLinhasPdf(lidas.linhas, anoDoExtrato(lidas.linhas));
+        if (lancamentos.length === 0) {
+          throw new ErroArquivo(
+            "Abri o PDF, mas não achei lançamentos com data e valor. Se for um PDF escaneado (foto), exporte o extrato em OFX, CSV ou Excel no app do banco."
+          );
+        }
+        texto = lancamentosPdfParaCsv(lancamentos);
+        cartaoPdf = lidas.ehCartao;
+      } else if (arquivo.name.toLowerCase().endsWith(".xlsx") && pareceXlsx(bytes)) {
+        try {
+          texto = await xlsxParaCsv(bytes);
+        } catch (e) {
+          throw new ErroArquivo(
+            e instanceof Error && e.message === "MACRO"
+              ? "Essa planilha tem macro e foi bloqueada por segurança. Salve como .xlsx comum ou CSV."
+              : "Não consegui abrir essa planilha. No Excel, salve como CSV e tente de novo."
+          );
+        }
+        if (!texto.trim()) throw new ErroArquivo("A planilha está vazia.");
+      } else {
+        texto = decodificarArquivo(bytes).texto;
+      }
       // OFX vira CSV padrão e segue o mesmo caminho do importador.
       let textoCsv = texto;
       let cartao = false;
@@ -132,11 +175,11 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
         cartao = extrato.ehCartao;
       }
       const e = analisarEstrutura(textoCsv);
-      setEhCartaoArquivo(cartao || e.sugereInverterSinal);
+      setEhCartaoArquivo(cartao || cartaoPdf || e.sugereInverterSinal);
       setNomeArquivo(arquivo.name.slice(0, 120));
       setEstrutura(e);
       setMapeamento(e.mapeamento);
-      setInverterSinal(e.sugereInverterSinal);
+      setInverterSinal(e.sugereInverterSinal || cartaoPdf);
       setEtapa("mapear");
     } catch (e) {
       if (e instanceof ErroArquivo && e.message === "ESTRUTURA") setIncompativel(true);
@@ -246,7 +289,25 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
         </Card>
       )}
 
-      {etapa === "upload" && <AreaUpload lendo={lendo} onArquivo={receberArquivo} />}
+      {etapa === "upload" && <AreaUpload lendo={lendo} onArquivo={(a) => receberArquivo(a)} />}
+
+      {etapa === "upload" && pdfComSenha && (
+        <Card padding="lg" className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-small font-medium text-foreground">
+            Senha do PDF ({pdfComSenha.name.slice(0, 40)})
+            <input
+              type="password"
+              autoComplete="off"
+              value={senhaPdf}
+              onChange={(e) => setSenhaPdf(e.target.value)}
+              className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground"
+            />
+          </label>
+          <Button type="button" disabled={!senhaPdf || lendo} onClick={() => receberArquivo(pdfComSenha, senhaPdf)}>
+            Abrir PDF
+          </Button>
+        </Card>
+      )}
 
       {etapa === "mapear" && estrutura && (
         <MapeamentoColunas
@@ -305,16 +366,13 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
             <div className="flex items-start gap-3">
               <AlertTriangle size={24} className="shrink-0 text-amber-700 dark:text-amber-300" />
               <div className="min-w-0">
-                <h2 className="text-h3 text-foreground">Não reconheci este arquivo</h2>
+                <h2 className="text-h3 text-foreground">Não reconheci este extrato</h2>
                 <p className="text-small text-muted">
-                  Não encontrei uma coluna de data e de valor confiáveis. Use o modelo do Calixto (Data;Tipo;Categoria;Descrição;Forma de pagamento;Valor) — dá
-                  para copiar suas linhas para ele no Excel ou Google Planilhas.
+                  Não encontrei as colunas de data e valor. Tente exportar de novo no app ou site do banco escolhendo OFX (a opção
+                  &quot;Money/Quicken&quot;) — é o formato mais certinho. Se o problema continuar, mande o arquivo pro suporte que a gente ajusta pro seu banco.
                 </p>
               </div>
             </div>
-            <Button type="button" onClick={() => baixarCsv("modelo-importacao-calixto.csv", MODELO_CSV)}>
-              <Download size={18} /> Baixar modelo CSV
-            </Button>
             <Button type="button" variant="tertiary" onClick={() => setIncompativel(false)}>
               Fechar
             </Button>

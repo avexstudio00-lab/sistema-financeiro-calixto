@@ -1,12 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { FileUp, Loader2, Download } from "lucide-react";
+import { FileUp, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
-import { MODELO_CSV } from "@/lib/util/csvImportacao";
-import { baixarCsv } from "./baixarCsv";
 
 /** Passo 1: soltar ou escolher o .csv (até 5 MB). */
 export function AreaUpload({ lendo, onArquivo }: { lendo: boolean; onArquivo: (arquivo: File) => void }) {
@@ -48,13 +45,15 @@ export function AreaUpload({ lendo, onArquivo }: { lendo: boolean; onArquivo: (a
       >
         {lendo ? <Loader2 size={32} className="animate-spin text-primary-700" /> : <FileUp size={32} className="text-primary-700 dark:text-primary-300" />}
         <div>
-          <p className="text-body font-semibold text-foreground">{lendo ? "Lendo o extrato..." : "Solte o extrato (.ofx ou .csv) aqui ou toque para escolher"}</p>
-          <p className="text-small text-muted">Extrato da conta ou fatura do cartão (Nubank, Itaú, Inter, Bradesco, Santander, BB, Caixa, C6, Mercado Pago) em OFX ou CSV. A gente separa PIX, cartão, boleto e fatura, sugere a categoria e liga às suas dívidas. Até 5 MB e 5.000 linhas.</p>
+          <p className="text-body font-semibold text-foreground">{lendo ? "Lendo o extrato..." : "Solte o extrato aqui ou toque para escolher"}</p>
+          <p className="text-small text-muted">Extrato da conta ou fatura do cartão (Nubank, Itaú, Inter, Bradesco, Santander, BB, Caixa, C6, Mercado Pago) em PDF, OFX, CSV ou Excel (.xlsx). A gente separa PIX, cartão, boleto e fatura, sugere a categoria e liga às suas dívidas. Até 5 MB e 5.000 linhas.</p>
         </div>
         <input
           ref={inputRef}
           type="file"
-          accept=".csv,.ofx,.qfx,text/csv,application/x-ofx"
+          // Sem filtro de tipo de propósito (09/nov/2026): com filtro, o
+          // Windows/celular deixava o arquivo "apagado" sem explicar nada.
+          // A validação de verdade acontece depois, com mensagem clara.
           className="hidden"
           onChange={(e) => {
             escolher(e.target.files);
@@ -62,14 +61,10 @@ export function AreaUpload({ lendo, onArquivo }: { lendo: boolean; onArquivo: (a
           }}
         />
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-xs text-muted">
-          O arquivo é lido aqui no seu aparelho. Nada é gravado antes da sua confirmação.
-        </p>
-        <Button type="button" variant="tertiary" size="sm" onClick={() => baixarCsv("modelo-importacao-calixto.csv", MODELO_CSV)}>
-          <Download size={16} /> Baixar modelo CSV
-        </Button>
-      </div>
+      <p className="text-xs text-muted">
+        Como baixar: no app ou site do banco, entre em Extrato (ou Fatura do cartão) → Exportar/Compartilhar. PDF funciona; OFX ou Excel
+        costumam vir ainda mais certinhos. O arquivo é lido aqui no seu aparelho e nada é gravado antes da sua confirmação.
+      </p>
     </Card>
   );
 }
