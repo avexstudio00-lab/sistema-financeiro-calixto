@@ -12,6 +12,7 @@ import {
   renovarComRefreshToken,
   requisicaoDoMesmoSite,
   sessaoParaNavegador,
+  usuarioDasClaims,
   verificarAccessToken,
   verificarAccessTokenDetalhado,
 } from "@/lib/auth/sessaoServidor";
@@ -52,7 +53,9 @@ export async function GET(request: Request) {
   if (at) {
     const claims = await verificarAccessToken(at, 120);
     if (claims) {
-      const user = await buscarUsuario(at);
+      // Assinatura já conferida: o usuário sai das próprias claims (sem ir
+      // ao Supabase). Se faltar o e-mail (token antigo/estranho), busca.
+      const user = claims.email ? usuarioDasClaims(claims) : await buscarUsuario(at);
       if (user) {
         const agora = Math.floor(Date.now() / 1000);
         return semCache(
