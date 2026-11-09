@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import { formatarMoeda } from "@/lib/format";
 import type { LancamentoLido, LinhaRejeitada } from "@/lib/util/csvImportacao";
+import { ROTULO_NATUREZA, type Classificacao } from "@/lib/util/classificarExtrato";
+import type { SugestaoExtrato } from "@/lib/data/importar";
+import type { Categoria, Conta } from "@/lib/data/tipos";
 
 const POR_PAGINA = 100;
 
@@ -21,6 +24,11 @@ export function ConferenciaImportacao({
   validos,
   rejeitados,
   duplicadas,
+  classificacoes,
+  sugestoes,
+  onSugestoes,
+  categorias,
+  cartoes,
   selecionados,
   onSelecionados,
   importando,
@@ -31,6 +39,11 @@ export function ConferenciaImportacao({
   validos: LancamentoLido[];
   rejeitados: LinhaRejeitada[];
   duplicadas: Set<number>;
+  classificacoes: Classificacao[];
+  sugestoes: SugestaoExtrato[];
+  onSugestoes: (s: SugestaoExtrato[]) => void;
+  categorias: Categoria[];
+  cartoes: Conta[];
   selecionados: Set<number>;
   onSelecionados: (s: Set<number>) => void;
   importando: boolean;
@@ -44,6 +57,21 @@ export function ConferenciaImportacao({
   const incluirDuplicadas = duplicadas.size > 0 && duplicadasIncluidas === duplicadas.size;
   const total = selecionados.size;
   const liquido = Array.from(selecionados).reduce((acc, i) => acc + (validos[i].tipo === "receita" ? validos[i].valor : -validos[i].valor), 0);
+
+  function mudarSugestao(i: number, parcial: Partial<SugestaoExtrato>) {
+    const novas = sugestoes.slice();
+    novas[i] = { ...novas[i], ...parcial };
+    onSugestoes(novas);
+  }
+  const resumoNaturezas = React.useMemo(() => {
+    const m = new Map<string, number>();
+    Array.from(selecionados).forEach((i) => {
+      const n = classificacoes[i]?.natureza;
+      if (n && n !== "outro") m.set(ROTULO_NATUREZA[n], (m.get(ROTULO_NATUREZA[n]) ?? 0) + 1);
+    });
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+  }, [selecionados, classificacoes]);
+  const ligadasDivida = Array.from(selecionados).filter((i) => sugestoes[i]?.dividaId).length;
 
   function alternar(i: number) {
     const novo = new Set(selecionados);
@@ -82,6 +110,28 @@ export function ConferenciaImportacao({
         </div>
       </Card>
 
+      {(resumoNaturezas.length > 0 || ligadasDivida > 0) && (
+        <Card padding="lg" className="flex flex-col gap-2">
+          <h3 className="text-body font-semibold text-foreground">O que encontramos no extrato</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {resumoNaturezas.map(([rotulo, n]) => (
+              <Badge key={rotulo} variant="neutral" size="sm">
+                {rotulo}: {n}
+              </Badge>
+            ))}
+            {ligadasDivida > 0 && (
+              <Badge variant="primary" size="sm">
+                Ligados a dívidas: {ligadasDivida}
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted">
+            A categoria vem do jeito que você já classificou antes (o app aprende a cada importação) ou das regras do app. Ajuste o que
+            precisar antes de confirmar.
+          </p>
+        </Card>
+      )}
+
       {verRejeitadas && rejeitados.length > 0 && (
         <Card padding="lg" className="flex min-w-0 flex-col gap-2">
           <h3 className="text-body font-semibold text-foreground">Linhas que não serão importadas</h3>
@@ -112,8 +162,11 @@ export function ConferenciaImportacao({
         <ul className="flex flex-col divide-y divide-border">
           {validos.slice(0, visiveis).map((l, i) => {
             const dup = duplicadas.has(i);
+            const c = classificacoes[i];
+            const sg = sugestoes[i];
+            const opcoesCategoria = categorias.filter((cat) => cat.tipo === l.tipo);
             return (
-              <li key={i}>
+              <li key={i} className="flex flex-col">
                 <label className={cn("flex cursor-pointer items-center gap-3 py-2", !selecionados.has(i) && "opacity-60")}>
                   <input type="checkbox" className="h-4 w-4 shrink-0" checked={selecionados.has(i)} onChange={() => alternar(i)} />
                   <div className="min-w-0 flex-1">
@@ -125,7 +178,22 @@ export function ConferenciaImportacao({
                       {l.categoriaTexto ? <span className="truncate">· {l.categoriaTexto.replace(/^'/, "")}</span> : null}
                       {dup && (
                         <Badge variant="warning" size="sm">
-                          Duplicada
+                          {sg?.jaLancado ?? "Duplicada"}
+                        </Badge>
+                      )}
+                      {c && c.natureza !== "outro" && (
+                        <Badge variant="neutral" size="sm">
+                          {ROTULO_NATUREZA[c.natureza]}
+                        </Badge>
+                      )}
+                      {c?.parcela && (
+                        <Badge variant="neutral" size="sm">
+                          Parcela {c.parcela.atual}/{c.parcela.total}
+                        </Badge>
+                      )}
+                      {sg?.dividaNome && (
+                        <Badge variant="primary" size="sm">
+                          Dívida: {sg.dividaNome}
                         </Badge>
                       )}
                     </p>
@@ -140,6 +208,50 @@ export function ConferenciaImportacao({
                     {formatarMoeda(l.valor)}
                   </span>
                 </label>
+                {selecionados.has(i) && sg && (
+                  <div className="mb-2 ml-7 flex flex-wrap items-center gap-2">
+                    {c?.natureza === "pagamento_fatura" && (
+                      <select
+                        value={sg.transferirPara ?? ""}
+                        onChange={(e) => mudarSugestao(i, { transferirPara: e.target.value || null })}
+                        className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                        aria-label="O que fazer com o pagamento da fatura"
+                      >
+                        {cartoes.map((ct) => (
+                          <option key={ct.id} value={ct.id}>
+                            Transferir pro cartão {ct.nome} (não conta como gasto de novo)
+                          </option>
+                        ))}
+                        <option value="">Lançar como gasto (não acompanho a fatura no app)</option>
+                      </select>
+                    )}
+                    {!sg.transferirPara && (
+                      <select
+                        value={sg.categoriaId ?? ""}
+                        onChange={(e) => mudarSugestao(i, { categoriaId: e.target.value || null, origemCategoria: "manual" })}
+                        className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                        aria-label="Categoria"
+                      >
+                        <option value="">Sem categoria</option>
+                        {opcoesCategoria.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.nome}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {sg.origemCategoria === "historico" && <span className="text-xs text-muted">como você já classificou antes</span>}
+                    {sg.dividaId && (
+                      <button
+                        type="button"
+                        onClick={() => mudarSugestao(i, { dividaId: null, dividaNome: null })}
+                        className="text-xs font-medium text-muted hover:underline"
+                      >
+                        Não é dessa dívida
+                      </button>
+                    )}
+                  </div>
+                )}
               </li>
             );
           })}
