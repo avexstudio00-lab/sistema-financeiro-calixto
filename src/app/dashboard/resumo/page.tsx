@@ -161,7 +161,7 @@ export default function ResumoMensalPage() {
           </Button>
           <Link href="/dashboard/importar" className={buttonVariants({ variant: "secondary", size: "sm" })}>
             <FileUp size={16} />
-            Importar CSV
+            Importar extrato
           </Link>
           <Button variant="secondary" size="sm" onClick={() => window.print()}>
             <Printer size={16} />
