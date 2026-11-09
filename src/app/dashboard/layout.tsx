@@ -8,6 +8,7 @@ import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { EmpresaProvider, useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { BotaoLancamentoGlobal } from "@/components/dashboard/BotaoLancamentoGlobal";
 import { PinGate } from "@/components/auth/PinGate";
+import { ultimoUidComPin } from "@/lib/seguranca/pin";
 import { SincronizarPush } from "@/components/dashboard/SincronizarPush";
 import { TermosGate } from "@/components/auth/TermosGate";
 
@@ -41,7 +42,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     </main>
   );
 
-  if (recuperacaoSenhaAtiva || !user) return girando;
+  // Abertura do app (10/nov/2026): enquanto a sessão volta do servidor, já
+  // mostra a tela de PIN do último usuário deste aparelho (se ele usa PIN).
+  // O painel só monta quando a sessão confirma; se for outra conta, o
+  // `key` troca e a tela de PIN reabre pra ela.
+  const [uidAparelho, setUidAparelho] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setUidAparelho(ultimoUidComPin());
+  }, []);
+  const uidPin = user?.id ?? (carregando && !recuperacaoSenhaAtiva ? uidAparelho : null);
+
+  if (recuperacaoSenhaAtiva || !uidPin) return girando;
 
   // Fase 1: PIN/biometria. Enquanto bloqueado, nada do painel é montado.
   // A tela de PIN/Face ID aparece assim que a sessão do aparelho é lida —
@@ -49,8 +60,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // olhando a rodinha até o Face ID aparecer; achado de 09/nov/2026). O
   // perfil continua carregando por trás enquanto ela desbloqueia.
   return (
-    <PinGate>
-      {carregando || !perfil || !perfil.tipo_perfil ? (
+    <PinGate key={uidPin} uid={uidPin}>
+      {!user || carregando || !perfil || !perfil.tipo_perfil ? (
         girando
       ) : (
         /* LGPD: quem ainda não aceitou a versão vigente dos termos (ex.: contas
