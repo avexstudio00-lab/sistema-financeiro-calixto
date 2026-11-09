@@ -13,6 +13,7 @@ import {
   conferirPin,
   lerConfigPin,
   lerTentativas,
+  lembrarUltimoUid,
   marcarDesbloqueado,
   precisaDesbloquear,
   registrarAtividade,
@@ -31,9 +32,8 @@ import { autenticarComBiometria, biometriaDisponivel, ErroBiometria } from "@/li
  * Se o bloqueio acontece com o app já em uso, as telas ficam escondidas
  * (sem desmontar) pra pessoa voltar exatamente de onde parou.
  */
-export function PinGate({ children }: { children: React.ReactNode }) {
+export function PinGate({ uid, children }: { uid: string; children: React.ReactNode }) {
   const { user } = useAuth();
-  const uid = user?.id ?? "";
   const [verificado, setVerificado] = React.useState(false);
   const [bloqueado, setBloqueadoEstado] = React.useState(true);
   // Já desbloqueou nesta abertura do app? A partir daí, bloquear de novo NÃO
@@ -54,6 +54,12 @@ export function PinGate({ children }: { children: React.ReactNode }) {
     setBloqueado(precisaDesbloquear(uid));
     setVerificado(true);
   }, [uid, setBloqueado]);
+
+  // Guarda quem é o usuário (só depois da sessão confirmar) pra próxima
+  // abertura já mostrar a tela de PIN na hora.
+  React.useEffect(() => {
+    if (user?.id && user.id === uid) lembrarUltimoUid(uid);
+  }, [user?.id, uid]);
 
   // Esconde do teclado/leitor de tela o conteúdo atrás do bloqueio.
   React.useEffect(() => {
