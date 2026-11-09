@@ -13,8 +13,11 @@
  * 3) devolve CSV "Data;Descrição;Valor" pro mesmo caminho do importador.
  *
  * O worker do pdf.js fica em /public/pdf.worker.min.mjs (mesma origem, por
- * causa da CSP worker-src 'self'). Ao atualizar o pdfjs-dist, copiar de novo
- * node_modules/pdfjs-dist/build/pdf.worker.min.mjs.
+ * causa da CSP worker-src 'self'). Usa a build LEGACY (com polyfills): a
+ * build normal do pdf.js 6 usa recursos novos de JS (Map.getOrInsert,
+ * Math.sumPrecise...) que o Safari do iPhone ainda não tem — e aí o PDF
+ * "não abria" (achado do usuário em 09/nov/2026). Ao atualizar o pdfjs-dist,
+ * copiar de novo node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs.
  */
 
 export interface LinhaPdf {
@@ -149,7 +152,7 @@ export function parecePdf(bytes: Uint8Array): boolean {
 
 /** Lê o PDF no navegador e devolve as linhas de texto (e se parece fatura de cartão). */
 export async function lerLinhasPdf(bytes: Uint8Array, senha?: string): Promise<{ linhas: string[]; ehCartao: boolean }> {
-  const pdfjs = await import("pdfjs-dist");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
   let doc;
   // Só texto: sem fontes, sem formulários XFA (o pdf.js 6 não usa eval).
@@ -158,6 +161,7 @@ export async function lerLinhasPdf(bytes: Uint8Array, senha?: string): Promise<{
     doc = await tarefa.promise;
   } catch (e) {
     if ((e as { name?: string })?.name === "PasswordException") throw new Error(senha ? "SENHA_ERRADA" : "SENHA");
+    console.error("[pdfExtrato] falha ao abrir o PDF:", e);
     throw new Error("PDF_INVALIDO");
   }
   const linhas: string[] = [];
