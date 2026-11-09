@@ -19,6 +19,9 @@ const CSP = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // pdf.js no servidor (/api/importar/pdf): fica fora do pacote pra carregar
+  // como módulo normal do Node (10/nov/2026).
+  serverExternalPackages: ["pdfjs-dist"],
   staticPageGenerationTimeout: 120,
 
   // Headers de segurança aplicados a toda resposta do site. A partir de
