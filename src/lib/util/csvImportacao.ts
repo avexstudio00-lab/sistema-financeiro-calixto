@@ -697,6 +697,39 @@ export function marcarDuplicadas(lidos: LancamentoLido[], existentes: TransacaoE
   return duplicadas;
 }
 
+/**
+ * Segunda checagem (10/nov/2026): lançamento que a pessoa fez À MÃO com
+ * outro nome ou outra data. Mesmo tipo e mesmo valor, até 3 dias de
+ * diferença, na mesma carteira → "parece com 'X' de dd/mm". Cada lançamento
+ * existente só "explica" uma linha do extrato (o mais perto na data).
+ */
+export function acharParecidas(lidos: LancamentoLido[], existentes: TransacaoExistente[], jaMarcadas: Set<number>): Map<number, string> {
+  const usados = new Set<number>();
+  const resultado = new Map<number, string>();
+  const dia = (iso: string) => new Date(iso + "T00:00:00").getTime() / 86400000;
+  lidos.forEach((l, i) => {
+    if (jaMarcadas.has(i)) return;
+    let melhor = -1;
+    let melhorDist = Infinity;
+    existentes.forEach((e, j) => {
+      if (usados.has(j) || e.tipo !== l.tipo || Math.round(Number(e.valor) * 100) !== Math.round(l.valor * 100)) return;
+      const dist = Math.abs(dia(e.data) - dia(l.data));
+      if (dist <= 3 && dist < melhorDist) {
+        melhor = j;
+        melhorDist = dist;
+      }
+    });
+    if (melhor >= 0) {
+      usados.add(melhor);
+      const e = existentes[melhor];
+      const [, m, d] = e.data.split("-");
+      const nome = (e.descricao ?? "").trim().slice(0, 40) || "um lançamento";
+      resultado.set(i, `Parece com "${nome}" de ${d}/${m}`);
+    }
+  });
+  return resultado;
+}
+
 // ---------------------------------------------------------------------------
 // 7) CSVs gerados (modelo e relatório de falhas).
 // ---------------------------------------------------------------------------

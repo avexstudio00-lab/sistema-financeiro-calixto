@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Wallet, LayoutGrid, Combine } from "lucide-react";
+import { Plus, Wallet, LayoutGrid, Combine, Search, X } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -105,6 +105,9 @@ export default function InvestimentosPage() {
   // afeta o modo "Por tipo" -- o modo "Todos juntos" já mistura tudo por
   // desenho e continua igual, como o próprio usuário pediu pra manter.
   const [filtroTipo, setFiltroTipo] = React.useState<Investimento["tipo"] | "todos">("todos");
+  // Busca (10/nov/2026): nome da pessoa, código (E3, R2) ou descrição —
+  // mostra TODOS que batem (à vista, parcelado e quitados juntos).
+  const [busca, setBusca] = React.useState("");
   // 5.12: "+" contextual por aba de tipo.
   const [tipoNovo, setTipoNovo] = React.useState<TipoInvestimento | null>(null);
   // 5.2: filtros das operações (empréstimo e compra e revenda).
@@ -170,6 +173,23 @@ export default function InvestimentosPage() {
     }
     return ORDEM_TIPOS.map((tipo) => ({ tipo, itens: mapa.get(tipo) ?? [] })).filter((g) => g.itens.length > 0);
   }, [investimentos]);
+
+  const resultadosBusca = React.useMemo(() => {
+    const termo = busca
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+    if (!termo) return null;
+    const norm = (t: string | null | undefined) =>
+      (t ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+    return investimentos.filter((i) =>
+      norm(i.codigo) === termo || norm(i.nome).includes(termo) || norm(i.descricao).includes(termo) || norm(i.codigo).startsWith(termo)
+    );
+  }, [busca, investimentos]);
 
   const gruposFiltrados = React.useMemo(
     () => (filtroTipo === "todos" ? grupos : grupos.filter((g) => g.tipo === filtroTipo)),
@@ -645,7 +665,38 @@ export default function InvestimentosPage() {
             </div>
           </div>
 
-          {modoVisualizacao === "combinado" ? (
+          <div className="relative">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="search"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome da pessoa ou código (ex.: E3, R2)"
+              aria-label="Buscar empréstimos, revendas e investimentos"
+              className="h-11 w-full rounded-xl border border-border bg-card pl-9 pr-10 text-small text-foreground placeholder:text-muted"
+            />
+            {busca && (
+              <button
+                type="button"
+                onClick={() => setBusca("")}
+                aria-label="Limpar busca"
+                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted hover:bg-muted/10"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {resultadosBusca ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-small text-muted">
+                {resultadosBusca.length === 0
+                  ? `Nada encontrado para "${busca.trim()}".`
+                  : `${resultadosBusca.length} ${resultadosBusca.length === 1 ? "resultado" : "resultados"} para "${busca.trim()}" (abertos e quitados).`}
+              </p>
+              {resultadosBusca.length > 0 && renderGradeCartoes(resultadosBusca)}
+            </div>
+          ) : modoVisualizacao === "combinado" ? (
             <>
               {renderCartoesStats(resumoGeral)}
 

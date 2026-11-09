@@ -140,13 +140,17 @@ function formatarValorParaInput(valor: number): string {
 export interface NovoInvestimentoModalProps {
   aberto: boolean;
   onFechar: () => void;
-  onSalvo: () => void;
+  /** Recebe o que foi criado (id/código) — a importação de extrato usa. */
+  onSalvo: (criado?: { id: string; codigo: string | null; nome: string }) => void;
   /** Item 5.12: "+" contextual de uma aba de tipo — já abre com o tipo
    * escolhido e esconde o seletor. */
   tipoInicial?: TipoInvestimento | null;
+  /** Importação de extrato (10/nov/2026): já abre com nome, valor, data e a
+   * carteira de onde o dinheiro saiu (a do extrato). */
+  inicial?: { nome: string; valor: number; data: string; contaOrigemId: string } | null;
 }
 
-export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial = null }: NovoInvestimentoModalProps) {
+export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial = null, inicial = null }: NovoInvestimentoModalProps) {
   const { user, papel, podeAcessarMinhaEmpresa } = useAuth();
   // Item 6.8: de onde vem o dinheiro — pessoal (padrão) ou caixa da empresa.
   const podeUsarCaixaEmpresa = papel === "dono" && podeAcessarMinhaEmpresa;
@@ -168,6 +172,21 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
   React.useEffect(() => {
     if (aberto && tipoInicial) setTipo(tipoInicial);
   }, [aberto, tipoInicial]);
+
+  // Pré-preenchido pela importação de extrato (uma vez por abertura).
+  const preencheuRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!aberto) {
+      preencheuRef.current = false;
+      return;
+    }
+    if (!inicial || preencheuRef.current) return;
+    preencheuRef.current = true;
+    setNome(inicial.nome);
+    setValorInvestido(formatarValorParaInput(inicial.valor));
+    setDataInicio(inicial.data);
+    setContaOrigemId(inicial.contaOrigemId);
+  }, [aberto, inicial]);
 
   const [tipo, setTipo] = React.useState<TipoInvestimento>("cdi");
   const [nome, setNome] = React.useState("");
@@ -547,7 +566,7 @@ export function NovoInvestimentoModal({ aberto, onFechar, onSalvo, tipoInicial =
     // Se o lançamento de saída falhou (transacaoOrigemId nulo), o card do
     // investimento mostra o aviso "Sem carteira de origem" com o botão pra
     // debitar depois — nunca fica um investimento "fantasma" sem aviso.
-    onSalvo();
+    onSalvo({ id: data.id, codigo: (data as { codigo?: string | null }).codigo ?? null, nome: nome.trim() });
     onFechar();
   }
 

@@ -10,7 +10,9 @@ import { formatarMoeda } from "@/lib/format";
 import type { LancamentoLido, LinhaRejeitada } from "@/lib/util/csvImportacao";
 import { ROTULO_NATUREZA, type Classificacao } from "@/lib/util/classificarExtrato";
 import type { SugestaoExtrato } from "@/lib/data/importar";
+import { ROTULO_ACAO, acoesDoTipo, modoPadrao, type AcaoExtrato, type OperacaoAberta } from "@/lib/data/importarLigacoes";
 import type { Categoria, Conta } from "@/lib/data/tipos";
+import { RegrasImportacao } from "./RegrasImportacao";
 
 const POR_PAGINA = 100;
 
@@ -29,6 +31,11 @@ export function ConferenciaImportacao({
   onSugestoes,
   categorias,
   cartoes,
+  carteiras,
+  dividas,
+  operacoes,
+  onPreencherOperacao,
+  motivosDuplicada,
   selecionados,
   onSelecionados,
   importando,
@@ -44,6 +51,13 @@ export function ConferenciaImportacao({
   onSugestoes: (s: SugestaoExtrato[]) => void;
   categorias: Categoria[];
   cartoes: Conta[];
+  /** Outras carteiras/caixinhas (destino/origem de transferência). */
+  carteiras: Conta[];
+  dividas: { id: string; nome: string }[];
+  operacoes: OperacaoAberta[];
+  /** Emprestei / comprei para revenda: abre o formulário já preenchido. */
+  onPreencherOperacao: (indice: number, tipo: "emprestimo" | "revenda") => void;
+  motivosDuplicada: Map<number, string>;
   selecionados: Set<number>;
   onSelecionados: (s: Set<number>) => void;
   importando: boolean;
@@ -57,6 +71,49 @@ export function ConferenciaImportacao({
   const incluirDuplicadas = duplicadas.size > 0 && duplicadasIncluidas === duplicadas.size;
   const total = selecionados.size;
   const liquido = Array.from(selecionados).reduce((acc, i) => acc + (validos[i].tipo === "receita" ? validos[i].valor : -validos[i].valor), 0);
+  // Linhas marcadas como empréstimo/revenda que ainda não tiveram o formulário preenchido.
+  const faltaPreencher = Array.from(selecionados).filter((i) => {
+    const a = sugestoes[i]?.acao;
+    return (a === "emprestei" || a === "comprei_revenda") && !sugestoes[i]?.lancadoPor;
+  }).length;
+  const destinosTransferencia = [...cartoes, ...carteiras.filter((c) => !cartoes.some((ct) => ct.id === c.id))];
+
+  function mudarAcao(i: number, acao: AcaoExtrato) {
+    const atual = sugestoes[i];
+    const parcial: Partial<SugestaoExtrato> = {
+      acao,
+      lancadoPor: null,
+      investimentoId: null,
+      modoRecebimento: null,
+      parcelaId: null,
+      transferirPara: acao === "transferencia" ? (atual.transferirPara ?? destinosTransferencia[0]?.id ?? null) : null,
+      dividaId: acao === "divida" ? (atual.dividaId ?? dividas[0]?.id ?? null) : null,
+      dividaNome: acao === "divida" ? (atual.dividaNome ?? dividas[0]?.nome ?? null) : null,
+    };
+    if (acao === "receb_emprestimo" || acao === "receb_revenda") {
+      const tipo = acao === "receb_emprestimo" ? "emprestimo" : "revenda";
+      const op = operacoes.find((o) => o.investimento.tipo === tipo);
+      if (op) {
+        const padrao = modoPadrao(op, validos[i].valor);
+        parcial.investimentoId = op.investimento.id;
+        parcial.modoRecebimento = padrao.modo;
+        parcial.parcelaId = padrao.parcelaId;
+      }
+    }
+    mudarSugestao(i, parcial);
+  }
+
+  function escolherOperacao(i: number, investimentoId: string) {
+    const op = operacoes.find((o) => o.investimento.id === investimentoId);
+    if (!op) return mudarSugestao(i, { investimentoId: null, modoRecebimento: null, parcelaId: null });
+    const padrao = modoPadrao(op, validos[i].valor);
+    mudarSugestao(i, { investimentoId, modoRecebimento: padrao.modo, parcelaId: padrao.parcelaId });
+  }
+
+  function escolherModo(i: number, valor: string) {
+    if (valor.startsWith("parcela:")) mudarSugestao(i, { modoRecebimento: "parcela", parcelaId: valor.slice(8) });
+    else mudarSugestao(i, { modoRecebimento: valor as SugestaoExtrato["modoRecebimento"], parcelaId: null });
+  }
 
   function mudarSugestao(i: number, parcial: Partial<SugestaoExtrato>) {
     const novas = sugestoes.slice();
@@ -97,7 +154,7 @@ export function ConferenciaImportacao({
         <div className="rounded-xl border border-amber-300 p-3 dark:border-amber-700">
           <p className="text-xs text-muted">Possíveis duplicadas</p>
           <p className="text-h2 text-foreground">{duplicadas.size}</p>
-          <p className="text-xs text-muted">Já existe lançamento igual nesta carteira.</p>
+          <p className="text-xs text-muted">Parecidas com o que você já lançou nesta carteira (vêm desmarcadas).</p>
         </div>
         <div className="rounded-xl border border-border p-3">
           <p className="text-xs text-muted">Linhas descartadas</p>
@@ -131,6 +188,8 @@ export function ConferenciaImportacao({
           </p>
         </Card>
       )}
+
+      <RegrasImportacao compacto />
 
       {verRejeitadas && rejeitados.length > 0 && (
         <Card padding="lg" className="flex min-w-0 flex-col gap-2">
@@ -178,7 +237,7 @@ export function ConferenciaImportacao({
                       {l.categoriaTexto ? <span className="truncate">· {l.categoriaTexto.replace(/^'/, "")}</span> : null}
                       {dup && (
                         <Badge variant="warning" size="sm">
-                          {sg?.jaLancado ?? "Duplicada"}
+                          {sg?.jaLancado ?? motivosDuplicada.get(i) ?? "Duplicada"}
                         </Badge>
                       )}
                       {c && c.natureza !== "outro" && (
@@ -209,46 +268,143 @@ export function ConferenciaImportacao({
                   </span>
                 </label>
                 {selecionados.has(i) && sg && (
-                  <div className="mb-2 ml-7 flex flex-wrap items-center gap-2">
-                    {c?.natureza === "pagamento_fatura" && (
+                  <div className="mb-2 ml-7 flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <select
-                        value={sg.transferirPara ?? ""}
-                        onChange={(e) => mudarSugestao(i, { transferirPara: e.target.value || null })}
-                        className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
-                        aria-label="O que fazer com o pagamento da fatura"
+                        value={sg.acao}
+                        onChange={(e) => mudarAcao(i, e.target.value as AcaoExtrato)}
+                        className="h-9 max-w-full rounded-lg border border-primary-300 bg-card px-2 text-xs font-medium text-foreground dark:border-primary-700"
+                        aria-label="O que é isso?"
                       >
-                        {cartoes.map((ct) => (
-                          <option key={ct.id} value={ct.id}>
-                            Transferir pro cartão {ct.nome} (não conta como gasto de novo)
-                          </option>
-                        ))}
-                        <option value="">Lançar como gasto (não acompanho a fatura no app)</option>
-                      </select>
-                    )}
-                    {!sg.transferirPara && (
-                      <select
-                        value={sg.categoriaId ?? ""}
-                        onChange={(e) => mudarSugestao(i, { categoriaId: e.target.value || null, origemCategoria: "manual" })}
-                        className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
-                        aria-label="Categoria"
-                      >
-                        <option value="">Sem categoria</option>
-                        {opcoesCategoria.map((cat) => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.nome}
+                        {acoesDoTipo(l.tipo).map((a) => (
+                          <option key={a} value={a}>
+                            {ROTULO_ACAO[a][l.tipo]}
                           </option>
                         ))}
                       </select>
+
+                      {sg.acao === "transferencia" && (
+                        <select
+                          value={sg.transferirPara ?? ""}
+                          onChange={(e) => mudarSugestao(i, { transferirPara: e.target.value || null })}
+                          className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                          aria-label={l.tipo === "despesa" ? "Para qual carteira" : "De qual carteira"}
+                        >
+                          <option value="">{l.tipo === "despesa" ? "Para qual carteira?" : "De qual carteira?"}</option>
+                          {destinosTransferencia.map((ct) => (
+                            <option key={ct.id} value={ct.id}>
+                              {ct.tipo === "cartao_credito" ? `Cartão ${ct.nome} (pagamento da fatura)` : ct.nome}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {sg.acao === "divida" && (
+                        <select
+                          value={sg.dividaId ?? ""}
+                          onChange={(e) => {
+                            const d = dividas.find((x) => x.id === e.target.value);
+                            mudarSugestao(i, { dividaId: d?.id ?? null, dividaNome: d?.nome ?? null });
+                          }}
+                          className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                          aria-label="Qual dívida"
+                        >
+                          <option value="">{dividas.length ? "Qual dívida?" : "Nenhuma dívida em aberto"}</option>
+                          {dividas.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.nome}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {(sg.acao === "receb_emprestimo" || sg.acao === "receb_revenda") && (() => {
+                        const tipoOp = sg.acao === "receb_emprestimo" ? "emprestimo" : "revenda";
+                        const lista = operacoes.filter((o) => o.investimento.tipo === tipoOp);
+                        const op = lista.find((o) => o.investimento.id === sg.investimentoId);
+                        const parcelado = op?.investimento.forma_pagamento === "parcelado" && (op?.parcelasAbertas.length ?? 0) > 0;
+                        return (
+                          <>
+                            <select
+                              value={sg.investimentoId ?? ""}
+                              onChange={(e) => escolherOperacao(i, e.target.value)}
+                              className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                              aria-label={tipoOp === "emprestimo" ? "Qual empréstimo" : "Qual revenda"}
+                            >
+                              <option value="">
+                                {lista.length ? (tipoOp === "emprestimo" ? "Qual empréstimo?" : "Qual revenda?") : tipoOp === "emprestimo" ? "Nenhum empréstimo em aberto" : "Nenhuma revenda em aberto"}
+                              </option>
+                              {lista.map((o) => (
+                                <option key={o.investimento.id} value={o.investimento.id}>
+                                  {o.rotulo}
+                                </option>
+                              ))}
+                            </select>
+                            {op && (parcelado || tipoOp === "emprestimo") && (
+                              <select
+                                value={sg.modoRecebimento === "parcela" ? `parcela:${sg.parcelaId ?? ""}` : (sg.modoRecebimento ?? "")}
+                                onChange={(e) => escolherModo(i, e.target.value)}
+                                className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                                aria-label="Como foi o recebimento"
+                              >
+                                {parcelado ? (
+                                  <>
+                                    {op.parcelasAbertas.map((p) => (
+                                      <option key={p.id} value={`parcela:${p.id}`}>
+                                        Parcela {p.numero} ({formatarMoeda(Number(p.valor))}, vence {dataBr(p.data_vencimento)})
+                                      </option>
+                                    ))}
+                                    {tipoOp === "emprestimo" ? (
+                                      <option value="quitar_parcelas">Quitou todas as parcelas de uma vez</option>
+                                    ) : (
+                                      <option value="recebimento">Recebimento avulso (fora das parcelas)</option>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="quitacao">Quitação (fecha o empréstimo)</option>
+                                    <option value="juros">Só os juros (o vencimento vai pro mês seguinte)</option>
+                                  </>
+                                )}
+                              </select>
+                            )}
+                          </>
+                        );
+                      })()}
+
+                      {(sg.acao === "emprestei" || sg.acao === "comprei_revenda") &&
+                        (sg.lancadoPor ? (
+                          <Badge variant="primary" size="sm">
+                            {sg.lancadoPor}
+                          </Badge>
+                        ) : (
+                          <Button type="button" size="sm" variant="secondary" onClick={() => onPreencherOperacao(i, sg.acao === "emprestei" ? "emprestimo" : "revenda")}>
+                            {sg.acao === "emprestei" ? "Preencher o empréstimo" : "Preencher a revenda"}
+                          </Button>
+                        ))}
+
+                      {(sg.acao === "normal" || sg.acao === "divida") && (
+                        <select
+                          value={sg.categoriaId ?? ""}
+                          onChange={(e) => mudarSugestao(i, { categoriaId: e.target.value || null, origemCategoria: "manual" })}
+                          className="h-9 max-w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                          aria-label="Categoria"
+                        >
+                          <option value="">Sem categoria</option>
+                          {opcoesCategoria.map((cat) => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.nome}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {sg.acao === "normal" && sg.origemCategoria === "historico" && <span className="text-xs text-muted">como você já classificou antes</span>}
+                    </div>
+                    {sg.acao === "transferencia" && (
+                      <p className="text-xs text-muted">Não conta como gasto nem como receita — só move o dinheiro entre as suas carteiras.</p>
                     )}
-                    {sg.origemCategoria === "historico" && <span className="text-xs text-muted">como você já classificou antes</span>}
-                    {sg.dividaId && (
-                      <button
-                        type="button"
-                        onClick={() => mudarSugestao(i, { dividaId: null, dividaNome: null })}
-                        className="text-xs font-medium text-muted hover:underline"
-                      >
-                        Não é dessa dívida
-                      </button>
+                    {(sg.acao === "emprestei" || sg.acao === "comprei_revenda") && !sg.lancadoPor && (
+                      <p className="text-xs text-amber-800 dark:text-amber-200">Abre o mesmo formulário da aba Investimentos, já com valor e data. A saída é lançada por ele.</p>
                     )}
                   </div>
                 )}
@@ -262,6 +418,13 @@ export function ConferenciaImportacao({
           </Button>
         )}
       </Card>
+
+      {faltaPreencher > 0 && (
+        <p className="rounded-xl border border-amber-300 px-3 py-2 text-small text-foreground dark:border-amber-700">
+          {faltaPreencher === 1 ? "1 linha marcada" : `${faltaPreencher} linhas marcadas`} como empréstimo/revenda ainda sem o formulário preenchido —{" "}
+          {faltaPreencher === 1 ? "ela não será importada" : "elas não serão importadas"} até você tocar em &quot;Preencher&quot;.
+        </p>
+      )}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
