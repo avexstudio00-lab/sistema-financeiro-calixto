@@ -20,6 +20,7 @@ import {
   calcularValorAtualEstimado,
   calcularGanhoNoPeriodo,
   calcularRecebidoNoPeriodo,
+  calcularLucroRecebidoNoPeriodo,
   totalProjetado,
   calcularEvolucaoInvestimentos,
   listarParcelas,
@@ -35,7 +36,7 @@ import { NovoInvestimentoModal, type TipoInvestimento } from "@/components/dashb
 import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
 import { PainelRevenda, VincularContaOrigem } from "@/components/dashboard/PainelRevenda";
 import { reavaliarQuitacaoRevenda, salvarPrecoRevenda, totalRecebidoRevenda } from "@/lib/data/revenda";
-import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } from "@/components/dashboard/FiltrosLista";
+import { FiltrosLista, AbasVistaParcelado } from "@/components/dashboard/FiltrosLista";
 import { Badge } from "@/components/ui/Badge";
 import { supabase } from "@/lib/supabase/client";
 import { InvestimentoCard, TIPO_META } from "@/components/dashboard/InvestimentoCard";
@@ -59,10 +60,10 @@ const ORDEM_TIPOS: Investimento["tipo"][] = [
 /** Situação de uma operação de compra e revenda (item 5.3). */
 type StatusRevenda = "em_estoque" | "em_andamento" | "parcial" | "quitado";
 const ROTULO_STATUS_REVENDA: Record<StatusRevenda, string> = {
-  em_estoque: "Em estoque",
-  em_andamento: "Em andamento",
-  parcial: "Parcialmente liquidado",
-  quitado: "Quitado",
+  em_estoque: "Ainda não vendido",
+  em_andamento: "Vendido · aguardando pagamento",
+  parcial: "Vendido · recebendo (parte paga)",
+  quitado: "Vendido e pago",
 };
 
 /** Tipos com operação "à vista x parcelada" e histórico de quitadas (5.2). */
@@ -106,9 +107,12 @@ export default function InvestimentosPage() {
   // 5.12: "+" contextual por aba de tipo.
   const [tipoNovo, setTipoNovo] = React.useState<TipoInvestimento | null>(null);
   // 5.2: filtros das operações (empréstimo e compra e revenda).
-  const [abaOperacao, setAbaOperacao] = React.useState<"vista" | "parcelado">("vista");
-  const [periodoOperacao, setPeriodoOperacao] = React.useState<PeriodoMeses>(null);
-  const [verQuitadas, setVerQuitadas] = React.useState(false);
+  // 09/nov/2026: abas e "Quitadas" são POR TIPO (antes um estado só era
+  // compartilhado entre Empréstimo e Compra e revenda — clicar numa seção
+  // mexia na outra). O filtro de período de baixo saiu: ficou só o de cima
+  // (3/6/12 meses/Desde o início), que muda os números de verdade.
+  const [abaPorTipo, setAbaPorTipo] = React.useState<Partial<Record<Investimento["tipo"], "vista" | "parcelado">>>({});
+  const [quitadasPorTipo, setQuitadasPorTipo] = React.useState<Partial<Record<Investimento["tipo"], boolean>>>({});
   // 5.10: parcela aguardando a escolha da carteira de destino.
   const [parcelaParaReceber, setParcelaParaReceber] = React.useState<ParcelaInvestimento | null>(null);
 
@@ -171,7 +175,10 @@ export default function InvestimentosPage() {
     [grupos, filtroTipo]
   );
 
-  function calcularResumo(lista: Investimento[]) {
+  /** `listaRecebidos`: de onde vem o lucro/recebido do período. Nas
+   * operações o "Total investido" é só o que está em aberto, mas o lucro
+   * tem que contar também as já quitadas (antes ficavam de fora). */
+  function calcularResumo(lista: Investimento[], listaRecebidos: Investimento[] = lista) {
     let totalInvestido = 0;
     let totalAtual = 0;
     for (const inv of lista) {
@@ -185,12 +192,13 @@ export default function InvestimentosPage() {
     // Item 4.15 (09/out/2026): "Ganhos nos últimos X meses" = só entradas
     // reais (parcelas, juros, amortizações, recebimentos) dentro do período,
     // tanto "Por tipo" quanto no consolidado (a função recebe a lista).
-    const ganhoPeriodo = calcularRecebidoNoPeriodo(lista, parcelas, pagamentos, periodoMeses);
+    const recebidoPeriodo = calcularRecebidoNoPeriodo(listaRecebidos, parcelas, pagamentos, periodoMeses);
+    const ganhoPeriodo = calcularLucroRecebidoNoPeriodo(listaRecebidos, parcelas, pagamentos, periodoMeses);
     // "Total projetado": juros compostos pela taxa de cada ativo até daqui a
     // X meses (3/6/12). "Desde o início" projeta 12 meses.
     const mesesProjecao = periodoMeses ?? 12;
     const projetado = totalProjetado(lista, mesesProjecao, cotacoes);
-    return { totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo, ganhoEstimadoPeriodo, projetado, mesesProjecao };
+    return { rotuloInvestido: lista.length !== listaRecebidos.length ? "Total em aberto (ainda não voltou)" : "Total investido", totalInvestido, totalAtual, ganhoTotal, ganhoPeriodo, recebidoPeriodo, ganhoEstimadoPeriodo, projetado, mesesProjecao };
   }
 
   const resumoGeral = React.useMemo(() => calcularResumo(investimentos), [investimentos, periodoMeses, cotacoes, parcelas, pagamentos]);
@@ -202,7 +210,7 @@ export default function InvestimentosPage() {
     }));
   }, [investimentos, periodoMeses, cotacoes]);
 
-  const labelGanho = periodoMeses == null ? "Ganhos recebidos desde o início" : `Ganhos nos últimos ${periodoMeses} meses`;
+  const labelGanho = periodoMeses == null ? "Lucro recebido desde o início" : `Lucro recebido nos últimos ${periodoMeses} meses`;
 
   async function handleSalvarTaxa(inv: Investimento, novaTaxa: number) {
     setSalvandoAcao(true);
@@ -406,14 +414,15 @@ export default function InvestimentosPage() {
     return (
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="flex flex-col gap-2">
-          <p className="text-small text-muted">Total investido</p>
+          <p className="text-small text-muted">{resumo.rotuloInvestido}</p>
           <p className="text-h2 text-foreground">{formatarMoeda(resumo.totalInvestido)}</p>
         </Card>
         <Card className="flex flex-col gap-2">
           <p className="text-small text-muted">{labelGanho}</p>
           <p className="text-h2 text-primary-700">+{formatarMoeda(resumo.ganhoPeriodo)}</p>
           <p className="text-xs text-muted">
-            Juros, parcelas, amortizações e rendimentos que entraram. Rendimento estimado no período:{" "}
+            Entrou no total {formatarMoeda(resumo.recebidoPeriodo)} (inclui a volta do valor emprestado ou do custo do
+            produto) — o número acima é só o lucro. Rendimento estimado no período:{" "}
             {resumo.ganhoEstimadoPeriodo >= 0 ? "+" : ""}
             {formatarMoeda(resumo.ganhoEstimadoPeriodo)}
           </p>
@@ -471,22 +480,24 @@ export default function InvestimentosPage() {
 
   /** 5.2: aplica abas À vista/Parceladas, período e "Quitadas" nas
    * operações (empréstimo e compra e revenda). */
-  function filtrarOperacoes(itens: Investimento[]): Investimento[] {
-    return itens.filter(
-      (inv) =>
-        (inv.forma_pagamento ?? "vista") === abaOperacao &&
-        dentroDoPeriodo(inv.data_inicio, periodoOperacao) &&
-        estaQuitado(inv) === verQuitadas
-    );
+  function filtrarOperacoes(itens: Investimento[], aba: "vista" | "parcelado", quitadas: boolean): Investimento[] {
+    return itens.filter((inv) => (inv.forma_pagamento ?? "vista") === aba && estaQuitado(inv) === quitadas);
   }
 
   function renderGradeCartoes(itens: Investimento[]) {
     return (
       <div className="grid gap-4 sm:grid-cols-2">
         {itens.map((inv) => (
-          <div key={inv.id} className="flex flex-col gap-2">
-          {inv.tipo === "revenda" && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2">
+          // min-w-0: sem isso o item da grade não encolhe e o último card
+          // ficava cortado na borda da tela do celular (09/nov/2026).
+          <div key={inv.id} className="flex min-w-0 flex-col gap-2">
+          <VincularContaOrigem inv={inv} onAlterado={carregar} />
+          <InvestimentoCard
+            key={inv.id}
+            inv={inv}
+            blocoTopo={inv.tipo === "revenda" ? (
+            <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/5 px-3 py-2">
               <Badge variant={statusRevenda(inv) === "quitado" ? "primary" : statusRevenda(inv) === "parcial" ? "warning" : "neutral"} size="sm">
                 {ROTULO_STATUS_REVENDA[statusRevenda(inv)]}
                 {inv.status_revenda ? " (manual)" : ""}
@@ -508,19 +519,14 @@ export default function InvestimentosPage() {
                 </select>
               </label>
             </div>
-          )}
-          {inv.tipo === "revenda" && (
             <PainelRevenda
               inv={inv}
               parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
               pagamentos={pagamentosPorInvestimento.get(inv.id) ?? []}
               onAlterado={carregar}
             />
-          )}
-          <VincularContaOrigem inv={inv} onAlterado={carregar} />
-          <InvestimentoCard
-            key={inv.id}
-            inv={inv}
+            </div>
+            ) : undefined}
             parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
             pagamentos={pagamentosPorInvestimento.get(inv.id) ?? []}
             cotacoes={cotacoes}
@@ -666,8 +672,10 @@ export default function InvestimentosPage() {
               {gruposFiltrados.map(({ tipo, itens }) => {
                 const Icone = TIPO_META[tipo].icone;
                 const ehOperacao = TIPOS_OPERACAO.includes(tipo);
-                const visiveis = ehOperacao ? filtrarOperacoes(itens) : itens;
-                const resumo = calcularResumo(ehOperacao ? itens.filter((i) => !estaQuitado(i)) : itens);
+                const abaOperacao = abaPorTipo[tipo] ?? "vista";
+                const verQuitadas = quitadasPorTipo[tipo] ?? false;
+                const visiveis = ehOperacao ? filtrarOperacoes(itens, abaOperacao, verQuitadas) : itens;
+                const resumo = calcularResumo(ehOperacao ? itens.filter((i) => !estaQuitado(i)) : itens, itens);
                 const totalQuitadas = itens.filter((i) => estaQuitado(i)).length;
                 return (
                   <div key={tipo} className="flex flex-col gap-4">
@@ -698,15 +706,16 @@ export default function InvestimentosPage() {
                       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                         <AbasVistaParcelado
                           valor={abaOperacao}
-                          onChange={setAbaOperacao}
+                          onChange={(v) => setAbaPorTipo((m) => ({ ...m, [tipo]: v }))}
                           totalVista={itens.filter((i) => (i.forma_pagamento ?? "vista") === "vista" && estaQuitado(i) === verQuitadas).length}
                           totalParcelado={itens.filter((i) => i.forma_pagamento === "parcelado" && estaQuitado(i) === verQuitadas).length}
                         />
                         <FiltrosLista
-                          periodo={periodoOperacao}
-                          onPeriodo={setPeriodoOperacao}
+                          semPeriodo
+                          periodo={null}
+                          onPeriodo={() => {}}
                           quitadas={verQuitadas}
-                          onQuitadas={setVerQuitadas}
+                          onQuitadas={(v) => setQuitadasPorTipo((m) => ({ ...m, [tipo]: v }))}
                           totalQuitadas={totalQuitadas}
                         />
                       </div>
