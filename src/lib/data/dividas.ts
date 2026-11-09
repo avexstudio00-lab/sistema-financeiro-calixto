@@ -356,7 +356,7 @@ export async function registrarEntradaDaDivida(params: {
     categoria_id: (cat as { id: string } | null)?.id ?? null,
     tipo: "receita",
     valor: Number(params.valor.toFixed(2)),
-    descricao: `Empréstimo recebido: ${params.nome}`.slice(0, 120),
+    descricao: `Empréstimo pego (dívida): ${params.nome}`.slice(0, 120),
     data: params.data,
     forma_pagamento: "pix",
     tipo_negocio: "pessoal",

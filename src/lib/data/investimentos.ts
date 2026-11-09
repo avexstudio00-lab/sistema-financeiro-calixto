@@ -1085,10 +1085,20 @@ export function calcularRecebidoNoPeriodo(
   pagamentos: PagamentoInvestimento[],
   meses: number | null
 ): number {
-  const ids = new Set(investimentos.map((i) => i.id));
   const hojeIso = formatarDataIso(new Date());
-  const inicio = meses == null ? "0000-01-01" : adicionarMeses(hojeIso, -meses);
-  const dentro = (d: string | null) => !!d && d >= inicio && d <= hojeIso;
+  return calcularRecebidoEntre(investimentos, parcelas, pagamentos, meses == null ? "0000-01-01" : adicionarMeses(hojeIso, -meses), hojeIso);
+}
+
+/** Mesmo cálculo de `calcularRecebidoNoPeriodo`, entre duas datas (ISO, inclusivas). */
+export function calcularRecebidoEntre(
+  investimentos: Investimento[],
+  parcelas: ParcelaInvestimento[],
+  pagamentos: PagamentoInvestimento[],
+  inicio: string,
+  fim: string
+): number {
+  const ids = new Set(investimentos.map((i) => i.id));
+  const dentro = (d: string | null) => !!d && d >= inicio && d <= fim;
   const quitacoesAntecipadas = new Set(
     pagamentos
       .filter((p) => p.tipo === "quitacao" && !p.parcela_id && ids.has(p.investimento_id))
@@ -1107,6 +1117,66 @@ export function calcularRecebidoNoPeriodo(
     )
     .reduce((acc, p) => acc + Number(p.valor), 0);
   return Number((dePagamentos + deParcelas).toFixed(2));
+}
+
+/**
+ * Lucro de verdade dentro do que entrou no período (09/nov/2026). O
+ * "recebido" acima soma tudo que entrou, inclusive a DEVOLUÇÃO do dinheiro
+ * emprestado / do custo do produto — chamar isso de "ganho" inflava o
+ * número (emprestou 1.000, recebeu 1.300 → aparecia +1.300 em vez de +300).
+ * Aqui cada entrada conta só a parte que é lucro:
+ * - pagamento "só juros": 100% lucro;
+ * - parcela/quitação/recebimento: proporção (total combinado − custo) ÷
+ *   total combinado (empréstimo: valor com juros; revenda: preço de revenda).
+ */
+export function calcularLucroRecebidoNoPeriodo(
+  investimentos: Investimento[],
+  parcelas: ParcelaInvestimento[],
+  pagamentos: PagamentoInvestimento[],
+  meses: number | null
+): number {
+  const hojeIso = formatarDataIso(new Date());
+  return calcularLucroRecebidoEntre(investimentos, parcelas, pagamentos, meses == null ? "0000-01-01" : adicionarMeses(hojeIso, -meses), hojeIso);
+}
+
+/** Mesmo cálculo de `calcularLucroRecebidoNoPeriodo`, entre duas datas (ISO, inclusivas). */
+export function calcularLucroRecebidoEntre(
+  investimentos: Investimento[],
+  parcelas: ParcelaInvestimento[],
+  pagamentos: PagamentoInvestimento[],
+  inicio: string,
+  fim: string
+): number {
+  const porId = new Map(investimentos.map((i) => [i.id, i]));
+  const dentro = (d: string | null) => !!d && d >= inicio && d <= fim;
+  const fracaoLucro = new Map<string, number>();
+  for (const inv of investimentos) {
+    const custo = Number(inv.valor_investido) || 0;
+    const somaParcelas = parcelas.filter((p) => p.investimento_id === inv.id).reduce((a, p) => a + Number(p.valor), 0);
+    const total =
+      inv.tipo === "revenda"
+        ? Number(inv.preco_revenda ?? 0) || somaParcelas
+        : inv.tipo === "emprestimo"
+          ? Number(inv.valor_retornavel ?? 0) || somaParcelas
+          : 0;
+    fracaoLucro.set(inv.id, total > 0 ? Math.max(0, (total - custo) / total) : inv.tipo === "emprestimo" || inv.tipo === "revenda" ? 0 : 1);
+  }
+  const quitacoesAntecipadas = new Set(
+    pagamentos
+      .filter((p) => p.tipo === "quitacao" && !p.parcela_id && porId.has(p.investimento_id))
+      .map((p) => `${p.investimento_id}|${p.data_pagamento}`)
+  );
+  let lucro = 0;
+  for (const p of pagamentos) {
+    if (!porId.has(p.investimento_id) || !dentro(p.data_pagamento)) continue;
+    lucro += p.tipo === "juros" ? Number(p.valor_pago) : Number(p.valor_pago) * (fracaoLucro.get(p.investimento_id) ?? 0);
+  }
+  for (const p of parcelas) {
+    if (!porId.has(p.investimento_id) || !p.pago || !dentro(p.data_pagamento)) continue;
+    if (quitacoesAntecipadas.has(`${p.investimento_id}|${p.data_pagamento}`)) continue;
+    lucro += Number(p.valor) * (fracaoLucro.get(p.investimento_id) ?? 0);
+  }
+  return Number(lucro.toFixed(2));
 }
 
 export interface RentabilidadeCarteira {
