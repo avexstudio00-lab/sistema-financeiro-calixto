@@ -133,6 +133,7 @@ export function FormularioProduto({
             value={form.quantidade}
             onChange={(e) => setForm((f) => ({ ...f, quantidade: e.target.value }))}
             placeholder="0"
+            helperText="O que você já tem hoje (não lança gasto). Comprou mais? Use Estoque → + → Comprei."
           />
           <Input
             label="Avisar quando o estoque chegar em"
