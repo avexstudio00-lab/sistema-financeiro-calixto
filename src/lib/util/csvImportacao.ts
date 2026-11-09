@@ -73,19 +73,36 @@ const ASSINATURAS_BINARIAS: { nome: string; bytes: number[] }[] = [
 // Windows/Chrome costuma informar CSV como "application/vnd.ms-excel"; o
 // macOS às vezes manda vazio ou text/plain. Por isso a lista abaixo — o que
 // vale de verdade é a checagem do CONTEÚDO logo depois.
-const TIPOS_ACEITOS = new Set(["text/csv", "application/csv", "text/plain", "application/vnd.ms-excel", "text/comma-separated-values", ""]);
+const TIPOS_ACEITOS = new Set([
+  "text/csv",
+  "application/csv",
+  "text/plain",
+  "application/vnd.ms-excel",
+  "text/comma-separated-values",
+  "",
+  // 09/nov/2026: extrato OFX/QFX (formato que os bancos exportam pra programas de finanças).
+  "application/x-ofx",
+  "application/ofx",
+  "application/vnd.intu.qfx",
+  "application/x-qfx",
+  "text/ofx",
+  "application/octet-stream",
+]);
 
 /** Checagens rápidas antes de ler: extensão, tipo e tamanho. */
 export function validarArquivoAntesDeLer(arquivo: { name: string; size: number; type: string }) {
   const nome = arquivo.name.toLowerCase();
-  if (!nome.endsWith(".csv")) {
+  if (!nome.endsWith(".csv") && !nome.endsWith(".ofx") && !nome.endsWith(".qfx")) {
     if (/\.(xlsm|xltm|xlsx|xls|xlsb)$/.test(nome)) {
       throw new ErroArquivo("Planilhas do Excel não são aceitas. No Excel, use Arquivo → Salvar como → CSV e envie o .csv.");
     }
-    throw new ErroArquivo("Envie um arquivo .csv (texto separado por ponto e vírgula, vírgula ou tabulação).");
+    if (nome.endsWith(".pdf")) {
+      throw new ErroArquivo("PDF ainda não dá pra ler. No app ou site do banco, exporte o extrato em OFX (\"Money/Quicken\") ou CSV/Excel→CSV.");
+    }
+    throw new ErroArquivo("Envie o extrato em .ofx ou .csv (no app/site do banco: Extrato → Exportar).");
   }
   if (!TIPOS_ACEITOS.has(arquivo.type)) {
-    throw new ErroArquivo("O tipo do arquivo não parece ser CSV. Exporte de novo como .csv e tente outra vez.");
+    throw new ErroArquivo("O tipo do arquivo não parece ser um extrato (OFX ou CSV). Exporte de novo e tente outra vez.");
   }
   if (arquivo.size === 0) throw new ErroArquivo("O arquivo está vazio.");
   if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
