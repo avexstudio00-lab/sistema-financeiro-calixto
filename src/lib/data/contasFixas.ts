@@ -12,19 +12,26 @@ export interface NovaContaFixa {
   dia_vencimento: number;
   data_inicio: string;
   data_fim: string | null;
+  /** 09/nov/2026: "negocio" = conta fixa da empresa. Só é enviado quando é
+   * "negocio" (assim o fluxo pessoal funciona mesmo antes do SQL da coluna). */
+  tipo_negocio?: "pessoal" | "negocio";
+  empresa_id?: string | null;
 }
 
-export async function listarContasFixas(usuarioId: string): Promise<ContaFixa[]> {
+/** `mundo`: "pessoal" (padrão) traz só as pessoais; "negocio" só as da empresa. */
+export async function listarContasFixas(usuarioId: string, mundo: "pessoal" | "negocio" = "pessoal"): Promise<ContaFixa[]> {
   const { data } = await supabase
     .from("contas_fixas")
     .select("*, categorias(*), contas(*)")
     .eq("usuario_id", usuarioId)
     .order("dia_vencimento", { ascending: true });
-  return (data as ContaFixa[]) ?? [];
+  return ((data as ContaFixa[]) ?? []).filter((cf) => (cf.tipo_negocio ?? "pessoal") === mundo);
 }
 
 export async function criarContaFixa(dados: NovaContaFixa) {
-  return supabase.from("contas_fixas").insert(dados).select().single();
+  const { tipo_negocio, empresa_id, ...resto } = dados;
+  const linha = tipo_negocio === "negocio" ? { ...resto, tipo_negocio, empresa_id: empresa_id ?? null } : resto;
+  return supabase.from("contas_fixas").insert(linha).select().single();
 }
 
 export async function atualizarContaFixa(id: string, dados: Partial<NovaContaFixa>) {
@@ -115,7 +122,9 @@ export async function gerarLancamentosPendentes(usuarioId: string): Promise<numb
       descricao: cf.descricao,
       data: dataLancamento,
       forma_pagamento: null,
-      tipo_negocio: "pessoal",
+      // 09/nov/2026: conta fixa da empresa gera lançamento da empresa.
+      tipo_negocio: cf.tipo_negocio === "negocio" ? "negocio" : "pessoal",
+      ...(cf.tipo_negocio === "negocio" && cf.empresa_id ? { empresa_id: cf.empresa_id } : {}),
       is_recorrente: true,
       recorrencia: "mensal",
       conta_fixa_id: cf.id,
