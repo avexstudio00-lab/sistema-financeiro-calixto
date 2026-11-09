@@ -59,11 +59,51 @@ export async function criarContaPagarParcelada(conta: NovaContaPagar, numeroParc
   return supabase.from("contas_pagar").insert(linhas).select();
 }
 
-export async function marcarContaPagarPaga(id: string, pago: boolean) {
+async function idCategoriaGlobal(nome: string, tipo: "receita" | "despesa"): Promise<string | null> {
+  const { data } = await supabase.from("categorias").select("id").is("usuario_id", null).eq("nome", nome).eq("tipo", tipo).maybeSingle();
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+/**
+ * Marca uma conta a pagar (fornecedor, DAS, outra) como paga — ou desfaz.
+ * 09/nov/2026: antes só trocava o status, então o dinheiro não saía de
+ * carteira nenhuma e o pagamento NUNCA aparecia no fluxo de caixa/lucro
+ * (que só leem lançamentos). Agora, ao pagar, gera o lançamento de saída
+ * da empresa na carteira escolhida (`contaBancariaId`; `null` = sem
+ * carteira específica). `lancar = false` = "paguei por fora / já lancei",
+ * só muda o status. Desmarcar apaga o lançamento ligado (estorna o saldo).
+ */
+export async function marcarContaPagarPaga(
+  conta: ContaPagar,
+  pago: boolean,
+  opcoes: { contaBancariaId?: string | null; lancar?: boolean; data?: string } = {}
+) {
+  const data = opcoes.data ?? new Date().toISOString().slice(0, 10);
+  let transacaoId: string | null = conta.transacao_id ?? null;
+  if (pago && !transacaoId && opcoes.lancar !== false) {
+    const { data: t } = await criarTransacao({
+      usuario_id: conta.usuario_id,
+      conta_id: opcoes.contaBancariaId ?? null,
+      categoria_id: await idCategoriaGlobal(conta.categoria === "das" ? "Impostos" : "Outras despesas", "despesa"),
+      tipo: "despesa",
+      valor: Number(conta.valor),
+      descricao: `Pago: ${conta.descricao}`.slice(0, 120),
+      data,
+      forma_pagamento: "pix",
+      tipo_negocio: "negocio",
+      empresa_id: conta.empresa_id ?? null,
+    });
+    transacaoId = (t as { id: string } | null)?.id ?? null;
+  }
+  if (!pago && transacaoId) {
+    const { data: t } = await supabase.from("transacoes").select("*").eq("id", transacaoId).maybeSingle();
+    if (t) await deletarTransacao(t as Transacao);
+    transacaoId = null;
+  }
   return supabase
     .from("contas_pagar")
-    .update({ status: pago ? "pago" : "pendente", data_pagamento: pago ? new Date().toISOString().slice(0, 10) : null })
-    .eq("id", id);
+    .update({ status: pago ? "pago" : "pendente", data_pagamento: pago ? data : null, transacao_id: transacaoId })
+    .eq("id", conta.id);
 }
 
 /** Edição isolada de um título/parcela (item 5.1): valor, vencimento e
@@ -228,9 +268,17 @@ async function idCategoriaVendas(): Promise<string | null> {
  * geramos a entrada correspondente no fluxo de caixa do negócio (e, ao
  * desfazer, apagamos essa entrada). Títulos manuais continuam como sempre
  * (só mudam de status). */
-export async function marcarContaReceberRecebida(conta: ContaReceber, recebido: boolean, contaBancariaId: string | null = null) {
-  const hoje = new Date().toISOString().slice(0, 10);
-  const geraEntrada = conta.origem === "fiado" || conta.origem === "orcamento";
+export async function marcarContaReceberRecebida(
+  conta: ContaReceber,
+  recebido: boolean,
+  contaBancariaId: string | null = null,
+  lancar = true,
+  dataRecebimento?: string
+) {
+  const hoje = dataRecebimento ?? new Date().toISOString().slice(0, 10);
+  // 09/nov/2026: conta a receber criada à mão também entra no caixa ao ser
+  // recebida (antes só fiado/orçamento). `lancar = false` = "já lancei".
+  const geraEntrada = lancar;
   let transacaoId: string | null = conta.transacao_id ?? null;
 
   if (geraEntrada && recebido && !transacaoId) {

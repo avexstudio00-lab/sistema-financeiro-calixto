@@ -3,6 +3,8 @@ import { segredoConfere, valorBearer } from "@/lib/seguranca/compararSegredo";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { subtrairDiasUteis } from "@/lib/util/diasUteis";
 import { enviarPushParaUsuario, marcarAvisoSeNovo, aplicarPrivacidade, TEXTO_PRIVADO, type PayloadPush } from "@/lib/push/enviarPush";
+import { frequenciaRelatorio, periodoDoPushDeHoje } from "@/lib/relatorio/periodo";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +50,41 @@ function ultimoDiaDoMes(ano: number, mes: number): number {
   return new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
 }
 
+async function enviarPushRelatorio(admin: SupabaseClient, usuarioId: string, agoraBr: Date): Promise<number> {
+  const { data: perfil } = await admin.from("usuarios").select("plano").eq("id", usuarioId).maybeSingle();
+  const frequencia = frequenciaRelatorio((perfil as { plano?: string } | null)?.plano);
+  const periodo = periodoDoPushDeHoje(
+    { ano: agoraBr.getUTCFullYear(), mes: agoraBr.getUTCMonth() + 1, dia: agoraBr.getUTCDate() },
+    frequencia
+  );
+  if (!periodo) return 0;
+  if (!(await marcarAvisoSeNovo(admin, usuarioId, "relatorio", periodo.chave))) return 0;
+  // Uma frase de resumo (Minha vida): entrou x saiu, sem transferências.
+  const { data: movs } = await admin
+    .from("transacoes")
+    .select("tipo, valor, transferencia_id, tipo_negocio")
+    .eq("usuario_id", usuarioId)
+    .gte("data", periodo.inicio)
+    .lte("data", periodo.fim)
+    .limit(5000);
+  const pessoais = ((movs ?? []) as { tipo: string; valor: number; transferencia_id: string | null; tipo_negocio: string | null }[]).filter(
+    (t) => !t.transferencia_id && t.tipo_negocio !== "negocio"
+  );
+  const entrou = pessoais.filter((t) => t.tipo === "receita").reduce((a, t) => a + Number(t.valor), 0);
+  const saiu = pessoais.filter((t) => t.tipo === "despesa").reduce((a, t) => a + Number(t.valor), 0);
+  const corpo =
+    entrou + saiu > 0
+      ? `Entrou ${moeda(entrou)} e saiu ${moeda(saiu)}. Toque pra ver onde dá pra melhorar e quanto seus investimentos renderam.`
+      : "Veja o resumo do período, seus investimentos e as dicas do mês.";
+  const payload = await aplicarPrivacidade(admin, usuarioId, {
+    titulo: `Seu relatório de ${periodo.rotulo} está pronto`,
+    corpo,
+    url: `/dashboard/meu-relatorio?p=${periodo.chave}`,
+    tag: `relatorio-${periodo.chave}`,
+  });
+  return (await enviarPushParaUsuario(admin, usuarioId, payload)) > 0 ? 1 : 0;
+}
+
 export async function GET(request: Request) {
   const segredo = process.env.CRON_SECRET;
   // Item 10 (apuração 10/out/2026): comparação em tempo constante.
@@ -77,6 +114,11 @@ export async function GET(request: Request) {
 
   for (const usuarioId of usuarios) {
     try {
+      // "Seu relatório está pronto" (09/nov/2026): dia 1 (mês que fechou) a
+      // partir do Completo; dia 16 (1ª quinzena) a partir do Avançado. Sai
+      // separado dos avisos de vencimento, com dedupe próprio.
+      notificacoesEnviadas += await enviarPushRelatorio(admin, usuarioId, agoraBr);
+
       const [pagar, receber, fixas, dividas, parcelasDiv, parcelasInv, emprestimosVista, orcamentos, limites, despesasMes, categorias] =
         await Promise.all([
           admin.from("contas_pagar").select("id, descricao, valor, vencimento").eq("usuario_id", usuarioId).eq("status", "pendente").in("vencimento", datas),

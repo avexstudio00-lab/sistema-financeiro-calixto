@@ -18,7 +18,7 @@ export interface ParcelasDividaProps {
    * mas a lista de parcelas continua aparecendo normalmente. */
   podeRegistrarPagamento: boolean;
   salvando: boolean;
-  onRegistrarPagamento: (parcela: ParcelaDividaComStatus, contaId: string | null) => void | Promise<void>;
+  onRegistrarPagamento: (parcela: ParcelaDividaComStatus, contaId: string | null, data?: string) => void | Promise<void>;
   /** Item 5.1: editar valor, vencimento e status de UMA parcela. */
   onEditarParcela?: (
     parcela: ParcelaDividaComStatus,
@@ -62,6 +62,10 @@ export function ParcelasDivida({
   const [statusEdicao, setStatusEdicao] = React.useState<StatusParcelaDividaManual>("automatico");
   const [confirmandoExclusao, setConfirmandoExclusao] = React.useState(false);
   const [erroEdicao, setErroEdicao] = React.useState<string | null>(null);
+  // 09/nov/2026: marcar "Pago" na edição também pergunta de qual carteira
+  // saiu ("fora" = pago por fora, sem mexer em saldo).
+  const [contaEdicao, setContaEdicao] = React.useState<string>("fora");
+  const [dataPagamento, setDataPagamento] = React.useState(() => new Date().toISOString().slice(0, 10));
 
   function abrirEdicao(p: ParcelaDividaComStatus) {
     setPagandoId(null);
@@ -71,6 +75,7 @@ export function ParcelasDivida({
     setStatusEdicao(p.status_manual ?? "automatico");
     setConfirmandoExclusao(false);
     setErroEdicao(null);
+    setContaEdicao(contas[0]?.id ?? "fora");
   }
 
   async function salvarEdicao(p: ParcelaDividaComStatus) {
@@ -83,7 +88,11 @@ export function ParcelasDivida({
       setErroEdicao("Escolha o vencimento.");
       return;
     }
-    await onEditarParcela?.(p, { valor, dataVencimento: dataEdicao, status: statusEdicao });
+    const pagandoDeCarteira = statusEdicao === "pago" && !p.paga && contaEdicao !== "fora";
+    await onEditarParcela?.(p, { valor, dataVencimento: dataEdicao, status: pagandoDeCarteira ? "automatico" : statusEdicao });
+    // Pago de uma carteira: vira lançamento de saída de verdade (a parcela
+    // fica paga sozinha pelo valor pago, igual "Registrar pagamento").
+    if (pagandoDeCarteira) await onRegistrarPagamento({ ...p, valor }, contaEdicao, dataPagamento);
     setEditandoId(null);
   }
   const [expandido, setExpandido] = React.useState(false);
@@ -102,7 +111,7 @@ export function ParcelasDivida({
   }
 
   async function confirmarPagamento(parcela: ParcelaDividaComStatus) {
-    await onRegistrarPagamento(parcela, contaSelecionadaId || null);
+    await onRegistrarPagamento(parcela, contaSelecionadaId || null, dataPagamento);
     setPagandoId(null);
   }
 
@@ -224,11 +233,27 @@ export function ParcelasDivida({
                           </option>
                         ))}
                       </select>
-                      <span className="text-xs text-muted">
-                        &quot;Pago&quot; marca como paga sem lançar nada no extrato (use para o que foi pago por fora). Para tirar o dinheiro de uma carteira, use
-                        &quot;Registrar pagamento&quot;.
-                      </span>
                     </label>
+                    {statusEdicao === "pago" && !parcela.paga && (
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-foreground">De qual carteira saiu?</span>
+                        <select
+                          value={contaEdicao}
+                          onChange={(e) => setContaEdicao(e.target.value)}
+                          className="h-9 rounded-lg border border-border bg-card px-2 text-xs text-foreground"
+                        >
+                          {contas.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.nome}
+                            </option>
+                          ))}
+                          <option value="fora">Paguei por fora (não tirar de carteira nenhuma)</option>
+                        </select>
+                        {contaEdicao !== "fora" && (
+                          <DateMaskInput label="Data do pagamento" value={dataPagamento} onChange={setDataPagamento} />
+                        )}
+                      </label>
+                    )}
                     {erroEdicao && <p className="text-xs text-rose-700">{erroEdicao}</p>}
                     <div className="flex items-center gap-2">
                       <button
@@ -288,7 +313,7 @@ export function ParcelasDivida({
                   <div className="flex flex-col gap-2 rounded-lg bg-white p-2.5 ring-1 ring-inset ring-border">
                     {contas.length > 0 ? (
                       <div className="flex flex-col gap-1">
-                        <span className="text-xs font-medium text-foreground">De qual conta saiu?</span>
+                        <span className="text-xs font-medium text-foreground">De qual carteira saiu?</span>
                         <select
                           value={contaSelecionadaId}
                           onChange={(e) => setContaSelecionadaId(e.target.value)}
@@ -300,6 +325,7 @@ export function ParcelasDivida({
                             </option>
                           ))}
                         </select>
+                        <DateMaskInput label="Data do pagamento" value={dataPagamento} onChange={setDataPagamento} />
                       </div>
                     ) : (
                       <p className="text-xs text-muted">

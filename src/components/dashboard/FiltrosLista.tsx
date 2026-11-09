@@ -32,6 +32,9 @@ interface Props {
   /** Rótulo do botão de histórico (padrão "Quitadas"). */
   rotuloQuitadas?: string;
   totalQuitadas?: number;
+  /** Esconde os botões de período (quando a tela já tem um filtro de
+   * período próprio no topo — evita dois filtros iguais). */
+  semPeriodo?: boolean;
 }
 
 /**
@@ -40,9 +43,10 @@ interface Props {
  * Por padrão a lista mostra só o que está em aberto; com "Quitadas" ligado,
  * mostra só o histórico já liquidado (pra auditar, reabrir ou corrigir).
  */
-export function FiltrosLista({ periodo, onPeriodo, quitadas, onQuitadas, rotuloQuitadas = "Quitadas", totalQuitadas }: Props) {
+export function FiltrosLista({ periodo, onPeriodo, quitadas, onQuitadas, rotuloQuitadas = "Quitadas", totalQuitadas, semPeriodo = false }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {!semPeriodo && (
       <div className="flex flex-wrap gap-1 rounded-full bg-muted/10 p-1">
         {OPCOES_PERIODO.map((o) => (
           <button
@@ -58,6 +62,7 @@ export function FiltrosLista({ periodo, onPeriodo, quitadas, onQuitadas, rotuloQ
           </button>
         ))}
       </div>
+      )}
       <button
         type="button"
         aria-pressed={quitadas}

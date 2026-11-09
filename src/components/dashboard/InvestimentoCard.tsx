@@ -116,6 +116,11 @@ export interface InvestimentoCardProps {
   /** Recarrega a tela depois de editar/excluir um evento do histórico de
    * pagamentos (item 4.5, 03/out/2026). */
   onPagamentosAlterados?: () => void | Promise<void>;
+  /** Bloco extra logo abaixo do cabeçalho (nome/modelo). Na compra e
+   * revenda é o painel de preço de custo/revenda/recebimentos (09/nov/2026:
+   * o modelo do produto aparece primeiro, os números depois). Quando
+   * presente, a grade genérica de números é omitida pra não repetir. */
+  blocoTopo?: React.ReactNode;
 }
 
 export function InvestimentoCard({
@@ -136,6 +141,7 @@ export function InvestimentoCard({
   onRegistrarQuitacaoAntecipada,
   onRegistrarJurosParcela,
   onPagamentosAlterados,
+  blocoTopo,
 }: InvestimentoCardProps) {
   const [editandoTaxa, setEditandoTaxa] = React.useState(false);
   const [taxaEmEdicao, setTaxaEmEdicao] = React.useState("");
@@ -260,6 +266,9 @@ export function InvestimentoCard({
           ficavam na mesma linha e eram cortados. Agora cada coluna tem
           min-w-0, o valor quebra linha e o percentual fica embaixo. Em
           telas bem estreitas a grade cai para 2 colunas. */}
+      {blocoTopo}
+
+      {!blocoTopo && (
       <div
         className={
           emprestimoNovoEstilo
@@ -298,6 +307,7 @@ export function InvestimentoCard({
           </div>
         )}
       </div>
+      )}
 
       {inv.tipo === "emprestimo" && inv.quitado && (
         <div className="flex items-center gap-1.5 text-xs font-medium text-primary-600">

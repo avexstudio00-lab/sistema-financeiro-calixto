@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BarChart3,
   LayoutDashboard,
   Sparkles,
   PiggyBank,
@@ -72,6 +73,7 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard", label: "Painel", icon: LayoutDashboard },
   { href: "/dashboard/extrato", label: "Extrato", icon: ScrollText },
   { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
+  { href: "/dashboard/meu-relatorio", label: "Meu relatório", icon: BarChart3 },
   { href: "/dashboard/relatorio", label: "Relatório PDF", icon: FileDown },
   { href: "/dashboard/investimentos", label: "Investimentos", icon: TrendingUp },
   { href: "/dashboard/metas", label: "Metas", icon: PiggyBank },
@@ -93,6 +95,7 @@ const LINK_EQUIPE: LinkNav = { href: "/dashboard/equipe", label: "Minha equipe",
 // pode ver/mexer em estoque e vendas (o RLS já bloqueia essas telas por
 // trás, isso aqui só evita mostrar um link que vai dar em tela vazia).
 const LINKS_EMPRESA_FINANCEIRO = new Set([
+  "/dashboard/empresa/relatorio",
   "/dashboard/empresa/contas",
   "/dashboard/empresa/das",
   "/dashboard/empresa/fluxo-caixa",
@@ -130,6 +133,7 @@ const LINKS_EMPRESA: LinkNav[] = [
   { href: "/dashboard/empresa/notas-fiscais", label: "Notas fiscais", icon: FileSpreadsheet },
   { href: "/dashboard/empresa/das", label: "DAS / Impostos", icon: FileText },
   { href: "/dashboard/empresa/fluxo-caixa", label: "Fluxo de caixa", icon: ArrowLeftRight },
+  { href: "/dashboard/empresa/relatorio", label: "Relatório", icon: BarChart3 },
   { href: "/dashboard/empresa/configuracoes", label: "Minhas empresas", icon: Settings2 },
 ];
 

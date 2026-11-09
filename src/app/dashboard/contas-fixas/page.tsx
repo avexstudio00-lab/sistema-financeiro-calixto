@@ -269,6 +269,11 @@ export default function ContasFixasPage() {
                   </option>
                 ))}
               </select>
+              {!form.contaId && (
+                <span className="text-xs text-amber-700 dark:text-amber-300">
+                  Recomendado escolher: sem carteira, o lançamento automático não tira (nem coloca) dinheiro de nenhum saldo.
+                </span>
+              )}
             </div>
             <Input
               label="Dia do vencimento"

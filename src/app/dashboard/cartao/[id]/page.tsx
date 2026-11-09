@@ -9,7 +9,9 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarContas } from "@/lib/data/contas";
-import { listarTransacoes } from "@/lib/data/transacoes";
+import { listarTransacoes, criarTransferencia } from "@/lib/data/transacoes";
+import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
+import { Button } from "@/components/ui/Button";
 import { agruparPorFatura } from "@/lib/data/faturaCartao";
 import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
 import { formatarMoeda } from "@/lib/format";
@@ -68,12 +70,54 @@ export default function FaturaCartaoPage() {
   const cartaoConfigurado =
     !!conta && conta.tipo === "cartao_credito" && !!conta.dia_fechamento && !!conta.dia_vencimento;
 
+  // 09/nov/2026: pagamentos da fatura (transferência que ENTRA no cartão)
+  // ficam fora do total de cada ciclo e são abatidos das faturas mais
+  // antigas primeiro — assim pagar a fatura de outubro no dia 10/nov não
+  // "diminui" a fatura de novembro, e cada ciclo mostra se já foi paga.
+  const pagamentosFatura = React.useMemo(
+    () => transacoes.filter((t) => t.tipo === "receita" && !!t.transferencia_id),
+    [transacoes]
+  );
   const grupos = React.useMemo(() => {
     if (!cartaoConfigurado || !conta) return [];
     // O `if` acima já garante os dois campos preenchidos -- `as number`
     // só documenta isso pro TypeScript, sem mudar nenhum valor.
-    return agruparPorFatura(transacoes, conta.dia_fechamento as number, conta.dia_vencimento as number);
-  }, [transacoes, conta, cartaoConfigurado]);
+    const semPagamentos = transacoes.filter((t) => !(t.tipo === "receita" && !!t.transferencia_id));
+    const lista = agruparPorFatura(semPagamentos, conta.dia_fechamento as number, conta.dia_vencimento as number);
+    let saldoPago = pagamentosFatura.reduce((a, t) => a + Number(t.valor), 0);
+    const comPago = [...lista].reverse().map((g) => {
+      const devido = Math.max(0, g.total);
+      const pago = Math.min(devido, saldoPago);
+      saldoPago -= pago;
+      return { ...g, falta: Number((devido - pago).toFixed(2)) };
+    });
+    return comPago.reverse();
+  }, [transacoes, conta, cartaoConfigurado, pagamentosFatura]);
+
+  const [pagandoFatura, setPagandoFatura] = React.useState<{ rotulo: string; valor: number } | null>(null);
+  const [salvandoPagamento, setSalvandoPagamento] = React.useState(false);
+  const [erroPagamento, setErroPagamento] = React.useState<string | null>(null);
+
+  async function confirmarPagamentoFatura(origemId: string, data: string) {
+    if (!user || !conta || !pagandoFatura) return;
+    setSalvandoPagamento(true);
+    const { error } = await criarTransferencia({
+      usuarioId: user.id,
+      contaOrigemId: origemId,
+      contaDestinoId: conta.id,
+      valor: pagandoFatura.valor,
+      data,
+      descricao: `Pagamento da fatura ${pagandoFatura.rotulo} — ${conta.nome}`.slice(0, 120),
+    });
+    setSalvandoPagamento(false);
+    if (error) {
+      setErroPagamento((error as { message?: string }).message ?? "Não foi possível pagar a fatura.");
+      return;
+    }
+    setErroPagamento(null);
+    setPagandoFatura(null);
+    carregar();
+  }
 
   const modal = (
     <NovaTransacaoModal
@@ -180,6 +224,22 @@ export default function FaturaCartaoPage() {
                   {formatarMoeda(grupo.total)}
                 </span>
               </div>
+              {grupo.total > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {grupo.falta <= 0 ? (
+                    <Badge variant="primary" size="sm">Fatura paga</Badge>
+                  ) : (
+                    <>
+                      <span className="text-small text-muted">
+                        {grupo.falta < grupo.total ? `Falta pagar ${formatarMoeda(grupo.falta)}` : "Ainda não paga"}
+                      </span>
+                      <Button size="sm" variant="secondary" onClick={() => setPagandoFatura({ rotulo: grupo.ciclo.rotulo, valor: grupo.falta })}>
+                        Pagar fatura
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
               <div className="flex flex-col gap-2">
                 {grupo.transacoes.map((t) => (
                   <Card
@@ -218,6 +278,34 @@ export default function FaturaCartaoPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {pagamentosFatura.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h2 className="text-body font-semibold text-foreground">Pagamentos de fatura</h2>
+          {pagamentosFatura.map((t) => (
+            <Card key={t.id} padding="sm" className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-body font-medium text-foreground">{t.descricao}</p>
+                <p className="text-xs text-muted">{new Date(t.data + "T00:00:00").toLocaleDateString("pt-BR")}</p>
+              </div>
+              <p className="shrink-0 text-body font-semibold text-primary-600">{formatarMoeda(Number(t.valor))}</p>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {pagandoFatura && (
+        <EscolherCarteiraDialog
+          titulo={`Pagar fatura ${pagandoFatura.rotulo}`}
+          descricao={`${formatarMoeda(pagandoFatura.valor)} — o dinheiro sai da carteira escolhida e entra no cartão (não conta como gasto de novo: os gastos já estão nas compras do cartão).${erroPagamento ? ` Erro: ${erroPagamento}` : ""}`}
+          rotulo="De qual carteira saiu?"
+          textoBotao="Confirmar pagamento"
+          comData
+          salvando={salvandoPagamento}
+          onFechar={() => setPagandoFatura(null)}
+          onConfirmar={confirmarPagamentoFatura}
+        />
       )}
 
       {modal}

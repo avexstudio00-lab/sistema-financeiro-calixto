@@ -75,7 +75,9 @@ export default function DividasPage() {
   const [dataPrimeiraParcela, setDataPrimeiraParcela] = React.useState("");
   const [valorEmprestado, setValorEmprestado] = React.useState("");
   // Item 6.7: em qual carteira entrou o dinheiro (ou "dívida antiga").
-  const [contaEntradaId, setContaEntradaId] = React.useState("");
+  // 09/nov/2026: o padrão é NÃO mexer em saldo (anotar uma dívida não é
+  // dinheiro entrando). Só quem pegou dinheiro emprestado escolhe a carteira.
+  const [contaEntradaId, setContaEntradaId] = React.useState("antiga");
   const [valorEntrada, setValorEntrada] = React.useState("");
   const [dataEntrada, setDataEntrada] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [salvando, setSalvando] = React.useState(false);
@@ -163,14 +165,14 @@ export default function DividasPage() {
     }
 
     if (!contaEntradaId) {
-      setErro("Diga em qual carteira o dinheiro entrou (ou marque que é uma dívida antiga).");
+      setErro("Diga se entrou dinheiro em alguma carteira (ou escolha que é só pra anotar).");
       return;
     }
     const valorRecebido = valorEntrada.trim()
       ? Number(valorEntrada.trim().replace(/\./g, "").replace(",", "."))
       : parcelamento?.valorEmprestado ?? valor;
     if (contaEntradaId !== "antiga" && (!Number.isFinite(valorRecebido) || valorRecebido <= 0)) {
-      setErro("Valor recebido inválido.");
+      setErro("Valor que entrou na carteira inválido.");
       return;
     }
 
@@ -189,7 +191,7 @@ export default function DividasPage() {
       if (r.error) setErro(`Dívida criada, mas ${r.error.message.toLowerCase()}`);
     }
     setSalvando(false);
-    setContaEntradaId("");
+    setContaEntradaId("antiga");
     setValorEntrada("");
     setNome("");
     setValorTotal("");
@@ -230,7 +232,8 @@ export default function DividasPage() {
   async function handleRegistrarPagamento(
     divida: DividaComProgresso,
     parcela: ParcelaDividaComStatus,
-    contaId: string | null
+    contaId: string | null,
+    data?: string
   ) {
     if (!user || !categoriaDividaId) return;
     setRegistrandoPagamento(true);
@@ -242,6 +245,7 @@ export default function DividasPage() {
       totalParcelas: (parcelasPorDivida.get(divida.id) ?? []).length,
       contaId,
       categoriaId: categoriaDividaId,
+      data,
     });
     setRegistrandoPagamento(false);
     carregar();
@@ -375,23 +379,27 @@ export default function DividasPage() {
 
             <div className="flex flex-col gap-2 rounded-xl bg-muted/5 p-3">
               <label htmlFor="conta-entrada-divida" className="text-small font-medium text-foreground">
-                Em qual carteira o dinheiro entrou?
+                Essa dívida colocou dinheiro em alguma carteira?
               </label>
+              <span className="text-xs text-muted">
+                Ex.: pegou dinheiro emprestado e caiu na conta. Se é uma compra parcelada, conta atrasada ou algo que você
+                só quer anotar, deixe a primeira opção — o saldo não muda. Os pagamentos de cada parcela perguntam de qual
+                carteira o dinheiro saiu.
+              </span>
               <select
                 id="conta-entrada-divida"
                 value={contaEntradaId}
                 onChange={(e) => setContaEntradaId(e.target.value)}
                 className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
               >
-                <option value="">Escolha...</option>
+                <option value="antiga">Não — só quero anotar o que devo (não mexe no saldo)</option>
                 {contas
                   .filter((c) => c.tipo !== "cartao_credito")
                   .map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.nome} — saldo {formatarMoeda(Number(c.saldo_atual))}
+                      Sim, peguei emprestado e entrou em: {c.nome}
                     </option>
                   ))}
-                <option value="antiga">Dívida antiga / o dinheiro já está no saldo (não lançar)</option>
               </select>
               {contaEntradaId && contaEntradaId !== "antiga" && (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -408,7 +416,9 @@ export default function DividasPage() {
                   <DateMaskInput label="Data" value={dataEntrada} onChange={setDataEntrada} />
                 </div>
               )}
-              <span className="text-xs text-muted">Gera um lançamento de entrada (&quot;Empréstimo recebido&quot;) no extrato dessa carteira.</span>
+              {contaEntradaId && contaEntradaId !== "antiga" && (
+                <span className="text-xs text-muted">Lança a entrada &quot;Empréstimo pego&quot; no extrato dessa carteira (não conta como renda).</span>
+              )}
             </div>
 
             <Button type="submit" disabled={salvando} className="sm:w-auto sm:self-start">
@@ -546,7 +556,7 @@ export default function DividasPage() {
                         contas={contas}
                         podeRegistrarPagamento={!!categoriaDividaId}
                         salvando={registrandoPagamento}
-                        onRegistrarPagamento={(parcela, contaId) => handleRegistrarPagamento(divida, parcela, contaId)}
+                        onRegistrarPagamento={(parcela, contaId, data) => handleRegistrarPagamento(divida, parcela, contaId, data)}
                         onEditarParcela={async (parcela, dados) => {
                           await editarParcelaDivida(parcela, dados);
                           await carregar();

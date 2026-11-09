@@ -19,7 +19,9 @@ import {
 } from "@/lib/data/contasEmpresa";
 import { gerarResumoEmpresa, faturamentoAnualPorMes, calcularReservaSugerida } from "@/lib/data/empresa";
 import { formatarMoeda } from "@/lib/format";
-import type { ContaPagar } from "@/lib/data/tipos";
+import type { Conta, ContaPagar } from "@/lib/data/tipos";
+import { listarContas } from "@/lib/data/contas";
+import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
 
 /** Limite de receita bruta anual do MEI usado no acompanhamento da DASN.
  * Fica numa constante para atualizar fácil se a lei mudar. */
@@ -107,10 +109,32 @@ export default function DasPage() {
     carregar();
   }
 
-  async function handleMarcarPaga(id: string, pago: boolean) {
+  // 09/nov/2026: pagar a guia pergunta de qual carteira saiu e lança a
+  // saída "Impostos" da empresa (antes só mudava o status e o imposto não
+  // aparecia no fluxo de caixa nem tirava dinheiro de lugar nenhum).
+  const [pagandoGuia, setPagandoGuia] = React.useState<ContaPagar | null>(null);
+  const [carteiras, setCarteiras] = React.useState<Conta[]>([]);
+  React.useEffect(() => {
+    if (negocio) listarContas(negocio.usuarioId).then(setCarteiras);
+  }, [negocio]);
+
+  async function handleMarcarPaga(guia: ContaPagar, pago: boolean) {
+    if (pago) {
+      setPagandoGuia(guia);
+      return;
+    }
     setSalvando(true);
-    await marcarContaPagarPaga(id, pago);
+    await marcarContaPagarPaga(guia, false);
     setSalvando(false);
+    carregar();
+  }
+
+  async function confirmarPagamentoGuia(contaId: string, data: string) {
+    if (!pagandoGuia) return;
+    setSalvando(true);
+    await marcarContaPagarPaga(pagandoGuia, true, { contaBancariaId: contaId === "fora" ? null : contaId, lancar: contaId !== "fora", data });
+    setSalvando(false);
+    setPagandoGuia(null);
     carregar();
   }
 
@@ -235,7 +259,7 @@ export default function DasPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="text-body font-semibold text-foreground">{formatarMoeda(Number(g.valor))}</p>
-                    <Button size="sm" variant={pago ? "tertiary" : "secondary"} disabled={salvando} onClick={() => handleMarcarPaga(g.id, !pago)}>
+                    <Button size="sm" variant={pago ? "tertiary" : "secondary"} disabled={salvando} onClick={() => handleMarcarPaga(g, !pago)}>
                       {pago ? "Desfazer" : "Marcar paga"}
                     </Button>
                     {confirmandoExclusaoId === g.id ? (
@@ -314,6 +338,21 @@ export default function DasPage() {
           ))}
         </div>
       </Card>
+    {pagandoGuia && (
+        <EscolherCarteiraDialog
+          titulo="Pagar guia"
+          descricao={`${formatarMoeda(Number(pagandoGuia.valor))} · ${pagandoGuia.descricao}`}
+          rotulo="De qual carteira saiu?"
+          ajuda="Entra como saída da empresa na categoria Impostos (aparece no fluxo de caixa)."
+          textoBotao="Confirmar pagamento"
+          opcaoFora="Paguei por fora ou já lancei (não lançar)"
+          comData
+          contas={carteiras}
+          salvando={salvando}
+          onFechar={() => setPagandoGuia(null)}
+          onConfirmar={confirmarPagamentoGuia}
+        />
+      )}
     </Container>
   );
 }

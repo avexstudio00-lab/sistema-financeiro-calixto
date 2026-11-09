@@ -28,7 +28,7 @@ export function textoLucroRevenda(l: LucroRevenda): string {
   const valor = Math.abs(l.lucro).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   if (l.margem == null) return l.lucro >= 0 ? `Lucro de ${valor} (sem custo de entrada)` : `Prejuízo de ${valor}`;
   const pct = l.margem.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
-  return l.lucro >= 0 ? `Lucro de ${pct}% (${valor})` : `Prejuízo de ${pct.replace("-", "")}% (${valor})`;
+  return l.lucro >= 0 ? `Lucro de ${pct}% sobre o custo (${valor})` : `Prejuízo de ${pct.replace("-", "")}% sobre o custo (${valor})`;
 }
 
 /** Quanto já entrou: parcelas recebidas + recebimentos avulsos/quitação. */
