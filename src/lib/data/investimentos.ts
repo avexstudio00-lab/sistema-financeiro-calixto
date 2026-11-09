@@ -253,9 +253,11 @@ export async function marcarParcelaPaga(
   id: string,
   pago: boolean,
   destino?: { usuarioId: string; contaId: string; valor: number; descricao: string } | null,
-  transacaoAnteriorId?: string | null
+  transacaoAnteriorId?: string | null,
+  /** Data do recebimento (importação de extrato usa a data do extrato). */
+  dataRecebimento?: string
 ) {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = dataRecebimento ?? new Date().toISOString().slice(0, 10);
   let transacaoId: string | null = null;
   if (pago && destino?.contaId) {
     transacaoId = await lancarMovimentoInvestimento({

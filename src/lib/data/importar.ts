@@ -5,6 +5,7 @@ import { criarCategoriaPersonalizada, listarCategorias } from "./categorias";
 import { normalizarTexto } from "@/lib/util/texto";
 import type { Categoria } from "./tipos";
 import type { LancamentoLido, TransacaoExistente } from "@/lib/util/csvImportacao";
+import { registrarRecebimentoDoExtrato, type AcaoExtrato, type ModoRecebimento, type OperacaoAberta } from "./importarLigacoes";
 
 /**
  * Camada de dados da importação de CSV (especificação de 05/out/2026).
@@ -154,6 +155,15 @@ export interface SugestaoExtrato {
   transferirPara: string | null;
   /** Já lançado por conta fixa / pagamento de dívida (motivo pra mostrar). */
   jaLancado: string | null;
+  /** "O que é isso?" (10/nov/2026). */
+  acao: AcaoExtrato;
+  /** Empréstimo/revenda escolhido (recebi de um empréstimo/revenda). */
+  investimentoId: string | null;
+  modoRecebimento: ModoRecebimento | null;
+  parcelaId: string | null;
+  /** Emprestei/comprei para revenda: o formulário já lançou a saída — a
+   * linha não é importada de novo. Texto do que foi criado. */
+  lancadoPor: string | null;
 }
 
 export interface ContextoExtrato {
@@ -271,6 +281,11 @@ export function sugerirExtrato(params: {
       dividaNome: null,
       transferirPara: null,
       jaLancado: null,
+      acao: "normal",
+      investimentoId: null,
+      modoRecebimento: null,
+      parcelaId: null,
+      lancadoPor: null,
     };
 
     // 1) Já lançado sozinho (conta fixa / parcela de dívida) — mesmo valor e
@@ -279,7 +294,10 @@ export function sugerirExtrato(params: {
     if (rec) sug.jaLancado = `Já lançado por ${rec.origem}`;
 
     // 2) Pagamento de fatura no extrato da conta → transferência pro cartão.
-    if (c.natureza === "pagamento_fatura" && params.cartaoDestinoId) sug.transferirPara = params.cartaoDestinoId;
+    if (c.natureza === "pagamento_fatura" && params.cartaoDestinoId) {
+      sug.transferirPara = params.cartaoDestinoId;
+      sug.acao = "transferencia";
+    }
 
     // 3) Parcela de dívida que a pessoa já está pagando (inclusive no cartão).
     if (item.tipo === "despesa" && dividas.length > 0) {
@@ -291,6 +309,7 @@ export function sugerirExtrato(params: {
       if (div && (porNomeDiv ? true : !!c.parcela)) {
         sug.dividaId = div.id;
         sug.dividaNome = div.nome;
+        sug.acao = "divida";
         if (idDivida) {
           sug.categoriaId = idDivida;
           sug.origemCategoria = "divida";
@@ -325,10 +344,14 @@ export function sugerirExtrato(params: {
 }
 
 /**
- * Grava a importação inteligente: os lançamentos normais em lote (com a
- * categoria e a dívida escolhidas na conferência) e os pagamentos de fatura
- * como TRANSFERÊNCIA pra carteira do cartão (assim o gasto não conta duas
- * vezes: as compras já estão no cartão).
+ * Grava a importação inteligente conforme o "O que é isso?" de cada linha:
+ *  - normal / dívida → lançamentos em lote (com categoria e dívida);
+ *  - transferência (fatura do cartão, caixinha, outra carteira) → entre as
+ *    carteiras, sem contar como gasto nem receita. Saída: desta carteira
+ *    pra outra; entrada: da outra pra esta;
+ *  - recebi de empréstimo/revenda → baixa na operação + entrada na carteira;
+ *  - emprestei/comprei (já lançado pelo formulário) ou ainda sem os dados
+ *    preenchidos → não grava nada (`ignorados`).
  */
 export async function importarExtratoInteligente(params: {
   usuarioId: string;
@@ -336,15 +359,28 @@ export async function importarExtratoInteligente(params: {
   tipoNegocio: "pessoal" | "negocio";
   itens: LancamentoLido[];
   sugestoes: SugestaoExtrato[];
-}): Promise<{ inseridos: number; falhas: FalhaImportacao[] }> {
+  operacoes?: OperacaoAberta[];
+}): Promise<{ inseridos: number; falhas: FalhaImportacao[]; ligados: number; ignorados: number }> {
   const normais: number[] = [];
   const transferencias: number[] = [];
-  params.itens.forEach((_, i) => (params.sugestoes[i]?.transferirPara ? transferencias : normais).push(i));
+  const recebimentos: number[] = [];
+  let ignorados = 0;
+  params.itens.forEach((_, i) => {
+    const s = params.sugestoes[i];
+    if (s?.lancadoPor) return;
+    if (s?.acao === "emprestei" || s?.acao === "comprei_revenda") {
+      ignorados += 1; // escolheu, mas não preencheu o formulário
+      return;
+    }
+    if ((s?.acao === "transferencia" || (!s?.acao && s?.transferirPara)) && s.transferirPara) transferencias.push(i);
+    else if ((s?.acao === "receb_emprestimo" || s?.acao === "receb_revenda") && s.investimentoId) recebimentos.push(i);
+    else if (s?.acao === "receb_emprestimo" || s?.acao === "receb_revenda" || s?.acao === "transferencia") ignorados += 1;
+    else normais.push(i);
+  });
 
-  const categorias = new Map<number, string | null>();
-  normais.forEach((idx, k) => categorias.set(k, params.sugestoes[idx]?.categoriaId ?? null));
   const empresa = params.tipoNegocio === "negocio" ? campoEmpresa() : {};
   let inseridos = 0;
+  let ligados = 0;
   const falhas: FalhaImportacao[] = [];
 
   for (let ini = 0; ini < normais.length; ini += TAMANHO_LOTE) {
@@ -352,6 +388,7 @@ export async function importarExtratoInteligente(params: {
     const linhas = indices.map((idx) => {
       const item = params.itens[idx];
       const s = params.sugestoes[idx];
+      const comDivida = s?.acao === "divida" || (!s?.acao && s?.dividaId);
       return {
         usuario_id: params.usuarioId,
         conta_id: params.contaId,
@@ -363,7 +400,7 @@ export async function importarExtratoInteligente(params: {
         data_vencimento: item.vencimento,
         forma_pagamento: item.formaPagamento,
         tipo_negocio: params.tipoNegocio,
-        ...(s?.dividaId && params.tipoNegocio === "pessoal" ? { divida_id: s.dividaId } : {}),
+        ...(comDivida && s?.dividaId && params.tipoNegocio === "pessoal" ? { divida_id: s.dividaId } : {}),
         ...empresa,
       };
     });
@@ -382,18 +419,43 @@ export async function importarExtratoInteligente(params: {
     const { criarTransferencia } = await import("./transacoes");
     for (const idx of transferencias) {
       const item = params.itens[idx];
+      const outra = params.sugestoes[idx].transferirPara as string;
       // eslint-disable-next-line no-await-in-loop -- sequencial (saldo das duas carteiras)
       const { error } = await criarTransferencia({
         usuarioId: params.usuarioId,
-        contaOrigemId: params.contaId,
-        contaDestinoId: params.sugestoes[idx].transferirPara as string,
+        contaOrigemId: item.tipo === "despesa" ? params.contaId : outra,
+        contaDestinoId: item.tipo === "despesa" ? outra : params.contaId,
         valor: item.valor,
         data: item.data,
         descricao: item.descricao.slice(0, 120),
       });
-      if (error) falhas.push({ linha: item.linha, motivo: "Não foi possível lançar o pagamento da fatura" });
+      if (error) falhas.push({ linha: item.linha, motivo: "Não foi possível lançar a transferência" });
       else inseridos += 1;
     }
   }
-  return { inseridos, falhas };
+
+  for (const idx of recebimentos) {
+    const item = params.itens[idx];
+    const s = params.sugestoes[idx];
+    const op = params.operacoes?.find((o) => o.investimento.id === s.investimentoId);
+    if (!op) {
+      falhas.push({ linha: item.linha, motivo: "Empréstimo/revenda não encontrado (já quitado?)" });
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop -- sequencial (parcelas e saldo)
+    const { error } = await registrarRecebimentoDoExtrato({
+      usuarioId: params.usuarioId,
+      contaId: params.contaId,
+      item,
+      operacao: op,
+      modo: s.modoRecebimento ?? "recebimento",
+      parcelaId: s.parcelaId,
+    });
+    if (error) falhas.push({ linha: item.linha, motivo: "Não foi possível dar baixa no empréstimo/revenda" });
+    else {
+      inseridos += 1;
+      ligados += 1;
+    }
+  }
+  return { inseridos, falhas, ligados, ignorados };
 }

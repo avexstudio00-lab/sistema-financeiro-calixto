@@ -219,6 +219,9 @@ export interface Investimento {
   usuario_id: string;
   nome: string;
   tipo: "cdi" | "tesouro" | "bolsa" | "emprestimo" | "revenda" | "poupanca" | "cdb" | "lci" | "lca" | "cripto";
+  /** Código curto por usuário (E1, E2... empréstimo; R1, R2... revenda),
+   * gerado no banco ao criar (10/nov/2026). Nulo nos outros tipos. */
+  codigo?: string | null;
   valor_investido: number;
   valor_atual: number;
   taxa: number | null;
