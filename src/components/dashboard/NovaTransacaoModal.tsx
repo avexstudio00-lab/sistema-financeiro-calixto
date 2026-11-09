@@ -9,7 +9,7 @@ import { CriarCategoriaInline } from "@/components/dashboard/CriarCategoriaInlin
 import { ComprovanteTransacao } from "@/components/dashboard/ComprovanteTransacao";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { listarCategorias } from "@/lib/data/categorias";
+import { listarCategorias, buscarCategoriaPadraoPorNome } from "@/lib/data/categorias";
 import { listarContas } from "@/lib/data/contas";
 import { listarDividasComProgresso, NOME_CATEGORIA_DIVIDA } from "@/lib/data/dividas";
 import {
@@ -187,6 +187,22 @@ export function NovaTransacaoModal({
     return cat?.nome === NOME_CATEGORIA_DIVIDA;
   }, [categorias, categoriaId]);
 
+  // 09/nov/2026: retirada de pró-labore na empresa é dinheiro que SAI da
+  // empresa e ENTRA na vida pessoal do dono. Só pro dono (pessoal é
+  // pessoal: a retirada de um sócio não cai na carteira de outra pessoa).
+  const ehRetiradaProLabore = React.useMemo(() => {
+    const cat = categorias.find((c) => c.id === categoriaId);
+    return (
+      !editando &&
+      tipo === "despesa" &&
+      mundo === "negocio" &&
+      !!user &&
+      user.id === usuarioEfetivoId &&
+      cat?.nome === "Pró-labore"
+    );
+  }, [categorias, categoriaId, editando, tipo, mundo, user, usuarioEfetivoId]);
+  const [carteiraProLabore, setCarteiraProLabore] = React.useState("");
+
   // Em mundo "negocio" a categoria "Dívida" não aparece nem como opção --
   // dívida é conceito só de "Minha vida" (ver nota acima em `dividas`).
   const categoriasDoTipo = React.useMemo(
@@ -258,6 +274,11 @@ export function NovaTransacaoModal({
     }
     if (!descricao.trim()) {
       setErro("Digite uma descrição rápida.");
+      return;
+    }
+
+    if (ehRetiradaProLabore && !carteiraProLabore) {
+      setErro("Diga em qual carteira pessoal o pró-labore entrou (ou escolha não lançar).");
       return;
     }
 
@@ -344,6 +365,21 @@ export function NovaTransacaoModal({
           : "Não foi possível salvar. Tente novamente."
       );
       return;
+    }
+    // Pró-labore: lança a entrada na vida pessoal (categoria Salário).
+    if (ehRetiradaProLabore && carteiraProLabore && carteiraProLabore !== "nao" && usuarioEfetivoId) {
+      const salario = await buscarCategoriaPadraoPorNome("Salário", "receita");
+      await criarTransacao({
+        usuario_id: usuarioEfetivoId,
+        conta_id: carteiraProLabore,
+        categoria_id: salario?.id ?? null,
+        tipo: "receita",
+        valor: valorNumero,
+        descricao: `Pró-labore recebido: ${descricao.trim()}`.slice(0, 120),
+        data,
+        forma_pagamento: formaPagamento,
+        tipo_negocio: "pessoal",
+      });
     }
     // Lançamento rápido (6.1): lembra o último valor do modelo usado, ou
     // cria um modelo novo se a pessoa pediu.
@@ -529,6 +565,28 @@ export function NovaTransacaoModal({
                   />
                 </div>
               </div>
+            )}
+
+            {ehRetiradaProLabore && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">Entrou em qual carteira pessoal?</span>
+                <select
+                  value={carteiraProLabore}
+                  onChange={(e) => setCarteiraProLabore(e.target.value)}
+                  className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
+                >
+                  <option value="">Escolha...</option>
+                  {contas
+                    .filter((c) => c.tipo !== "cartao_credito" && c.id !== contaId)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  <option value="nao">Não lançar em Minha vida</option>
+                </select>
+                <span className="text-xs text-muted">O pró-labore sai da empresa e entra em Minha vida como Salário.</span>
+              </label>
             )}
 
             {categoriaEhDivida && (

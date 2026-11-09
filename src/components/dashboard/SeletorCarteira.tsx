@@ -3,6 +3,7 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarContas } from "@/lib/data/contas";
 import type { Conta } from "@/lib/data/tipos";
@@ -67,21 +68,45 @@ export function SeletorCarteira({
   );
 }
 
-/** Diálogo curto pra escolher a carteira antes de confirmar um recebimento. */
+/** Diálogo curto pra escolher a carteira antes de confirmar um recebimento
+ * ou pagamento. 09/nov/2026: reaproveitado em DAS/contas da empresa/fatura
+ * (texto, data e a opção "por fora" configuráveis). */
 export function EscolherCarteiraDialog({
   titulo,
   descricao,
   salvando,
   onConfirmar,
   onFechar,
+  rotulo,
+  ajuda = null,
+  textoBotao = "Confirmar recebimento",
+  opcaoFora,
+  comData = false,
+  contas: contasFixas,
 }: {
   titulo: string;
   descricao?: string;
   salvando?: boolean;
-  onConfirmar: (contaId: string) => void | Promise<void>;
+  /** `contaId` = id da carteira, ou "fora" quando a opção `opcaoFora` foi escolhida. */
+  onConfirmar: (contaId: string, data: string) => void | Promise<void>;
   onFechar: () => void;
+  rotulo?: string;
+  ajuda?: string | null;
+  textoBotao?: string;
+  /** Texto de uma opção extra "não mexer em carteira" (ex.: "Paguei por fora"). */
+  opcaoFora?: string;
+  comData?: boolean;
+  /** Lista de carteiras já carregada (ex.: carteiras da conta mestre da empresa). */
+  contas?: Conta[];
 }) {
   const [contaId, setContaId] = React.useState("");
+  const [data, setData] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const carregadas = useCarteiras();
+  const lista = (contasFixas ?? carregadas).filter((c) => c.tipo !== "cartao_credito");
+  React.useEffect(() => {
+    if (!contaId && lista.length > 0) setContaId(lista[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lista.length]);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center">
       <div className="flex w-full max-w-md flex-col gap-4 rounded-t-3xl bg-card p-6 shadow-card-hover sm:rounded-3xl">
@@ -92,9 +117,26 @@ export function EscolherCarteiraDialog({
           </button>
         </div>
         {descricao && <p className="text-small text-muted">{descricao}</p>}
-        <SeletorCarteira valor={contaId} onChange={setContaId} />
-        <Button size="lg" disabled={!contaId || salvando} onClick={() => onConfirmar(contaId)}>
-          {salvando ? "Salvando..." : "Confirmar recebimento"}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-small font-medium text-foreground">{rotulo ?? "Entrou em qual carteira?"}</label>
+          <select
+            value={contaId}
+            onChange={(e) => setContaId(e.target.value)}
+            className="h-11 rounded-xl border border-border bg-card px-4 text-small text-foreground"
+          >
+            <option value="">Selecione a carteira...</option>
+            {lista.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome}
+              </option>
+            ))}
+            {opcaoFora && <option value="fora">{opcaoFora}</option>}
+          </select>
+          {ajuda && <span className="text-xs text-muted">{ajuda}</span>}
+        </div>
+        {comData && contaId !== "fora" && <DateMaskInput label="Data" value={data} onChange={setData} />}
+        <Button size="lg" disabled={!contaId || salvando} onClick={() => onConfirmar(contaId, data)}>
+          {salvando ? "Salvando..." : textoBotao}
         </Button>
       </div>
     </div>
