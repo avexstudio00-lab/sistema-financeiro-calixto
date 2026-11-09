@@ -14,7 +14,11 @@ import { listarVendas } from "@/lib/data/vendas";
 import { listarFornecedores } from "@/lib/data/fornecedores";
 import { calcularSugestoesReposicao, valorDoEstoque } from "@/lib/data/estoque";
 import { formatarMoeda } from "@/lib/format";
-import type { Fornecedor, Produto, Venda } from "@/lib/data/tipos";
+import type { Conta, Fornecedor, Produto, Venda } from "@/lib/data/tipos";
+import { listarContas } from "@/lib/data/contas";
+import { criarContaPagar, darEntradaEstoqueDaCompra, marcarContaPagarPaga } from "@/lib/data/contasEmpresa";
+import { DateMaskInput } from "@/components/ui/DateMaskInput";
+import type { ContaPagar } from "@/lib/data/tipos";
 
 /**
  * Gestão de estoque (item 5.6 — separada do catálogo de produtos) + sugestão
@@ -28,11 +32,36 @@ export default function EstoquePage() {
   const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [movendoId, setMovendoId] = React.useState<string | null>(null);
-  const [movimento, setMovimento] = React.useState<{ tipo: "entrada" | "saida"; quantidade: string; minimo: string }>({
+  // 09/nov/2026: entrada pode ser COMPRA (pergunta custo e de onde saiu o
+  // dinheiro — à vista sai de uma carteira, a prazo vira conta a pagar) ou
+  // só AJUSTE (devolução, contagem), que não mexe em dinheiro.
+  type Movimento = {
+    tipo: "entrada" | "saida";
+    quantidade: string;
+    minimo: string;
+    motivo: "compra" | "ajuste";
+    custoUnitario: string;
+    pagamento: "vista" | "prazo";
+    carteiraId: string;
+    data: string;
+    vencimento: string;
+    fornecedorId: string;
+  };
+  const hojeIso = () => new Date().toISOString().slice(0, 10);
+  const [movimento, setMovimento] = React.useState<Movimento>({
     tipo: "entrada",
     quantidade: "",
     minimo: "",
+    motivo: "compra",
+    custoUnitario: "",
+    pagamento: "vista",
+    carteiraId: "",
+    data: hojeIso(),
+    vencimento: hojeIso(),
+    fornecedorId: "",
   });
+  const [carteiras, setCarteiras] = React.useState<Conta[]>([]);
+  const [erroMovimento, setErroMovimento] = React.useState<string | null>(null);
   const [salvando, setSalvando] = React.useState(false);
 
   const carregar = React.useCallback(async () => {
@@ -47,6 +76,7 @@ export default function EstoquePage() {
       listarVendas(negocio.usuarioId, { inicio: inicio.toISOString().slice(0, 10) }),
       listarFornecedores(negocio.usuarioId),
     ]);
+    listarContas(negocio.usuarioId).then((c) => setCarteiras(c.filter((x) => x.tipo !== "cartao_credito")));
     setProdutos(p);
     setVendas(v);
     setFornecedores(f);
@@ -62,23 +92,70 @@ export default function EstoquePage() {
 
   function abrirMovimento(p: Produto, tipo: "entrada" | "saida") {
     setMovendoId(p.id);
-    setMovimento({ tipo, quantidade: "", minimo: String(p.estoque_minimo) });
+    setErroMovimento(null);
+    setMovimento({
+      tipo,
+      quantidade: "",
+      minimo: String(p.estoque_minimo),
+      motivo: "compra",
+      custoUnitario: Number(p.custo) > 0 ? Number(p.custo).toFixed(2).replace(".", ",") : "",
+      pagamento: "vista",
+      carteiraId: carteiras[0]?.id ?? "",
+      data: hojeIso(),
+      vencimento: hojeIso(),
+      fornecedorId: p.fornecedor_id ?? "",
+    });
   }
 
   async function salvarMovimento(p: Produto) {
+    if (!negocio) return;
     const qtd = Number(movimento.quantidade);
     const minimo = Number(movimento.minimo);
+    const ehCompra = movimento.tipo === "entrada" && movimento.motivo === "compra" && qtd > 0;
+    const custoUnit = Number(movimento.custoUnitario.trim().replace(/\./g, "").replace(",", "."));
+    if (ehCompra) {
+      if (!Number.isFinite(custoUnit) || custoUnit <= 0) return setErroMovimento("Quanto custou cada unidade?");
+      if (movimento.pagamento === "vista" && !movimento.carteiraId) return setErroMovimento("De qual carteira saiu o dinheiro?");
+    }
+    setErroMovimento(null);
     setSalvando(true);
-    if (qtd > 0) await ajustarEstoque(p.id, Number(p.quantidade_estoque), movimento.tipo === "entrada" ? qtd : -qtd);
+    // Estoque mínimo primeiro (com a quantidade de agora), pra não
+    // sobrescrever depois a quantidade/custo que a compra vai atualizar.
     if (Number.isFinite(minimo) && minimo >= 0 && minimo !== Number(p.estoque_minimo)) {
       await atualizarProduto(p.id, {
         nome: p.nome,
         custo: Number(p.custo),
         preco_venda: Number(p.preco_venda),
-        quantidade_estoque: qtd > 0 ? Math.max(0, Number(p.quantidade_estoque) + (movimento.tipo === "entrada" ? qtd : -qtd)) : Number(p.quantidade_estoque),
+        quantidade_estoque: Number(p.quantidade_estoque),
         estoque_minimo: minimo,
         fornecedor_id: p.fornecedor_id ?? null,
       });
+    }
+    if (ehCompra) {
+      // Mesmo caminho da compra lançada em Contas a pagar: cria a conta,
+      // dá entrada no estoque (custo médio) e, se foi à vista, já paga
+      // saindo da carteira escolhida.
+      const total = Number((qtd * custoUnit).toFixed(2));
+      const { data: conta } = await criarContaPagar({
+        usuario_id: negocio.usuarioId,
+        fornecedor_id: movimento.fornecedorId || null,
+        categoria: "fornecedor",
+        descricao: `Compra de estoque: ${qtd}x ${p.nome}`.slice(0, 120),
+        valor: total,
+        vencimento: movimento.pagamento === "vista" ? movimento.data : movimento.vencimento,
+      });
+      if (conta) {
+        const c = conta as ContaPagar;
+        await darEntradaEstoqueDaCompra(c.id, [{ produto_id: p.id, nome: p.nome, quantidade: qtd, custo_unitario: custoUnit }]);
+        if (movimento.pagamento === "vista") {
+          await marcarContaPagarPaga(c, true, { contaBancariaId: movimento.carteiraId, data: movimento.data });
+        }
+      } else {
+        setSalvando(false);
+        return setErroMovimento("Não foi possível registrar a compra. Tente de novo.");
+      }
+    } else if (qtd > 0) {
+      await ajustarEstoque(p.id, Number(p.quantidade_estoque), movimento.tipo === "entrada" ? qtd : -qtd);
     }
     setSalvando(false);
     setMovendoId(null);
@@ -206,7 +283,101 @@ export default function EstoquePage() {
                         onChange={(e) => setMovimento((m) => ({ ...m, minimo: e.target.value.replace(/\D/g, "") }))}
                       />
                     </div>
-                    <p className="text-xs text-muted">Vendas já dão baixa sozinhas — use isto pra compras, perdas ou ajustes de contagem.</p>
+                    {movimento.tipo === "entrada" && (
+                      <div className="flex flex-col gap-3">
+                        <div className="flex gap-2">
+                          {(["compra", "ajuste"] as const).map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setMovimento((x) => ({ ...x, motivo: m }))}
+                              className={`flex-1 rounded-xl border px-3 py-2 text-small font-medium ${
+                                movimento.motivo === m ? "border-primary-500 bg-primary-50 text-primary-700" : "border-border text-muted"
+                              }`}
+                            >
+                              {m === "compra" ? "Comprei (sai dinheiro)" : "Só ajuste / devolução"}
+                            </button>
+                          ))}
+                        </div>
+                        {movimento.motivo === "compra" ? (
+                          <div className="flex flex-col gap-3 rounded-xl bg-muted/5 p-3">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <Input
+                                label="Custo de cada unidade"
+                                inputMode="decimal"
+                                value={movimento.custoUnitario}
+                                onChange={(e) => setMovimento((x) => ({ ...x, custoUnitario: e.target.value }))}
+                                placeholder="0,00"
+                              />
+                              <label className="flex flex-col gap-1.5">
+                                <span className="text-small font-medium text-foreground">Fornecedor</span>
+                                <select
+                                  value={movimento.fornecedorId}
+                                  onChange={(e) => setMovimento((x) => ({ ...x, fornecedorId: e.target.value }))}
+                                  className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
+                                >
+                                  <option value="">Sem fornecedor</option>
+                                  {fornecedores.map((f) => (
+                                    <option key={f.id} value={f.id}>{f.nome}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            {Number(movimento.quantidade) > 0 && Number(movimento.custoUnitario.replace(/\./g, "").replace(",", ".")) > 0 && (
+                              <p className="text-small text-foreground">
+                                Total da compra:{" "}
+                                <strong>
+                                  {formatarMoeda(Number(movimento.quantidade) * Number(movimento.custoUnitario.replace(/\./g, "").replace(",", ".")))}
+                                </strong>
+                              </p>
+                            )}
+                            <div className="flex gap-2">
+                              {(["vista", "prazo"] as const).map((f) => (
+                                <button
+                                  key={f}
+                                  type="button"
+                                  onClick={() => setMovimento((x) => ({ ...x, pagamento: f }))}
+                                  className={`flex-1 rounded-xl border px-3 py-2 text-small font-medium ${
+                                    movimento.pagamento === f ? "border-primary-500 bg-primary-50 text-primary-700" : "border-border text-muted"
+                                  }`}
+                                >
+                                  {f === "vista" ? "Paguei agora" : "Vou pagar depois"}
+                                </button>
+                              ))}
+                            </div>
+                            {movimento.pagamento === "vista" ? (
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <label className="flex flex-col gap-1.5">
+                                  <span className="text-small font-medium text-foreground">De qual carteira saiu?</span>
+                                  <select
+                                    value={movimento.carteiraId}
+                                    onChange={(e) => setMovimento((x) => ({ ...x, carteiraId: e.target.value }))}
+                                    className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
+                                  >
+                                    <option value="">Escolha...</option>
+                                    {carteiras.map((c) => (
+                                      <option key={c.id} value={c.id}>{c.nome}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <DateMaskInput label="Data da compra" value={movimento.data} onChange={(v) => setMovimento((x) => ({ ...x, data: v }))} />
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-1">
+                                <DateMaskInput label="Vence em" value={movimento.vencimento} onChange={(v) => setMovimento((x) => ({ ...x, vencimento: v }))} />
+                                <span className="text-xs text-muted">Vira uma conta a pagar em Contas → A pagar. Quando pagar, ela pergunta de qual carteira saiu.</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted">Ajuste não mexe em dinheiro: use pra devolução de cliente, correção de contagem ou brinde recebido.</p>
+                        )}
+                      </div>
+                    )}
+                    {movimento.tipo === "saida" && (
+                      <p className="text-xs text-muted">Vendas já dão baixa sozinhas — use isto pra perdas, uso próprio ou ajuste de contagem.</p>
+                    )}
+                    {erroMovimento && <p className="text-small text-rose-700">{erroMovimento}</p>}
                     <div className="flex gap-2">
                       <Button size="sm" disabled={salvando} onClick={() => salvarMovimento(p)}>Salvar</Button>
                       <Button size="sm" variant="tertiary" onClick={() => setMovendoId(null)}>Cancelar</Button>
