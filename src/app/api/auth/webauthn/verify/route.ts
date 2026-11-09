@@ -3,6 +3,7 @@ import { z } from "zod";
 import { usuarioAutenticadoDaRequisicao, supabaseAdmin } from "@/lib/supabase/admin";
 import { limitarRequisicoes, RESPOSTA_RATE_LIMIT } from "@/lib/rateLimit";
 import { registrarEventoSeguranca } from "@/lib/auditoria";
+import { verificarAccessToken } from "@/lib/auth/sessaoServidor";
 import { contextoRp, verificarAutenticacao } from "@/lib/seguranca/webauthnServidor";
 import { criarDesafio, consumirDesafio } from "@/lib/seguranca/desafiosWebauthn";
 
@@ -33,19 +34,31 @@ const esquema = z.discriminatedUnion("etapa", [
 ]);
 
 export async function POST(request: Request) {
-  const autenticado = await usuarioAutenticadoDaRequisicao(request);
-  if (!autenticado) return NextResponse.json({ erro: "Não autenticado." }, { status: 401 });
-  const { user } = autenticado;
-
-  const { permitido } = await limitarRequisicoes("webauthn-verificar", { limite: 30, janelaSegundos: 600, identificador: user.id });
-  if (!permitido) return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
-
   let corpo: z.infer<typeof esquema>;
   try {
     corpo = esquema.parse(await request.json());
   } catch {
     return NextResponse.json({ erro: "Requisição inválida." }, { status: 400 });
   }
+
+  // "opcoes" só gera um desafio (não libera nada): confere o JWT aqui mesmo
+  // (assinatura ES256), sem ir ao Supabase — o Face ID aparece mais rápido
+  // ao abrir o app (10/nov/2026). "verificar" continua com a checagem
+  // completa do usuário na rede.
+  let user: { id: string };
+  if (corpo.etapa === "opcoes") {
+    const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+    const claims = token ? await verificarAccessToken(token) : null;
+    if (!claims) return NextResponse.json({ erro: "Não autenticado." }, { status: 401 });
+    user = { id: claims.sub };
+  } else {
+    const autenticado = await usuarioAutenticadoDaRequisicao(request);
+    if (!autenticado) return NextResponse.json({ erro: "Não autenticado." }, { status: 401 });
+    user = autenticado.user;
+  }
+
+  const { permitido } = await limitarRequisicoes("webauthn-verificar", { limite: 30, janelaSegundos: 600, identificador: user.id });
+  if (!permitido) return NextResponse.json(RESPOSTA_RATE_LIMIT, { status: 429 });
 
   const admin = supabaseAdmin();
   const { rpId, origem } = contextoRp(request);
