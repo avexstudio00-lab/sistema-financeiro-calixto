@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
+import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
 import { Badge } from "@/components/ui/Badge";
 import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } from "@/components/dashboard/FiltrosLista";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -95,9 +96,11 @@ export default function ContasEmpresaPage() {
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
   const [edicao, setEdicao] = React.useState({ valor: "", vencimento: "", status: "pendente" as "pendente" | "pago" });
 
-  // Recebimento de título fiado/orçamento: escolhe a carteira de entrada.
-  const [recebendo, setRecebendo] = React.useState<ContaReceber | null>(null);
-  const [carteiraEntrada, setCarteiraEntrada] = React.useState("");
+  // 09/nov/2026: TODO título marcado como pago/recebido pergunta a carteira
+  // (pagar: de onde saiu; receber: onde entrou) e vira lançamento no caixa.
+  // "fora" = paguei/recebi por fora ou já lancei → só muda o status.
+  const [liquidando, setLiquidando] = React.useState<{ titulo: Titulo; tipo: "pagar" | "receber" } | null>(null);
+
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
@@ -200,31 +203,34 @@ export default function ContasEmpresaPage() {
     carregar();
   }
 
+  function abrirLiquidacao(t: Titulo) {
+    setLiquidando({ titulo: t, tipo: aba });
+  }
+
   async function handleMarcar(t: Titulo, marcado: boolean) {
-    if (aba === "receber") {
-      const conta = t as ContaReceber;
-      const geraEntrada = conta.origem === "fiado" || conta.origem === "orcamento";
-      if (marcado && geraEntrada) {
-        setRecebendo(conta);
-        setCarteiraEntrada(carteiras[0]?.id ?? "");
-        return;
-      }
-      setSalvando(true);
-      await marcarContaReceberRecebida(conta, marcado);
-    } else {
-      setSalvando(true);
-      await marcarContaPagarPaga(t.id, marcado);
+    if (marcado) {
+      abrirLiquidacao(t);
+      return;
     }
+    setSalvando(true);
+    if (aba === "receber") await marcarContaReceberRecebida(t as ContaReceber, false);
+    else await marcarContaPagarPaga(t as ContaPagar, false);
     setSalvando(false);
     carregar();
   }
 
-  async function confirmarRecebimento() {
-    if (!recebendo) return;
+  async function confirmarLiquidacao(carteira: string, data: string) {
+    if (!liquidando) return;
+    const lancar = carteira !== "fora";
+    const contaBancariaId = lancar && carteira ? carteira : null;
     setSalvando(true);
-    await marcarContaReceberRecebida(recebendo, true, carteiraEntrada || null);
+    if (liquidando.tipo === "receber") {
+      await marcarContaReceberRecebida(liquidando.titulo as ContaReceber, true, contaBancariaId, lancar, data);
+    } else {
+      await marcarContaPagarPaga(liquidando.titulo as ContaPagar, true, { contaBancariaId, lancar, data });
+    }
     setSalvando(false);
-    setRecebendo(null);
+    setLiquidando(null);
     carregar();
   }
 
@@ -250,13 +256,24 @@ export default function ContasEmpresaPage() {
     const v = parsearValor(edicao.valor);
     if (!v || v <= 0 || !edicao.vencimento) return;
     setSalvando(true);
+    const estavaLiquidado = t.status !== "pendente";
+    const ficaLiquidado = edicao.status === "pago";
     if (aba === "pagar") {
-      await editarContaPagar(t.id, { valor: v, vencimento: edicao.vencimento, status: edicao.status === "pago" ? "pago" : "pendente" });
+      await editarContaPagar(t.id, { valor: v, vencimento: edicao.vencimento, status: t.status as ContaPagar["status"] });
     } else {
       await editarContaReceber(t.id, { valor: v, vencimento: edicao.vencimento });
-      const estavaRecebido = t.status !== "pendente";
-      const ficaRecebido = edicao.status === "pago";
-      if (estavaRecebido !== ficaRecebido) await marcarContaReceberRecebida({ ...(t as ContaReceber), valor: v }, ficaRecebido);
+    }
+    // Mudou o status? Pago/recebido passa pela pergunta da carteira;
+    // voltar pra pendente estorna o lançamento ligado.
+    if (!estavaLiquidado && ficaLiquidado) {
+      setSalvando(false);
+      setEditandoId(null);
+      abrirLiquidacao({ ...t, valor: v } as Titulo);
+      return;
+    }
+    if (estavaLiquidado && !ficaLiquidado) {
+      if (aba === "receber") await marcarContaReceberRecebida({ ...(t as ContaReceber), valor: v }, false);
+      else await marcarContaPagarPaga({ ...(t as ContaPagar), valor: v }, false);
     }
     setSalvando(false);
     setEditandoId(null);
@@ -283,7 +300,9 @@ export default function ContasEmpresaPage() {
   const gruposVisiveis = gruposDoModo
     .filter((g) => (verQuitadas ? quitado(g) : !quitado(g)))
     .filter((g) => g.titulos.some((t) => dentroDoPeriodo(t.vencimento, periodo)));
-  const totalQuitadas = gruposDoModo.filter(quitado).length;
+  // Conta só o que o filtro de período mostraria (antes o número do botão
+  // "Quitadas" não batia com a lista quando havia período escolhido).
+  const totalQuitadas = gruposDoModo.filter(quitado).filter((g) => g.titulos.some((t) => dentroDoPeriodo(t.vencimento, periodo))).length;
 
   const totalPendente = lista.filter((c) => c.status === "pendente").reduce((acc, c) => acc + Number(c.valor), 0);
   const totalAtrasado = lista.filter((c) => estaAtrasada(c)).reduce((acc, c) => acc + Number(c.valor), 0);
@@ -429,8 +448,10 @@ export default function ContasEmpresaPage() {
         <AbasVistaParcelado
           valor={modo}
           onChange={setModo}
-          totalVista={grupos.filter((g) => !g.parcelado && !quitado(g)).length}
-          totalParcelado={grupos.filter((g) => g.parcelado && !quitado(g)).length}
+          // Mesmos filtros da lista (período + Quitadas), pra o número da aba
+          // bater com o que aparece embaixo.
+          totalVista={grupos.filter((g) => !g.parcelado && quitado(g) === verQuitadas && g.titulos.some((t) => dentroDoPeriodo(t.vencimento, periodo))).length}
+          totalParcelado={grupos.filter((g) => g.parcelado && quitado(g) === verQuitadas && g.titulos.some((t) => dentroDoPeriodo(t.vencimento, periodo))).length}
         />
         <FiltrosLista periodo={periodo} onPeriodo={setPeriodo} quitadas={verQuitadas} onQuitadas={setVerQuitadas} totalQuitadas={totalQuitadas} />
       </div>
@@ -608,21 +629,24 @@ export default function ContasEmpresaPage() {
         </Card>
       )}
 
-      {recebendo && (
-        <Card padding="lg" className="flex flex-col gap-3 border-primary-200">
-          <p className="text-body font-semibold text-foreground">Receber {formatarMoeda(Number(recebendo.valor))}</p>
-          <p className="text-small text-foreground">Em qual carteira esse dinheiro entrou? Vai aparecer como entrada no fluxo de caixa.</p>
-          <select value={carteiraEntrada} onChange={(e) => setCarteiraEntrada(e.target.value)} className={classeSelect}>
-            <option value="">Sem carteira específica</option>
-            {carteiras.map((c) => (
-              <option key={c.id} value={c.id}>{c.nome}</option>
-            ))}
-          </select>
-          <div className="flex gap-2">
-            <Button size="sm" disabled={salvando} onClick={confirmarRecebimento}>Confirmar recebimento</Button>
-            <Button size="sm" variant="tertiary" onClick={() => setRecebendo(null)}>Cancelar</Button>
-          </div>
-        </Card>
+      {liquidando && (
+        <EscolherCarteiraDialog
+          titulo={liquidando.tipo === "receber" ? "Receber" : "Pagar"}
+          descricao={`${formatarMoeda(Number(liquidando.titulo.valor))} · ${liquidando.titulo.descricao}`}
+          rotulo={liquidando.tipo === "receber" ? "Em qual carteira entrou?" : "De qual carteira saiu?"}
+          ajuda={
+            liquidando.tipo === "receber"
+              ? "Vira entrada da empresa no fluxo de caixa."
+              : "Vira saída da empresa no fluxo de caixa e no lucro."
+          }
+          textoBotao={liquidando.tipo === "receber" ? "Confirmar recebimento" : "Confirmar pagamento"}
+          opcaoFora={liquidando.tipo === "receber" ? "Já lancei essa entrada (não lançar)" : "Paguei por fora ou já lancei (não lançar)"}
+          comData
+          contas={carteiras}
+          salvando={salvando}
+          onFechar={() => setLiquidando(null)}
+          onConfirmar={(contaId, data) => confirmarLiquidacao(contaId, data)}
+        />
       )}
 
       {!carregando && lista.length > 0 && (
