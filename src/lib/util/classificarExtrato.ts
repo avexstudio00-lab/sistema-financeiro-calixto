@@ -59,7 +59,7 @@ const tem = (k: string, ...termos: string[]) => termos.some((t) => k.includes(t)
 
 /** Regras de categoria por palavra-chave (só nomes de categorias padrão). */
 const REGRAS_CATEGORIA: { categoria: string; tipo: "despesa" | "receita"; termos: string[] }[] = [
-  { categoria: "Mercado", tipo: "despesa", termos: ["supermerc", "mercado", "atacad", "assai", "carrefour", "pao de acucar", "extra hiper", "hortifruti", "sacolao", "atacarejo", "dia brasil", "big bompreco"] },
+  { categoria: "Mercado", tipo: "despesa", termos: ["supermerc", "mercado", "mercadinho", "mercearia", "minimercado", "atacad", "assai", "carrefour", "pao de acucar", "extra hiper", "hortifruti", "sacolao", "atacarejo", "dia brasil", "big bompreco"] },
   { categoria: "Alimentação", tipo: "despesa", termos: ["ifood", "restaur", "lanchon", "padaria", "pizzar", "burger", "mcdonald", "bk ", "habibs", "subway", "rappi", "aiqfome", "acai", "cafeteria", "churrasc", "bar e ", "lanches"] },
   { categoria: "Transporte", tipo: "despesa", termos: ["uber", "99app", "99 pop", "99pop", "cabify", "posto", "combust", "shell", "ipiranga", "petrobras", " br mania", "estacion", "pedagio", "sem parar", "conectcar", "veloe", "metro", "bilhete unico", "sptrans", "recarga transp", "onibus", "auto pecas"] },
   { categoria: "Saúde", tipo: "despesa", termos: ["farmac", "drogar", "droga ", "raia", "pacheco", "pague menos", "panvel", "hospital", "clinica", "laborat", "odonto", "unimed", "amil", "hapvida", "sulamerica saude", "medic"] },

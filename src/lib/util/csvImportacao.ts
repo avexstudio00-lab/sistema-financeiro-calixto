@@ -87,25 +87,26 @@ const TIPOS_ACEITOS = new Set([
   "application/x-qfx",
   "text/ofx",
   "application/octet-stream",
+  // 09/nov/2026: Excel (.xlsx) — lido como dados, sem fórmulas/macros.
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/pdf",
 ]);
 
 /** Checagens rápidas antes de ler: extensão, tipo e tamanho. */
 export function validarArquivoAntesDeLer(arquivo: { name: string; size: number; type: string }) {
   const nome = arquivo.name.toLowerCase();
-  if (!nome.endsWith(".csv") && !nome.endsWith(".ofx") && !nome.endsWith(".qfx")) {
-    if (/\.(xlsm|xltm|xlsx|xls|xlsb)$/.test(nome)) {
-      throw new ErroArquivo("Planilhas do Excel não são aceitas. No Excel, use Arquivo → Salvar como → CSV e envie o .csv.");
+  if (!nome.endsWith(".csv") && !nome.endsWith(".ofx") && !nome.endsWith(".qfx") && !nome.endsWith(".xlsx") && !nome.endsWith(".pdf")) {
+    if (/\.(xlsm|xltm|xls|xlsb)$/.test(nome)) {
+      throw new ErroArquivo("Esse tipo de planilha não é aceito (pode ter macro ou é do Excel antigo). No Excel, use Arquivo → Salvar como → .xlsx ou CSV.");
     }
-    if (nome.endsWith(".pdf")) {
-      throw new ErroArquivo("PDF ainda não dá pra ler. No app ou site do banco, exporte o extrato em OFX (\"Money/Quicken\") ou CSV/Excel→CSV.");
-    }
-    throw new ErroArquivo("Envie o extrato em .ofx ou .csv (no app/site do banco: Extrato → Exportar).");
+    throw new ErroArquivo("Envie o extrato em PDF, OFX, CSV ou Excel (.xlsx) — no app/site do banco: Extrato → Exportar.");
   }
   if (!TIPOS_ACEITOS.has(arquivo.type)) {
-    throw new ErroArquivo("O tipo do arquivo não parece ser um extrato (OFX ou CSV). Exporte de novo e tente outra vez.");
+    throw new ErroArquivo("O tipo do arquivo não parece ser um extrato (PDF, OFX, CSV ou Excel). Exporte de novo e tente outra vez.");
   }
   if (arquivo.size === 0) throw new ErroArquivo("O arquivo está vazio.");
-  if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
+  // PDF costuma ter logo/imagens: limite maior (o texto lido continua limitado a 5.000 lançamentos).
+  if (arquivo.size > (nome.endsWith(".pdf") ? 15 * 1024 * 1024 : TAMANHO_MAXIMO_BYTES)) {
     throw new ErroArquivo("O arquivo passa de 5 MB. Divida o extrato em períodos menores (por exemplo, um arquivo por mês) e importe em partes.");
   }
 }
@@ -326,16 +327,16 @@ function chave(t: string): string {
 }
 
 const SINONIMOS: { campo: CampoCanonico; exatos: string[]; contem?: string[] }[] = [
-  { campo: "ignorar", exatos: ["saldo", "saldo r", "saldo rs", "balance", "identificador", "id", "documento", "n documento", "agorigem", "ag/origem", "agencia", "conta"], contem: ["saldo"] },
+  { campo: "ignorar", exatos: ["saldo", "saldo r", "saldo rs", "balance", "identificador", "id", "documento", "n documento", "agorigem", "ag/origem", "agencia", "conta", "id da operacao", "id da transacao", "reference id", "partial balance", "referenceid", "partialbalance", "sourceid", "externalreference", "saldo parcial"], contem: ["saldo"] },
   { campo: "vencimento", exatos: ["vencimento", "data de vencimento", "data vencimento"] },
-  { campo: "data", exatos: ["data", "date", "dt", "data lancamento", "data do lancamento", "data movimento", "data mov", "data da transacao", "data transacao", "data de lancamento"], contem: ["data"] },
+  { campo: "data", exatos: ["data", "date", "dt", "data lancamento", "data do lancamento", "data movimento", "data mov", "data da transacao", "data transacao", "data de lancamento", "data de liberacao", "release date", "date created", "releasedate", "datecreated"], contem: ["data"] },
   { campo: "forma_pagamento", exatos: ["forma de pagamento", "forma pagamento", "meio de pagamento", "pagamento"] },
   { campo: "categoria", exatos: ["categoria", "category", "categorias"] },
-  { campo: "tipo", exatos: ["tipo", "natureza", "d/c", "dc", "tipo lancamento", "tipo de lancamento", "tipo de transacao", "type"] },
+  { campo: "tipo", exatos: ["tipo", "natureza", "d/c", "dc", "tipo lancamento", "tipo de lancamento", "type"] },
   { campo: "credito", exatos: ["credito", "creditos", "entrada", "entradas", "valor credito", "credito r", "credito rs"] },
   { campo: "debito", exatos: ["debito", "debitos", "saida", "saidas", "valor debito", "debito r", "debito rs"] },
-  { campo: "valor", exatos: ["valor", "valor r", "valor rs", "amount", "quantia", "montante", "valor lancamento", "valor do lancamento"], contem: ["valor"] },
-  { campo: "descricao", exatos: ["descricao", "historico", "lancamento", "title", "titulo", "detalhes", "detalhe", "estabelecimento", "memo", "description", "descricao/historico", "complemento"], contem: ["descricao", "historico"] },
+  { campo: "valor", exatos: ["valor", "valor r", "valor rs", "amount", "quantia", "montante", "valor lancamento", "valor do lancamento", "valor liquido", "transaction net amount", "net amount", "transactionnetamount", "netamount"], contem: ["valor"] },
+  { campo: "descricao", exatos: ["descricao", "historico", "lancamento", "title", "titulo", "detalhes", "detalhe", "estabelecimento", "memo", "description", "descricao/historico", "complemento", "transaction type", "transactiontype", "tipo de transacao", "tipo de operacao"], contem: ["descricao", "historico"] },
 ];
 
 function campoPorCabecalho(texto: string): CampoCanonico | null {
@@ -424,6 +425,14 @@ export function analisarEstrutura(texto: string): Estrutura {
     if (c === "ignorar" || c === "descricao") continue;
     if (vistos.has(c)) mapeamento[i] = "ignorar";
     else vistos.add(c);
+  }
+  // 09/nov/2026: coluna chamada "tipo" que não diz receita/despesa (ex.:
+  // Mercado Pago, "Pix enviado", "Rendimentos") é descrição, não tipo.
+  const iTipoMap = mapeamento.indexOf("tipo");
+  if (iTipoMap >= 0) {
+    const amostra = corpo.slice(0, 40).map((l) => (l[iTipoMap] ?? "").trim()).filter(Boolean);
+    const reconhecidos = amostra.filter((t) => tipoPorTexto(t)).length;
+    if (amostra.length > 0 && reconhecidos / amostra.length < 0.6) mapeamento[iTipoMap] = "descricao";
   }
   if (!mapeamento.includes("data") || !(mapeamento.includes("valor") || mapeamento.includes("credito") || mapeamento.includes("debito"))) {
     // Completa pelo conteúdo o que o cabeçalho não resolveu.
@@ -602,9 +611,9 @@ export function interpretarLinhas(
     let tipo: "receita" | "despesa" = valorAssinado < 0 ? "despesa" : "receita";
     if (marcado) tipo = marcado;
     if (iTipo >= 0 && (cel[iTipo] ?? "").trim()) {
+      // Texto que não diz receita/despesa: fica valendo o sinal do valor.
       const t = tipoPorTexto(cel[iTipo]);
-      if (!t) return rejeitar("Tipo não reconhecido (use Receita ou Despesa)");
-      tipo = t;
+      if (t) tipo = t;
     }
     const valor = Math.abs(valorAssinado);
 
