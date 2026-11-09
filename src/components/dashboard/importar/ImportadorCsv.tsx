@@ -139,6 +139,7 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
             setPdfComSenha(arquivo);
             throw new ErroArquivo(motivo === "SENHA" ? "Esse PDF tem senha. Digite a senha abaixo (muitos bancos usam os primeiros dígitos do CPF)." : "Senha incorreta. Tente de novo.");
           }
+          console.error("[importar] PDF não abriu:", e);
           throw new ErroArquivo("Não consegui abrir esse PDF. Se puder, exporte o extrato em OFX, CSV ou Excel.");
         }
         setPdfComSenha(null);

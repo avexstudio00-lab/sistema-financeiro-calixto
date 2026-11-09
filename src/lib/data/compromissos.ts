@@ -1,6 +1,7 @@
 import { listarContasFixas } from "./contasFixas";
 import { listarDividasComProgresso, listarParcelasDivida, calcularStatusParcelasDivida } from "./dividas";
-import { listarInvestimentos, listarParcelas } from "./investimentos";
+import { listarInvestimentos, listarPagamentosInvestimento, listarParcelas } from "./investimentos";
+import { totalRecebidoRevenda } from "./revenda";
 import { hojeIso, somarDias } from "@/lib/util/texto";
 
 export interface Compromisso {
@@ -21,18 +22,21 @@ function isoLocal(d: Date): string {
 /**
  * Compromissos financeiros pessoais pendentes (vencidos + próximos `dias`
  * dias): contas fixas ainda não lançadas, parcelas de dívidas em aberto e
- * parcelas a receber de empréstimos/revendas. Alimenta a "Visão de hoje"
+ * parcelas a receber de empréstimos/revendas — e também os empréstimos e
+ * revendas À VISTA com data combinada (09/nov/2026: antes só os parcelados
+ * apareciam). Alimenta a "Visão de hoje"
  * (6.4) e a projeção de liquidez (6.5).
  */
 export async function listarCompromissosPessoais(usuarioId: string, dias = 30): Promise<Compromisso[]> {
   const hoje = hojeIso();
   const limite = somarDias(hoje, dias);
-  const [fixas, dividas, parcelasDivida, investimentos, parcelasInv] = await Promise.all([
+  const [fixas, dividas, parcelasDivida, investimentos, parcelasInv, pagamentosInv] = await Promise.all([
     listarContasFixas(usuarioId),
     listarDividasComProgresso(usuarioId),
     listarParcelasDivida(usuarioId),
     listarInvestimentos(usuarioId),
     listarParcelas(usuarioId),
+    listarPagamentosInvestimento(usuarioId),
   ]);
   const itens: Compromisso[] = [];
 
@@ -94,6 +98,34 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
       sentido: "entrada",
       data: p.data_vencimento,
       atrasado: p.data_vencimento < hoje,
+      href: "/dashboard/investimentos",
+    });
+  }
+
+  // À vista (empréstimo e compra e revenda): um único recebimento na data
+  // combinada. O parcelado já entrou acima, parcela a parcela.
+  for (const inv of investimentos) {
+    if (inv.tipo !== "emprestimo" && inv.tipo !== "revenda") continue;
+    if (inv.forma_pagamento === "parcelado" || inv.quitado || !inv.data_vencimento_final) continue;
+    if (inv.data_vencimento_final > limite) continue;
+    let valor: number;
+    if (inv.tipo === "emprestimo") {
+      valor = Number(inv.valor_retornavel ?? inv.valor_investido);
+    } else {
+      const recebido = totalRecebidoRevenda(
+        parcelasInv.filter((p) => p.investimento_id === inv.id),
+        pagamentosInv.filter((p) => p.investimento_id === inv.id)
+      );
+      valor = Math.max(Number(inv.preco_revenda ?? inv.valor_investido) - recebido, 0);
+    }
+    if (valor <= 0.005) continue;
+    itens.push({
+      id: `${inv.tipo === "emprestimo" ? "ev" : "rv"}-${inv.id}`,
+      titulo: inv.tipo === "emprestimo" ? `Empréstimo — ${inv.nome}` : `Revenda — ${inv.nome}`,
+      valor,
+      sentido: "entrada",
+      data: inv.data_vencimento_final,
+      atrasado: inv.data_vencimento_final < hoje,
       href: "/dashboard/investimentos",
     });
   }

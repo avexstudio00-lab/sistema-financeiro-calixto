@@ -50,6 +50,34 @@ function ultimoDiaDoMes(ano: number, mes: number): number {
   return new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
 }
 
+/** Avisos de atraso: lembra a cada 3 dias até este limite de atraso. */
+const LIMITE_ATRASO_DIAS = 60;
+
+interface ItemVista {
+  id: string;
+  nome: string;
+  tipo: string;
+  valor_retornavel: number | null;
+  valor_investido: number;
+  preco_revenda: number | null;
+  data_vencimento_final: string;
+  forma_pagamento: string | null;
+}
+
+interface ParcelaInvAviso {
+  id: string;
+  numero: number;
+  valor: number;
+  data_vencimento: string;
+  investimentos: { nome: string; tipo: string; numero_parcelas: number | null } | { nome: string; tipo: string; numero_parcelas: number | null }[] | null;
+}
+
+/** Quanto vem no à vista: empréstimo = valor combinado; revenda = preço de revenda. */
+function valorVista(e: ItemVista): number {
+  if (e.tipo === "revenda") return Number(e.preco_revenda ?? e.valor_investido);
+  return Number(e.valor_retornavel ?? e.valor_investido);
+}
+
 async function enviarPushRelatorio(admin: SupabaseClient, usuarioId: string, agoraBr: Date): Promise<number> {
   const { data: perfil } = await admin.from("usuarios").select("plano").eq("id", usuarioId).maybeSingle();
   const frequencia = frequenciaRelatorio((perfil as { plano?: string } | null)?.plano);
@@ -139,9 +167,9 @@ export async function GET(request: Request) {
             .in("data_vencimento", datas),
           admin
             .from("investimentos")
-            .select("id, nome, valor_retornavel, valor_investido, data_vencimento_final, forma_pagamento")
+            .select("id, nome, tipo, valor_retornavel, valor_investido, preco_revenda, data_vencimento_final, forma_pagamento")
             .eq("usuario_id", usuarioId)
-            .eq("tipo", "emprestimo")
+            .in("tipo", ["emprestimo", "revenda"])
             .eq("quitado", false)
             .in("data_vencimento_final", datas),
           admin
@@ -329,8 +357,10 @@ export async function GET(request: Request) {
         data_vencimento: string;
         status_manual: string | null;
       }[];
+      // Inclui as que têm parcela ATRASADA (até 60 dias) — 09/nov/2026.
+      const desdeAtrasoDiv = new Date(Date.parse(hoje) - LIMITE_ATRASO_DIAS * 86400000).toISOString().slice(0, 10);
       const dividasComVencimento = listaDividas.filter((d) =>
-        todasParcelasDiv.some((p) => p.divida_id === d.id && datas.includes(p.data_vencimento))
+        todasParcelasDiv.some((p) => p.divida_id === d.id && p.data_vencimento >= desdeAtrasoDiv && p.data_vencimento <= amanha)
       );
       if (dividasComVencimento.length > 0) {
         const { data: pagos } = await admin
@@ -341,6 +371,7 @@ export async function GET(request: Request) {
             "divida_id",
             dividasComVencimento.map((d) => d.id)
           );
+        const atrasadaAvisada = new Set<string>();
         for (const divida of dividasComVencimento) {
           let restante = ((pagos ?? []) as { divida_id: string; valor: number }[])
             .filter((t) => t.divida_id === divida.id)
@@ -355,7 +386,25 @@ export async function GET(request: Request) {
               paga = restante >= valor - 0.005;
               if (paga) restante -= valor;
             }
-            if (paga || !datas.includes(p.data_vencimento)) continue;
+            if (paga) continue;
+            if (p.data_vencimento < hoje && p.data_vencimento >= desdeAtrasoDiv) {
+              // Atrasada: lembra a cada 3 dias (só a mais antiga de cada dívida).
+              if (atrasadaAvisada.has(divida.id)) continue;
+              atrasadaAvisada.add(divida.id);
+              const dias = Math.max(1, Math.round((Date.parse(hoje) - Date.parse(p.data_vencimento)) / 86400000));
+              avisos.push({
+                tipo: "atraso_divida",
+                chave: `${p.id}:${p.data_vencimento}:${Math.floor(dias / 3)}`,
+                payload: {
+                  titulo: "Calixto — Parcela atrasada",
+                  corpo: `Parcela ${p.numero}/${ordenadas.length} da dívida ${divida.nome} está atrasada há ${dias} ${dias === 1 ? "dia" : "dias"} — ${moeda(valor)}. Já pagou? Registre o pagamento.`,
+                  url: "/dashboard/dividas",
+                  tag: `atraso-divida-${p.id}`,
+                },
+              });
+              continue;
+            }
+            if (!datas.includes(p.data_vencimento)) continue;
             avisos.push({
               tipo: "venc_divida",
               chave: `${p.id}:${p.data_vencimento}:${quando(p.data_vencimento, hoje)}`,
@@ -370,13 +419,7 @@ export async function GET(request: Request) {
         }
       }
 
-      for (const p of (parcelasInv.data ?? []) as {
-        id: string;
-        numero: number;
-        valor: number;
-        data_vencimento: string;
-        investimentos: { nome: string; tipo: string; numero_parcelas: number | null } | { nome: string; tipo: string; numero_parcelas: number | null }[] | null;
-      }[]) {
+      for (const p of (parcelasInv.data ?? []) as ParcelaInvAviso[]) {
         const inv = Array.isArray(p.investimentos) ? p.investimentos[0] : p.investimentos;
         const total = inv?.numero_parcelas ? `/${inv.numero_parcelas}` : "";
         const oque = inv?.tipo === "revenda" ? `da revenda ${inv?.nome ?? ""}` : `do empréstimo de ${inv?.nome ?? ""}`;
@@ -392,23 +435,162 @@ export async function GET(request: Request) {
         });
       }
 
-      for (const e of (emprestimosVista.data ?? []) as {
-        id: string;
-        nome: string;
-        valor_retornavel: number | null;
-        valor_investido: number;
-        data_vencimento_final: string;
-        forma_pagamento: string | null;
-      }[]) {
+      // À vista: empréstimo (valor combinado de volta) e compra e revenda
+      // (data combinada pra receber do comprador — 09/nov/2026).
+      for (const e of (emprestimosVista.data ?? []) as ItemVista[]) {
         if (e.forma_pagamento === "parcelado") continue; // já avisado parcela a parcela
         avisos.push({
           tipo: "venc_emprestimo",
           chave: `${e.id}:${e.data_vencimento_final}:${quando(e.data_vencimento_final, hoje)}`,
           payload: {
             titulo: "Calixto — A receber",
-            corpo: `Empréstimo de ${e.nome} vence ${quando(e.data_vencimento_final, hoje)} — ${moeda(Number(e.valor_retornavel ?? e.valor_investido))}`,
+            corpo: `${e.tipo === "revenda" ? `Pagamento da revenda ${e.nome}` : `Empréstimo de ${e.nome}`} vence ${quando(e.data_vencimento_final, hoje)} — ${moeda(valorVista(e))}`,
             url: "/dashboard/investimentos",
             tag: `emprestimo-${e.id}`,
+          },
+        });
+      }
+
+      // ATRASADOS (09/nov/2026): antes só havia aviso no dia/véspera — passou
+      // do dia sem pagar/receber, ninguém lembrava mais (só a venda fiada).
+      // Agora lembra a cada 3 dias, por até 60 dias de atraso.
+      const desdeAtraso = new Date(Date.parse(hoje) - LIMITE_ATRASO_DIAS * 86400000).toISOString().slice(0, 10);
+      const [pagarAtrasadas, receberAtrasadas, parcelasInvAtrasadas, vistaAtrasados, produtosEstoque] = await Promise.all([
+        admin
+          .from("contas_pagar")
+          .select("id, descricao, valor, vencimento")
+          .eq("usuario_id", usuarioId)
+          .eq("status", "pendente")
+          .lt("vencimento", hoje)
+          .gte("vencimento", desdeAtraso)
+          .limit(20),
+        admin
+          .from("contas_receber")
+          .select("id, descricao, valor, vencimento, clientes(nome)")
+          .eq("usuario_id", usuarioId)
+          .eq("status", "pendente")
+          .or("origem.is.null,origem.neq.fiado") // fiado já tem a cobrança própria
+          .lt("vencimento", hoje)
+          .gte("vencimento", desdeAtraso)
+          .limit(20),
+        admin
+          .from("investimento_parcelas")
+          .select("id, numero, valor, data_vencimento, investimentos(nome, tipo, numero_parcelas)")
+          .eq("usuario_id", usuarioId)
+          .eq("pago", false)
+          .lt("data_vencimento", hoje)
+          .gte("data_vencimento", desdeAtraso)
+          .limit(20),
+        admin
+          .from("investimentos")
+          .select("id, nome, tipo, valor_retornavel, valor_investido, preco_revenda, data_vencimento_final, forma_pagamento")
+          .eq("usuario_id", usuarioId)
+          .in("tipo", ["emprestimo", "revenda"])
+          .eq("quitado", false)
+          .lt("data_vencimento_final", hoje)
+          .gte("data_vencimento_final", desdeAtraso)
+          .limit(20),
+        admin.from("produtos").select("id, nome, quantidade_estoque, estoque_minimo").eq("usuario_id", usuarioId).eq("ativo", true).gt("estoque_minimo", 0),
+      ]);
+      const atraso = (data: string) => Math.max(1, Math.round((Date.parse(hoje) - Date.parse(data)) / 86400000));
+      const textoAtraso = (data: string) => `${atraso(data)} ${atraso(data) === 1 ? "dia" : "dias"}`;
+
+      for (const c of (pagarAtrasadas.data ?? []) as { id: string; descricao: string | null; valor: number; vencimento: string }[]) {
+        avisos.push({
+          tipo: "atraso_pagar",
+          chave: `${c.id}:${c.vencimento}:${Math.floor(atraso(c.vencimento) / 3)}`,
+          payload: {
+            titulo: "Calixto — Conta atrasada",
+            corpo: `${c.descricao || "Conta a pagar"} venceu há ${textoAtraso(c.vencimento)} — ${moeda(c.valor)}. Já pagou? Marque como paga.`,
+            url: "/dashboard/empresa/contas",
+            tag: `atraso-pagar-${c.id}`,
+          },
+        });
+      }
+      for (const c of (receberAtrasadas.data ?? []) as { id: string; descricao: string | null; valor: number; vencimento: string; clientes: { nome: string } | { nome: string }[] | null }[]) {
+        const cliente = Array.isArray(c.clientes) ? c.clientes[0]?.nome : c.clientes?.nome;
+        avisos.push({
+          tipo: "atraso_receber",
+          chave: `${c.id}:${c.vencimento}:${Math.floor(atraso(c.vencimento) / 3)}`,
+          payload: {
+            titulo: "Calixto — Recebimento atrasado",
+            corpo: `${cliente ? `${cliente}: ` : ""}${c.descricao || "conta a receber"} venceu há ${textoAtraso(c.vencimento)} — ${moeda(c.valor)}. Já recebeu? Dê baixa.`,
+            url: "/dashboard/empresa/contas",
+            tag: `atraso-receber-${c.id}`,
+          },
+        });
+      }
+      for (const p of (parcelasInvAtrasadas.data ?? []) as ParcelaInvAviso[]) {
+        const inv = Array.isArray(p.investimentos) ? p.investimentos[0] : p.investimentos;
+        const total = inv?.numero_parcelas ? `/${inv.numero_parcelas}` : "";
+        const oque = inv?.tipo === "revenda" ? `da revenda ${inv?.nome ?? ""}` : `do empréstimo de ${inv?.nome ?? ""}`;
+        avisos.push({
+          tipo: "atraso_parcela_inv",
+          chave: `${p.id}:${p.data_vencimento}:${Math.floor(atraso(p.data_vencimento) / 3)}`,
+          payload: {
+            titulo: "Calixto — A receber (atrasado)",
+            corpo: `Parcela ${p.numero}${total} ${oque.trim()} está atrasada há ${textoAtraso(p.data_vencimento)} — ${moeda(p.valor)}.`,
+            url: "/dashboard/investimentos",
+            tag: `atraso-parcela-inv-${p.id}`,
+          },
+        });
+      }
+      for (const e of (vistaAtrasados.data ?? []) as ItemVista[]) {
+        if (e.forma_pagamento === "parcelado") continue;
+        avisos.push({
+          tipo: "atraso_emprestimo",
+          chave: `${e.id}:${e.data_vencimento_final}:${Math.floor(atraso(e.data_vencimento_final) / 3)}`,
+          payload: {
+            titulo: "Calixto — A receber (atrasado)",
+            corpo: `${e.tipo === "revenda" ? `Pagamento da revenda ${e.nome}` : `Empréstimo de ${e.nome}`} está atrasado há ${textoAtraso(e.data_vencimento_final)} — ${moeda(valorVista(e))}.`,
+            url: "/dashboard/investimentos",
+            tag: `atraso-emprestimo-${e.id}`,
+          },
+        });
+      }
+
+      // Teste grátis acabando: avisa 3 dias antes e na véspera, pra pessoa
+      // escolher um plano sem perder nada no meio do caminho.
+      const { data: trial } = await admin
+        .from("assinaturas")
+        .select("id, data_proximo_pagamento")
+        .eq("usuario_id", usuarioId)
+        .eq("gateway", "trial")
+        .eq("status", "ativa")
+        .maybeSingle();
+      const fimTrial = (trial as { id: string; data_proximo_pagamento: string | null } | null)?.data_proximo_pagamento?.slice(0, 10);
+      if (fimTrial) {
+        const faltam = Math.round((Date.parse(fimTrial) - Date.parse(hoje)) / 86400000);
+        if (faltam === 3 || faltam === 1) {
+          avisos.push({
+            tipo: "fim_trial",
+            chave: `${fimTrial}:${faltam}`,
+            payload: {
+              titulo: "Calixto — Seu teste grátis está acabando",
+              corpo: faltam === 1 ? "Seu teste grátis acaba amanhã. Escolha um plano para continuar com tudo liberado." : "Faltam 3 dias para o fim do seu teste grátis. Veja os planos e continue com tudo liberado.",
+              url: "/dashboard/plano",
+              tag: "fim-trial",
+            },
+          });
+        }
+      }
+
+      // Estoque no mínimo ou abaixo: um lembrete por semana por produto
+      // enquanto continuar baixo (o mínimo é o que a pessoa definiu).
+      const semana = Math.floor(Date.parse(hoje) / (7 * 86400000));
+      for (const pr of (produtosEstoque.data ?? []) as { id: string; nome: string; quantidade_estoque: number; estoque_minimo: number }[]) {
+        if (Number(pr.quantidade_estoque) > Number(pr.estoque_minimo)) continue;
+        avisos.push({
+          tipo: "estoque_baixo",
+          chave: `${pr.id}:${semana}`,
+          payload: {
+            titulo: "Calixto — Estoque baixo",
+            corpo:
+              Number(pr.quantidade_estoque) <= 0
+                ? `${pr.nome} acabou no estoque. Hora de repor?`
+                : `${pr.nome} está com ${Number(pr.quantidade_estoque)} no estoque (mínimo ${Number(pr.estoque_minimo)}). Hora de repor?`,
+            url: "/dashboard/empresa/estoque",
+            tag: `estoque-${pr.id}`,
           },
         });
       }
@@ -483,7 +665,7 @@ export async function GET(request: Request) {
         if (
           (await enviarPushParaUsuario(admin, usuarioId, {
             titulo: "Calixto — Mais avisos",
-            corpo: `E mais ${resto} vencimento(s) entre hoje e amanhã. Toque para ver.`,
+            corpo: `E mais ${resto} ${resto === 1 ? "aviso" : "avisos"} (vencimentos e atrasos). Toque para ver.`,
             url: "/dashboard",
             tag: `resumo-${hoje}`,
           })) > 0

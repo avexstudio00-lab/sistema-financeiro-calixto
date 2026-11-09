@@ -83,6 +83,16 @@ export async function salvarPrecoRevenda(investimentoId: string, preco: number |
   return { error };
 }
 
+/**
+ * Revenda À VISTA: data combinada pra receber do comprador (09/nov/2026).
+ * Fica em `data_vencimento_final` (o mesmo campo do vencimento do
+ * empréstimo à vista) e alimenta a "Visão de hoje" e o aviso por push —
+ * antes só as revendas parceladas apareciam lá. Nulo = sem data combinada.
+ */
+export async function salvarDataRecebimentoRevenda(investimentoId: string, data: string | null) {
+  return supabase.from("investimentos").update({ data_vencimento_final: data }).eq("id", investimentoId);
+}
+
 /** Recebimento de uma revenda (à vista ou avulso): entra numa carteira. */
 export async function registrarRecebimentoRevenda(params: {
   investimento: Investimento;
