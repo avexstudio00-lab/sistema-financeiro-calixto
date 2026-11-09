@@ -221,6 +221,20 @@ export default function EstoquePage() {
                 <div className="text-right">
                   <p className="text-body font-semibold text-foreground">Comprar {s.quantidadeSugerida} un.</p>
                   <p className="text-small text-muted">{formatarMoeda(s.capitalNecessario)} de capital de giro</p>
+                  {/* 09/nov/2026: liga a sugestão direto à compra (custo +
+                      de qual carteira saiu / conta a pagar). */}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-1"
+                    onClick={() => {
+                      abrirMovimento(s.produto, "entrada");
+                      setMovimento((m) => ({ ...m, quantidade: String(s.quantidadeSugerida) }));
+                      setTimeout(() => document.getElementById(`produto-${s.produto.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+                    }}
+                  >
+                    Registrar compra
+                  </Button>
                 </div>
               </div>
             ))}
@@ -240,7 +254,7 @@ export default function EstoquePage() {
           {produtos.map((p) => {
             const baixo = estoqueBaixo(p);
             return (
-              <Card key={p.id} padding="sm" className="flex flex-col gap-3">
+              <Card key={p.id} id={`produto-${p.id}`} padding="sm" className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
