@@ -16,6 +16,8 @@ import {
   type SugestaoExtrato,
 } from "@/lib/data/importar";
 import { carteirasDoAmbiente } from "@/lib/data/contas";
+import { carregarOperacoesAbertas, nomeSugeridoDaDescricao, sugerirLigacoes, type OperacaoAberta } from "@/lib/data/importarLigacoes";
+import { NovoInvestimentoModal } from "@/components/dashboard/NovoInvestimentoModal";
 import { lerOfx, ofxParaCsv, pareceOfx } from "@/lib/util/ofx";
 import { classificarLancamento, chaveDescricao, desmarcadoPorPadrao, type Classificacao } from "@/lib/util/classificarExtrato";
 import type { Categoria } from "@/lib/data/tipos";
@@ -25,6 +27,7 @@ import {
   decodificarArquivo,
   interpretarLinhas,
   marcarDuplicadas,
+  acharParecidas,
   descricoesParecidas,
   validarArquivoAntesDeLer,
   type CampoCanonico,
@@ -32,6 +35,7 @@ import {
 } from "@/lib/util/csvImportacao";
 import type { Conta } from "@/lib/data/tipos";
 import { AreaUpload } from "./AreaUpload";
+import { RegrasImportacao } from "./RegrasImportacao";
 import { MapeamentoColunas } from "./MapeamentoColunas";
 import { ConferenciaImportacao } from "./ConferenciaImportacao";
 import { ResultadoImportacao, type ResumoResultado } from "./ResultadoImportacao";
@@ -80,6 +84,12 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
   const [classificacoes, setClassificacoes] = React.useState<Classificacao[]>([]);
   const [sugestoes, setSugestoes] = React.useState<SugestaoExtrato[]>([]);
   const [categorias, setCategorias] = React.useState<Categoria[]>([]);
+  // "O que é isso?" (10/nov/2026): empréstimos/revendas em aberto, dívidas,
+  // motivo das parecidas e o formulário de empréstimo/revenda aberto.
+  const [operacoes, setOperacoes] = React.useState<OperacaoAberta[]>([]);
+  const [dividasAbertas, setDividasAbertas] = React.useState<{ id: string; nome: string }[]>([]);
+  const [motivosDuplicada, setMotivosDuplicada] = React.useState<Map<number, string>>(new Map());
+  const [formulario, setFormulario] = React.useState<{ indice: number; tipo: "emprestimo" | "revenda" } | null>(null);
 
   // Negócio grava na conta mestre (mesmo padrão da NovaTransacaoModal).
   const usuarioEfetivoId = tipoNegocio === "negocio" ? negocio?.usuarioId ?? null : user?.id ?? null;
@@ -113,6 +123,9 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
     setEhCartaoArquivo(false);
     setClassificacoes([]);
     setSugestoes([]);
+    setOperacoes([]);
+    setMotivosDuplicada(new Map());
+    setFormulario(null);
   }
 
   // PDF com senha (muitos bancos protegem com parte do CPF).
@@ -198,10 +211,21 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
     setErro(null);
     try {
       const datas = interpretacao.validos.map((v) => v.data).sort();
-      const existentes = datas.length
-        ? await buscarExistentesParaDuplicidade(usuarioEfetivoId, contaId, datas[0], datas[datas.length - 1])
-        : [];
+      const desloca = (iso: string, d: number) => {
+        const x = new Date(iso + "T00:00:00");
+        x.setDate(x.getDate() + d);
+        return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+      };
+      const [existentes, ops] = await Promise.all([
+        datas.length
+          ? buscarExistentesParaDuplicidade(usuarioEfetivoId, contaId, desloca(datas[0], -3), desloca(datas[datas.length - 1], 3))
+          : Promise.resolve([]),
+        carregarOperacoesAbertas(usuarioEfetivoId),
+      ]);
       const dup = marcarDuplicadas(interpretacao.validos, existentes);
+      // Lançado à mão com outro nome/data (mesmo valor, até 3 dias): também vem desmarcado.
+      const parecidas = acharParecidas(interpretacao.validos, existentes, dup);
+      parecidas.forEach((_, i) => dup.add(i));
       // Leitura inteligente: o que é cada lançamento, categoria sugerida
       // (histórico do usuário > regras), dívida ligada, fatura → cartão.
       const conta = contas.find((c) => c.id === contaId);
@@ -225,6 +249,16 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
       sugs.forEach((sg, i) => {
         if (sg.jaLancado) dup.add(i);
       });
+      // Caixinha/carteira pelo nome e PIX da pessoa de um empréstimo.
+      const ligacoes = sugerirLigacoes({ itens: interpretacao.validos, operacoes: ops, carteiras: contas, contaImportacaoId: contaId });
+      ligacoes.forEach((lg, i) => {
+        if (!lg || sugs[i].acao !== "normal") return;
+        if (lg.acao === "transferencia") sugs[i] = { ...sugs[i], acao: "transferencia", transferirPara: lg.carteiraId };
+        else sugs[i] = { ...sugs[i], acao: "receb_emprestimo", investimentoId: lg.investimentoId, modoRecebimento: lg.modo, parcelaId: lg.parcelaId };
+      });
+      setOperacoes(ops);
+      setDividasAbertas(contexto.dividas.map((d) => ({ id: d.id, nome: d.nome })));
+      setMotivosDuplicada(parecidas);
       setCategorias(contexto.categorias);
       setClassificacoes(classes);
       setSugestoes(sugs);
@@ -263,6 +297,7 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
         tipoNegocio,
         itens: itens.map((item, k) => ({ ...item, formaPagamento: item.formaPagamento ?? classificacoes[indices[k]]?.formaPagamento ?? null })),
         sugestoes: sugestoesFinais,
+        operacoes,
       });
       const ignoradosDuplicidade = Array.from(duplicadas).filter((i) => !selecionados.has(i)).length;
       setResultado({
@@ -293,6 +328,7 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
       )}
 
       {etapa === "upload" && <AreaUpload lendo={lendo} onArquivo={(a) => receberArquivo(a)} />}
+      {etapa === "upload" && <RegrasImportacao />}
 
       {etapa === "upload" && pdfComSenha && (
         <Card padding="lg" className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -345,12 +381,40 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
           onSugestoes={setSugestoes}
           categorias={categorias}
           cartoes={contas.filter((c) => c.tipo === "cartao_credito" && c.id !== contaId)}
+          carteiras={contas.filter((c) => c.tipo !== "cartao_credito" && c.id !== contaId)}
+          dividas={dividasAbertas}
+          operacoes={operacoes}
+          motivosDuplicada={motivosDuplicada}
+          onPreencherOperacao={(indice, tipo) => setFormulario({ indice, tipo })}
           selecionados={selecionados}
           onSelecionados={setSelecionados}
           importando={importando}
           onVoltar={() => setEtapa("mapear")}
           onCancelar={reiniciar}
           onConfirmar={importar}
+        />
+      )}
+
+      {formulario && interpretacao.validos[formulario.indice] && (
+        <NovoInvestimentoModal
+          aberto
+          tipoInicial={formulario.tipo}
+          inicial={{
+            nome: nomeSugeridoDaDescricao(interpretacao.validos[formulario.indice].descricao),
+            valor: interpretacao.validos[formulario.indice].valor,
+            data: interpretacao.validos[formulario.indice].data,
+            contaOrigemId: contaId,
+          }}
+          onFechar={() => setFormulario(null)}
+          onSalvo={(criado) => {
+            const i = formulario.indice;
+            const rotulo = `${formulario.tipo === "emprestimo" ? "Empréstimo" : "Revenda"}${criado?.codigo ? ` ${criado.codigo}` : ""} criado — saída já lançada`;
+            setSugestoes((atual) => {
+              const novas = atual.slice();
+              novas[i] = { ...novas[i], lancadoPor: rotulo };
+              return novas;
+            });
+          }}
         />
       )}
 
