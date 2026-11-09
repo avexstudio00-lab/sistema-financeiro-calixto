@@ -95,6 +95,31 @@ export interface ClaimsJwt {
   aal?: string;
   session_id?: string;
   iss?: string;
+  aud?: string | string[];
+  email?: string;
+  phone?: string;
+  app_metadata?: Record<string, unknown>;
+  user_metadata?: Record<string, unknown>;
+  is_anonymous?: boolean;
+}
+
+/**
+ * Usuário montado a partir das claims de um JWT JÁ VERIFICADO (assinatura
+ * ES256 conferida) — evita uma ida ao Supabase (/auth/v1/user) só pra
+ * reabrir o app (10/nov/2026: a abertura levava ~1,4 s nessa rota). O app
+ * só usa id, e-mail e user_metadata do usuário.
+ */
+export function usuarioDasClaims(c: ClaimsJwt): Record<string, unknown> {
+  return {
+    id: c.sub,
+    aud: Array.isArray(c.aud) ? c.aud[0] : (c.aud ?? "authenticated"),
+    role: c.role ?? "authenticated",
+    email: c.email ?? "",
+    phone: c.phone ?? "",
+    app_metadata: c.app_metadata ?? {},
+    user_metadata: c.user_metadata ?? {},
+    is_anonymous: !!c.is_anonymous,
+  };
 }
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string };
