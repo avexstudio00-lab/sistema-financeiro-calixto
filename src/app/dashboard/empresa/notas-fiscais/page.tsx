@@ -21,7 +21,8 @@ import {
 import { FiltrosLista, dentroDoPeriodo, type PeriodoMeses } from "@/components/dashboard/FiltrosLista";
 import { formatarMoeda } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Cliente, NotaFiscal, StatusNotaFiscal } from "@/lib/data/tipos";
+import type { Cliente, NotaFiscal, StatusNotaFiscal, Venda } from "@/lib/data/tipos";
+import { supabase } from "@/lib/supabase/client";
 
 const classeSelect =
   "h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100";
@@ -89,6 +90,34 @@ export default function NotasFiscaisPage() {
     carregar();
   }, [carregar]);
 
+  // 09/nov/2026: vindo de Vendas (?venda=<grupo ou id>), abre a nota já
+  // preenchida com o cliente, os itens e o valor daquela venda.
+  React.useEffect(() => {
+    if (!negocio) return;
+    const ref = new URLSearchParams(window.location.search).get("venda");
+    if (!ref || !/^[0-9a-f-]{36}$/i.test(ref)) return;
+    supabase
+      .from("vendas")
+      .select("*, clientes(*)")
+      .eq("usuario_id", negocio.usuarioId)
+      .or(`grupo_venda_id.eq.${ref},id.eq.${ref}`)
+      .then(({ data }) => {
+        const linhas = (data as Venda[] | null) ?? [];
+        if (linhas.length === 0) return;
+        const total = linhas.reduce((a, l) => a + Number(l.valor_total), 0);
+        const cliente = linhas[0].clientes ?? null;
+        setForm((f) => ({
+          ...f,
+          clienteId: linhas[0].cliente_id ?? "",
+          tomador: cliente?.nome ?? f.tomador,
+          tipo: linhas.every((l) => l.servico_id) ? "servico" : "produto",
+          discriminacao: linhas.map((l) => `${l.quantidade}x ${l.produto_nome}`).join("; "),
+          valor: total.toFixed(2).replace(".", ","),
+        }));
+        setFormAberto(true);
+      });
+  }, [negocio]);
+
   function escolherCliente(id: string) {
     const c = clientes.find((x) => x.id === id);
     setForm((f) => ({ ...f, clienteId: id, tomador: c?.nome ?? f.tomador }));
@@ -148,13 +177,24 @@ export default function NotasFiscaisPage() {
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h2 text-foreground">Notas fiscais</h1>
-          <p className="text-body text-foreground">Emissões recentes e emissão de novas notas de serviço ou produto.</p>
+          <p className="text-body text-foreground">Prepare notas de serviço ou produto e acompanhe o status de cada uma.</p>
         </div>
         <Button onClick={() => { setFormAberto(true); setErro(null); }}>
           <Plus size={18} />
           Nova nota
         </Button>
       </div>
+
+      {/* 09/nov/2026: deixar claro que o app PREPARA a nota e quem emite de
+          verdade é um emissor parceiro ligado à prefeitura/SEFAZ. */}
+      <Card className="flex items-start gap-3 border-amber-200 bg-amber-50/60">
+        <Info size={18} className="mt-0.5 shrink-0 text-amber-700" />
+        <p className="text-small text-foreground">
+          O Calixto prepara a nota (cliente, itens, valor, impostos) e envia para um emissor oficial parceiro, que gera a
+          nota válida na prefeitura/SEFAZ. Enquanto essa ligação não estiver ativada, as notas ficam salvas como
+          <strong> pendentes</strong> — nada é emitido de verdade ainda.
+        </p>
+      </Card>
 
       {mensagem && (
         <Card className="flex items-start gap-3 border-primary-200 bg-primary-50/60">
