@@ -28,6 +28,7 @@ import { obterCotacoesMercado } from "@/lib/data/mercado";
 import { gerarResumoEmpresa, type ResumoEmpresa } from "@/lib/data/empresa";
 import { listarTransacoes } from "@/lib/data/transacoes";
 import { listarProdutos, estoqueBaixo } from "@/lib/data/produtos";
+import { gerarLancamentosPendentes } from "@/lib/data/contasFixas";
 import { listarContasPagar, listarContasReceber, estaAtrasada } from "@/lib/data/contasEmpresa";
 import { listarVendas, resumirVendasHoje, ticketMedioPorMes, ritmoDiarioComMediaMovel } from "@/lib/data/vendas";
 import { valorDoEstoque } from "@/lib/data/estoque";
@@ -125,6 +126,9 @@ export default function PainelEmpresaPage() {
 
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
+    // 09/nov/2026: contas fixas da empresa lançam sozinhas quando o dono
+    // abre o painel da empresa (mesmo esquema "preguiçoso" do painel pessoal).
+    if (papel === "dono" && navigator.onLine) await gerarLancamentosPendentes(negocio.usuarioId).catch(() => 0);
 
     // Funcionário não tem acesso ao financeiro do negócio (contas a pagar/
     // receber e o extrato de transações ficam bloqueados pelo RLS) — só
@@ -190,7 +194,7 @@ export default function PainelEmpresaPage() {
       vendas: listaVendas,
     });
     setCarregando(false);
-  }, [negocio, ehFuncionario, ano, mes, aplicarCache]);
+  }, [negocio, ehFuncionario, ano, mes, aplicarCache, papel]);
 
   React.useEffect(() => {
     carregar();
