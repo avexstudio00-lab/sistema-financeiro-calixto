@@ -11,7 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { listarContas, criarConta, atualizarConta, deletarConta } from "@/lib/data/contas";
+import { listarContas, criarConta, atualizarConta, deletarConta, ambienteDaCarteira } from "@/lib/data/contas";
 import { listarTransacoes } from "@/lib/data/transacoes";
 import { cicloAtual } from "@/lib/data/faturaCartao";
 import { formatarMoeda } from "@/lib/format";
@@ -40,6 +40,7 @@ interface FormularioConta {
   limite: string;
   diaFechamento: string;
   diaVencimento: string;
+  ambiente: "pessoal" | "empresa";
 }
 
 const FORM_VAZIO: FormularioConta = {
@@ -49,6 +50,7 @@ const FORM_VAZIO: FormularioConta = {
   limite: "",
   diaFechamento: "",
   diaVencimento: "",
+  ambiente: "pessoal",
 };
 
 const INPUT_DIA_CLASSE =
@@ -141,11 +143,25 @@ export default function CarteirasPage() {
     carregar();
   }, [carregar]);
 
-  const saldoTotal = contas.reduce((soma, c) => soma + Number(c.saldo_atual), 0);
+  // 09/nov/2026: carteiras da empresa separadas das pessoais.
+  const contasPessoais = contas.filter((c) => ambienteDaCarteira(c) === "pessoal");
+  const contasEmpresa = contas.filter((c) => ambienteDaCarteira(c) === "empresa");
+  const saldoTotal = contasPessoais.reduce((soma, c) => soma + Number(c.saldo_atual), 0);
+  const saldoEmpresa = contasEmpresa.reduce((soma, c) => soma + Number(c.saldo_atual), 0);
 
-  function abrirNovo() {
+  // "Colocar dinheiro meu na empresa" (aporte do dono): transferência da
+  // carteira pessoal pra carteira da empresa — não é gasto nem faturamento.
+  function abrirAporte() {
+    setTransferindo(true);
+    setTransfErro(null);
+    setTransfOrigem(contasPessoais.find((c) => c.tipo !== "cartao_credito")?.id ?? "");
+    setTransfDestino(contasEmpresa.find((c) => c.tipo !== "cartao_credito")?.id ?? "");
+    setTransfDescricao("Aporte do dono na empresa");
+  }
+
+  function abrirNovo(ambiente: "pessoal" | "empresa" = "pessoal") {
     setEditandoId(null);
-    setForm(FORM_VAZIO);
+    setForm({ ...FORM_VAZIO, ambiente });
     setErro(null);
     setFormAberto(true);
   }
@@ -159,6 +175,7 @@ export default function CarteirasPage() {
       limite: conta.limite !== null ? String(conta.limite).replace(".", ",") : "",
       diaFechamento: conta.dia_fechamento !== null ? String(conta.dia_fechamento) : "",
       diaVencimento: conta.dia_vencimento !== null ? String(conta.dia_vencimento) : "",
+      ambiente: ambienteDaCarteira(conta),
     });
     setErro(null);
     setFormAberto(true);
@@ -196,6 +213,7 @@ export default function CarteirasPage() {
           limite,
           diaFechamento,
           diaVencimento,
+          ...(temEmpresaPropria ? { ambiente: form.ambiente } : {}),
         })
       : await criarConta(
           user.id,
@@ -204,12 +222,17 @@ export default function CarteirasPage() {
           Number(form.saldoInicial.replace(",", ".")) || 0,
           limite,
           diaFechamento,
-          diaVencimento
+          diaVencimento,
+          temEmpresaPropria ? form.ambiente : "pessoal"
         );
     setSalvando(false);
 
     if (error) {
-      setErro("Não foi possível salvar. Tente novamente.");
+      setErro(
+        /ambiente/.test((error as { message?: string }).message ?? "")
+          ? "Pra separar carteira da empresa, o banco precisa ser atualizado (SQL de 09/nov/2026). Por enquanto, crie como pessoal."
+          : "Não foi possível salvar. Tente novamente."
+      );
       return;
     }
     setFormAberto(false);
@@ -238,7 +261,7 @@ export default function CarteirasPage() {
           <h1 className="text-h2 text-foreground">Minhas carteiras</h1>
           <p className="text-body text-muted">Contas, cartões e dinheiro que você usa pra registrar seus gastos.</p>
         </div>
-        <Button onClick={abrirNovo}>
+        <Button onClick={() => abrirNovo()}>
           <Plus size={18} />
           Nova carteira
         </Button>
@@ -246,10 +269,20 @@ export default function CarteirasPage() {
 
       {contas.length > 0 && (
         <Card className="flex flex-col gap-2">
-          <p className="text-small text-muted">Saldo somado de todas as carteiras</p>
+          <p className="text-small text-muted">{contasEmpresa.length > 0 ? "Saldo das carteiras pessoais" : "Saldo somado de todas as carteiras"}</p>
           <p className={`text-h2 ${saldoTotal >= 0 ? "text-primary-500" : "text-red-500"}`}>
             {formatarMoeda(saldoTotal)}
           </p>
+          {contasEmpresa.length > 0 && (
+            <p className="text-small text-muted">
+              Carteiras da empresa: <strong className="text-foreground">{formatarMoeda(saldoEmpresa)}</strong> (fora da sua vida pessoal)
+            </p>
+          )}
+          {temEmpresaPropria && contasEmpresa.length === 0 && (
+            <p className="text-xs text-muted">
+              Tem conta só da empresa? Crie uma carteira marcada como &quot;Da empresa&quot; pra separar o dinheiro do negócio do seu.
+            </p>
+          )}
         </Card>
       )}
 
@@ -267,7 +300,18 @@ export default function CarteirasPage() {
               <ArrowLeftRight size={16} />
               Transferir entre carteiras
             </button>
-          ) : (
+          ) : null}
+          {!transferindo && temEmpresaPropria && contasEmpresa.length > 0 && contasPessoais.length > 0 ? (
+            <button
+              type="button"
+              onClick={abrirAporte}
+              className="flex items-center gap-2 self-start text-small font-semibold text-primary-700 hover:underline"
+            >
+              <Building2 size={16} />
+              Colocar dinheiro meu na empresa
+            </button>
+          ) : null}
+          {!transferindo ? null : (
             <form onSubmit={handleTransferir} className="flex flex-col gap-3">
               <p className="text-small font-semibold text-foreground">Transferir entre carteiras</p>
               <p className="text-xs text-muted">
@@ -280,7 +324,7 @@ export default function CarteirasPage() {
                   <select value={transfOrigem} onChange={(e) => setTransfOrigem(e.target.value)} className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground">
                     <option value="">Escolha...</option>
                     {contas.filter((c) => c.tipo !== "cartao_credito").map((c) => (
-                      <option key={c.id} value={c.id}>{c.nome} — {formatarMoeda(Number(c.saldo_atual))}</option>
+                      <option key={c.id} value={c.id}>{c.nome}{ambienteDaCarteira(c) === "empresa" ? " (empresa)" : ""} — {formatarMoeda(Number(c.saldo_atual))}</option>
                     ))}
                   </select>
                 </label>
@@ -289,7 +333,7 @@ export default function CarteirasPage() {
                   <select value={transfDestino} onChange={(e) => setTransfDestino(e.target.value)} className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground">
                     <option value="">Escolha...</option>
                     {contas.filter((c) => c.id !== transfOrigem).map((c) => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
+                      <option key={c.id} value={c.id}>{c.nome}{ambienteDaCarteira(c) === "empresa" ? " (empresa)" : ""}</option>
                     ))}
                   </select>
                 </label>
@@ -329,6 +373,28 @@ export default function CarteirasPage() {
         <Card padding="lg" className="flex flex-col gap-4">
           <h2 className="text-h3 text-foreground">{editandoId ? "Editar carteira" : "Nova carteira"}</h2>
           <form onSubmit={handleSalvar} className="flex flex-col gap-4">
+            {temEmpresaPropria && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-small font-medium text-foreground">De quem é essa carteira?</span>
+                <div className="flex gap-2">
+                  {(["pessoal", "empresa"] as const).map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, ambiente: a }))}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-small font-medium ${
+                        form.ambiente === a ? "border-primary-500 bg-primary-50 text-primary-700" : "border-border text-muted"
+                      }`}
+                    >
+                      {a === "pessoal" ? "Minha (pessoal)" : "Da empresa"}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-muted">
+                  Carteira da empresa aparece só em Minha empresa (vendas, contas, fluxo de caixa) e não entra no seu saldo pessoal.
+                </span>
+              </div>
+            )}
             <Input
               label="Nome"
               value={form.nome}
@@ -427,14 +493,23 @@ export default function CarteirasPage() {
         <Card className="flex flex-col items-center gap-3 py-12 text-center">
           <Wallet size={28} className="text-primary-400" />
           <p className="text-body text-muted">Você ainda não tem carteiras cadastradas.</p>
-          <Button onClick={abrirNovo}>
+          <Button onClick={() => abrirNovo()}>
             <Plus size={18} />
             Cadastrar minha primeira carteira
           </Button>
         </Card>
       ) : (
+        <div className="flex flex-col gap-6">
+        {([
+          { titulo: contasEmpresa.length > 0 ? "Minhas carteiras (pessoal)" : null, lista: contasPessoais },
+          { titulo: "Carteiras da empresa", lista: contasEmpresa },
+        ] as const)
+          .filter((sec) => sec.lista.length > 0)
+          .map((sec) => (
+        <div key={sec.titulo ?? "todas"} className="flex flex-col gap-3">
+        {sec.titulo && <h2 className="text-h3 text-foreground">{sec.titulo}</h2>}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {contas.map((c) => {
+          {sec.lista.map((c) => {
             const Icone = iconeDoTipo(c.tipo);
             const fatura = totalFaturaAberta(c);
             return (
@@ -529,6 +604,15 @@ export default function CarteirasPage() {
               </Card>
             );
           })}
+        </div>
+        </div>
+          ))}
+        {temEmpresaPropria && (
+          <Button variant="secondary" className="self-start" onClick={() => abrirNovo("empresa")}>
+            <Building2 size={16} />
+            Nova carteira da empresa
+          </Button>
+        )}
         </div>
       )}
     </Container>
