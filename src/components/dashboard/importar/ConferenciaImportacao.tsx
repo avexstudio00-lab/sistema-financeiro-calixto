@@ -13,6 +13,8 @@ import type { SugestaoExtrato } from "@/lib/data/importar";
 import { ROTULO_ACAO, acoesDoTipo, modoPadrao, type AcaoExtrato, type OperacaoAberta } from "@/lib/data/importarLigacoes";
 import type { Categoria, Conta } from "@/lib/data/tipos";
 import { RegrasImportacao } from "./RegrasImportacao";
+import { ReceberVariasDialog } from "@/components/dashboard/ReceberVariasDialog";
+import { normalizarTexto } from "@/lib/util/texto";
 
 const POR_PAGINA = 100;
 
@@ -83,6 +85,7 @@ export function ConferenciaImportacao({
     const parcial: Partial<SugestaoExtrato> = {
       acao,
       lancadoPor: null,
+      divisao: null,
       investimentoId: null,
       modoRecebimento: null,
       parcelaId: null,
@@ -105,9 +108,29 @@ export function ConferenciaImportacao({
 
   function escolherOperacao(i: number, investimentoId: string) {
     const op = operacoes.find((o) => o.investimento.id === investimentoId);
-    if (!op) return mudarSugestao(i, { investimentoId: null, modoRecebimento: null, parcelaId: null });
+    if (!op) return mudarSugestao(i, { investimentoId: null, modoRecebimento: null, parcelaId: null, divisao: null });
     const padrao = modoPadrao(op, validos[i].valor);
-    mudarSugestao(i, { investimentoId, modoRecebimento: padrao.modo, parcelaId: padrao.parcelaId });
+    mudarSugestao(i, { investimentoId, modoRecebimento: padrao.modo, parcelaId: padrao.parcelaId, divisao: null });
+  }
+
+  // "Dividir entre vários" (10/nov/2026): uma linha do extrato pagando
+  // várias parcelas/contratos.
+  const [dividindo, setDividindo] = React.useState<number | null>(null);
+  function filtroDaLinha(i: number): string {
+    const desc = ` ${normalizarTexto(validos[i].descricao).replace(/[^a-z0-9 ]/g, " ")} `;
+    const op = operacoes.find((o) => o.palavras.length > 0 && o.palavras.every((p) => desc.includes(` ${p} `)));
+    return op ? op.investimento.nome : "";
+  }
+  function rotuloDivisao(i: number): string {
+    const d = sugestoes[i]?.divisao ?? [];
+    return d
+      .map((a) => {
+        const op = operacoes.find((o) => o.investimento.id === a.investimentoId);
+        const cod = op?.investimento.codigo ?? op?.investimento.nome ?? "";
+        const parc = a.parcelaId ? op?.parcelasAbertas.find((p) => p.id === a.parcelaId)?.numero : null;
+        return `${cod}${parc ? ` p${parc}` : ""} ${formatarMoeda(a.valor)}`;
+      })
+      .join(" + ");
   }
 
   function escolherModo(i: number, valor: string) {
@@ -318,7 +341,25 @@ export function ConferenciaImportacao({
                         </select>
                       )}
 
-                      {(sg.acao === "receb_emprestimo" || sg.acao === "receb_revenda") && (() => {
+                      {(sg.acao === "receb_emprestimo" || sg.acao === "receb_revenda") && sg.divisao && sg.divisao.length > 0 && (
+                        <>
+                          <Badge variant="primary" size="sm">
+                            Dividido: {rotuloDivisao(i)}
+                          </Badge>
+                          <button type="button" onClick={() => setDividindo(i)} className="text-xs font-medium text-primary-700 hover:underline dark:text-primary-300">
+                            Alterar divisão
+                          </button>
+                          <button type="button" onClick={() => mudarSugestao(i, { divisao: null })} className="text-xs font-medium text-muted hover:underline">
+                            Desfazer
+                          </button>
+                        </>
+                      )}
+                      {(sg.acao === "receb_emprestimo" || sg.acao === "receb_revenda") && !(sg.divisao && sg.divisao.length > 0) && (
+                        <button type="button" onClick={() => setDividindo(i)} className="text-xs font-medium text-primary-700 hover:underline dark:text-primary-300">
+                          Dividir entre vários
+                        </button>
+                      )}
+                      {(sg.acao === "receb_emprestimo" || sg.acao === "receb_revenda") && !(sg.divisao && sg.divisao.length > 0) && (() => {
                         const tipoOp = sg.acao === "receb_emprestimo" ? "emprestimo" : "revenda";
                         const lista = operacoes.filter((o) => o.investimento.tipo === tipoOp);
                         const op = lista.find((o) => o.investimento.id === sg.investimentoId);
@@ -418,6 +459,20 @@ export function ConferenciaImportacao({
           </Button>
         )}
       </Card>
+
+      {dividindo != null && validos[dividindo] && (
+        <ReceberVariasDialog
+          operacoes={operacoes}
+          filtroInicial={filtroDaLinha(dividindo)}
+          valorFixo={validos[dividindo].valor}
+          dataFixa={validos[dividindo].data}
+          onFechar={() => setDividindo(null)}
+          onConfirmarDivisao={(alocacoes) => {
+            mudarSugestao(dividindo, { divisao: alocacoes, investimentoId: alocacoes[0]?.investimentoId ?? null });
+            setDividindo(null);
+          }}
+        />
+      )}
 
       {faltaPreencher > 0 && (
         <p className="rounded-xl border border-amber-300 px-3 py-2 text-small text-foreground dark:border-amber-700">

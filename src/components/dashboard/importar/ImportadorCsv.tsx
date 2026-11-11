@@ -254,7 +254,7 @@ export function ImportadorCsv({ mundoInicial = "pessoal" }: { mundoInicial?: "pe
       ligacoes.forEach((lg, i) => {
         if (!lg || sugs[i].acao !== "normal") return;
         if (lg.acao === "transferencia") sugs[i] = { ...sugs[i], acao: "transferencia", transferirPara: lg.carteiraId };
-        else sugs[i] = { ...sugs[i], acao: "receb_emprestimo", investimentoId: lg.investimentoId, modoRecebimento: lg.modo, parcelaId: lg.parcelaId };
+        else sugs[i] = { ...sugs[i], acao: "receb_emprestimo", investimentoId: lg.investimentoId, modoRecebimento: lg.modo, parcelaId: lg.parcelaId, divisao: lg.divisao ?? null };
       });
       setOperacoes(ops);
       setDividasAbertas(contexto.dividas.map((d) => ({ id: d.id, nome: d.nome })));
