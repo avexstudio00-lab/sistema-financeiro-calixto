@@ -3,18 +3,20 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Phone, Mail, ShoppingCart, ClipboardList, Receipt, MessageCircle } from "lucide-react";
+import { ArrowLeft, Phone, Mail, ShoppingCart, ClipboardList, Receipt, MessageCircle, HandCoins } from "lucide-react";
+import { ReceberTitulosDialog } from "@/components/dashboard/ReceberTitulosDialog";
+import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { ROTULO_STATUS_ORCAMENTO, resumirOrcamentosCliente } from "@/lib/data/orcamentos";
-import { estaAtrasada } from "@/lib/data/contasEmpresa";
+import { estaAtrasada, receberTitulosDoCliente } from "@/lib/data/contasEmpresa";
 import { carregarDossieCliente } from "@/lib/data/clientes";
 import { formatarMoeda } from "@/lib/format";
 import { linkWhatsApp } from "@/lib/util/texto";
-import type { Cliente, ContaReceber, Orcamento, Venda } from "@/lib/data/tipos";
+import type { Cliente, Conta, ContaReceber, Orcamento, Venda } from "@/lib/data/tipos";
 
 /**
  * Dossiê do cliente — visão 360° (item 7.1 da especificação de 03/out/2026):
@@ -31,11 +33,22 @@ export default function DossieClientePage() {
   const [titulos, setTitulos] = React.useState<ContaReceber[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const veFinanceiro = papel !== "funcionario";
+  // Cliente pagando várias contas de uma vez (10/nov/2026).
+  const [receberVarias, setReceberVarias] = React.useState<Conta[] | null>(null);
+  const [salvandoVarias, setSalvandoVarias] = React.useState(false);
+  const [aviso, setAviso] = React.useState<string | null>(null);
+  const [versao, setVersao] = React.useState(0);
+
+  async function abrirReceberVarias() {
+    if (!negocio) return;
+    const todas = await listarContas(negocio.usuarioId);
+    setReceberVarias(carteirasDoAmbiente(todas, "empresa"));
+  }
 
   React.useEffect(() => {
     if (!negocio || !clienteId) return;
     (async () => {
-      setCarregando(true);
+      if (versao === 0) setCarregando(true);
       // Busca pela chave do cliente, sem o filtro de empresa ativa (item
       // 4.16: corrige totais zerados de cliente recém-cadastrado).
       const d = await carregarDossieCliente(clienteId, veFinanceiro);
@@ -45,7 +58,7 @@ export default function DossieClientePage() {
       setTitulos(d.titulos);
       setCarregando(false);
     })();
-  }, [negocio, clienteId, veFinanceiro]);
+  }, [negocio, clienteId, veFinanceiro, versao]);
 
   if (carregando) {
     return (
@@ -89,6 +102,12 @@ export default function DossieClientePage() {
               <span>Cliente desde {new Date(cliente.criado_em).toLocaleDateString("pt-BR")}</span>
             </div>
           </div>
+          {veFinanceiro && titulos.some((t) => t.status === "pendente") && (
+            <Button variant="secondary" onClick={() => void abrirReceberVarias()}>
+              <HandCoins size={16} />
+              Receber várias de uma vez
+            </Button>
+          )}
           {whats && (
             <a href={whats} target="_blank" rel="noopener noreferrer">
               <Button variant="secondary">
@@ -99,6 +118,25 @@ export default function DossieClientePage() {
           )}
         </div>
       </div>
+
+      {aviso && <p className="rounded-xl border border-accent-200 bg-accent-50/60 px-3 py-2 text-small text-foreground dark:border-accent-800 dark:bg-accent-900/10">{aviso}</p>}
+
+      {receberVarias && (
+        <ReceberTitulosDialog
+          titulos={titulos.map((t) => ({ ...t, clientes: null }))}
+          carteiras={receberVarias}
+          salvando={salvandoVarias}
+          onFechar={() => setReceberVarias(null)}
+          onConfirmar={async ({ contaBancariaId, data, alocacoes }) => {
+            setSalvandoVarias(true);
+            const r = await receberTitulosDoCliente({ titulos, alocacoes, contaBancariaId, data });
+            setSalvandoVarias(false);
+            setReceberVarias(null);
+            setAviso(r.falhas.length ? `Recebido ${r.ok}. Não deu: ${r.falhas.join("; ")}` : `Pronto: ${r.ok} ${r.ok === 1 ? "conta recebida" : "contas recebidas"}.`);
+            setVersao((v) => v + 1);
+          }}
+        />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="flex flex-col gap-2">
