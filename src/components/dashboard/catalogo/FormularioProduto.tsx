@@ -1,5 +1,6 @@
 "use client";
 
+import { DicaPrecoSugerido } from "./DicaPrecoSugerido";
 import * as React from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -126,6 +127,11 @@ export function FormularioProduto({
             placeholder="0,00"
           />
         </div>
+        <DicaPrecoSugerido
+          contaMestreId={contaMestreId}
+          custo={Number(form.custo.trim().replace(/\./g, "").replace(",", ".")) || 0}
+          onUsar={(preco) => setForm((f) => ({ ...f, precoVenda: preco.toFixed(2).replace(".", ",") }))}
+        />
         <div className="grid grid-cols-2 gap-4">
           <Input
             label="Quantidade em estoque"
