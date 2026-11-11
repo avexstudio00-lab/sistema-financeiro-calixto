@@ -232,6 +232,51 @@ export default function VendasPage() {
     limparSeletor();
   }
 
+  // Venda rápida (10/nov/2026): os 6 itens mais vendidos nos últimos 6
+  // meses viram botões — 1 toque coloca no carrinho com o preço de sempre.
+  const maisVendidos = React.useMemo(() => {
+    const contagem = new Map<string, { tipo: "produto" | "servico"; id: string; vezes: number }>();
+    for (const v of vendas) {
+      const id = v.produto_id ?? v.servico_id;
+      if (!id) continue;
+      const tipo = v.produto_id ? "produto" : "servico";
+      const atual = contagem.get(`${tipo}:${id}`) ?? { tipo, id, vezes: 0 };
+      atual.vezes += Number(v.quantidade) || 1;
+      contagem.set(`${tipo}:${id}`, atual);
+    }
+    return Array.from(contagem.values())
+      .sort((a, b) => b.vezes - a.vezes)
+      .map((c): { tipo: "produto" | "servico"; id: string; nome: string; preco: number | null } | null => {
+        if (c.tipo === "produto") {
+          const p = produtos.find((x) => x.id === c.id);
+          return p ? { tipo: "produto" as const, id: p.id, nome: p.nome, preco: Number(p.preco_venda) } : null;
+        }
+        const sv = servicos.find((x) => x.id === c.id);
+        return sv ? { tipo: "servico" as const, id: sv.id, nome: sv.nome, preco: sv.preco_fixo && sv.preco != null ? Number(sv.preco) : null } : null;
+      })
+      .filter((x): x is { tipo: "produto" | "servico"; id: string; nome: string; preco: number | null } => !!x)
+      .slice(0, 6);
+  }, [vendas, produtos, servicos]);
+
+  function adicionarRapido(item: { tipo: "produto" | "servico"; id: string; nome: string; preco: number | null }) {
+    setErro(null);
+    setCarrinho((lista) => {
+      const existente = lista.find((i) => i.tipo === item.tipo && i.refId === item.id);
+      if (existente) return lista.map((i) => (i === existente ? { ...i, quantidade: String((Number(i.quantidade) || 0) + 1) } : i));
+      return [
+        ...lista,
+        {
+          chave: `${item.tipo === "produto" ? "p" : "s"}:${item.id}:${Date.now()}`,
+          tipo: item.tipo,
+          refId: item.id,
+          nome: item.nome,
+          quantidade: "1",
+          valorUnitario: item.preco != null ? String(item.preco).replace(".", ",") : "",
+        },
+      ];
+    });
+  }
+
   // O item que está no seletor e ainda não foi adicionado também entra na
   // venda (evita "esqueci de tocar em Adicionar").
   const itemPendente = itemDoSeletor();
@@ -450,6 +495,32 @@ export default function VendasPage() {
       {formAberto && (
         <Card padding="lg" className="flex flex-col gap-4">
           <h2 className="text-h3 text-foreground">Nova venda</h2>
+          {maisVendidos.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-small font-medium text-foreground">Venda rápida — seus mais vendidos</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {maisVendidos.map((item) => {
+                  const noCarrinho = carrinho.find((i) => i.tipo === item.tipo && i.refId === item.id);
+                  return (
+                    <button
+                      key={`${item.tipo}:${item.id}`}
+                      type="button"
+                      onClick={() => adicionarRapido(item)}
+                      className={`flex min-h-14 flex-col items-start justify-center rounded-xl border px-3 py-2 text-left transition-colors ${
+                        noCarrinho ? "border-accent-500 bg-accent-50 dark:bg-accent-900/20" : "border-border hover:bg-muted/5"
+                      }`}
+                    >
+                      <span className="line-clamp-1 text-small font-semibold text-foreground">{item.nome}</span>
+                      <span className="text-xs text-muted">
+                        {item.preco != null ? formatarMoeda(item.preco) : "valor na hora"}
+                        {noCarrinho ? ` · ${noCarrinho.quantidade}x no carrinho` : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {cadastroInline === "produto" && negocio && (
             <FormularioProduto
               compacto
@@ -689,8 +760,8 @@ export default function VendasPage() {
                 ) : papel !== "funcionario" ? (
                   <p className="text-xs text-muted">
                     Cadastre as taxas da sua maquininha em{" "}
-                    <Link href="/dashboard/empresa/configuracoes" className="font-semibold text-accent-700 hover:underline dark:text-accent-300">
-                      Minhas empresas
+                    <Link href="/dashboard/empresa/configuracoes#maquininha" className="font-semibold text-accent-700 hover:underline dark:text-accent-300">
+                      Perfil da empresa
                     </Link>{" "}
                     e o app desconta a taxa de cada venda sozinho.
                   </p>
