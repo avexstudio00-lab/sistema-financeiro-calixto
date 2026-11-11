@@ -14,6 +14,7 @@ import { atualizarEmpresa, criarEmpresa, ramoDaEmpresa, type RamoAtividade } fro
 import { PLANOS } from "@/lib/planos";
 import { cn } from "@/lib/utils";
 import type { Empresa } from "@/lib/data/tipos";
+import { ConfigMaquininha } from "@/components/dashboard/ConfigMaquininha";
 
 const RAMOS: { id: RamoAtividade; titulo: string; descricao: string }[] = [
   { id: "servicos", titulo: "Apenas serviços", descricao: "Esconde Estoque e Catálogo de produtos." },
@@ -129,6 +130,8 @@ export default function ConfiguracoesEmpresaPage() {
           <EditorEmpresa key={e.id} empresa={e} podeEditar={podeEditar} onSalvo={recarregar} />
         ))}
       </div>
+
+      {negocio && papel !== "funcionario" && <ConfigMaquininha contaMestreId={negocio.usuarioId} podeEditar={podeEditar} />}
 
       {podeCriar &&
         (criando ? (
