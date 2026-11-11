@@ -111,6 +111,23 @@ async function buscarSessaoNoServidor(): Promise<ResultadoBusca> {
     }
   }
 
+  // Resposta pedida já no <head> (public/sessao-cedo.js) — usada uma vez só.
+  const janela = window as unknown as { __sessaoCedo?: Promise<Response> };
+  const cedo = janela.__sessaoCedo;
+  janela.__sessaoCedo = undefined;
+  if (cedo) {
+    try {
+      const resp = await cedo;
+      if (resp.ok) {
+        const corpo = (await resp.json()) as { sessao: SessaoGuardada | null };
+        return { valor: corpo.sessao ? JSON.stringify(corpo.sessao) : null, definitivo: true };
+      }
+      if (resp.status !== 503) return { valor: null, definitivo: true };
+    } catch {
+      // cai nas tentativas normais abaixo
+    }
+  }
+
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     try {
       const resp = await fetch("/api/auth/sessao", { credentials: "same-origin", cache: "no-store" });
