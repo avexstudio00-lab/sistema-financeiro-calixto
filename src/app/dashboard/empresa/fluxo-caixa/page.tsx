@@ -10,6 +10,7 @@ import { gerarFluxoCaixa, type ResumoFluxoCaixa } from "@/lib/data/empresa";
 import { buscarCategoriaPadraoPorNome } from "@/lib/data/categorias";
 import { buscarConfigNegocio, type ConfigNegocio } from "@/lib/data/configNegocio";
 import { ConfigProLabore } from "@/components/dashboard/ConfigProLabore";
+import { TaxasFormasPagamento } from "@/components/dashboard/TaxasFormasPagamento";
 import { formatarMoeda } from "@/lib/format";
 import { salvarCache, lerCache } from "@/lib/offline/cache";
 import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
@@ -210,6 +211,8 @@ export default function FluxoCaixaPage() {
               </p>
             </Card>
           </div>
+
+          {negocio && online && <TaxasFormasPagamento contaMestreId={negocio.usuarioId} ano={ano} mes={mes} />}
 
           {config && (
             <ConfigProLabore
