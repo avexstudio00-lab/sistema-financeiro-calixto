@@ -93,8 +93,8 @@ export function TaxasFormasPagamento({ contaMestreId, ano, mes }: { contaMestreI
       ) : (
         <p className="text-xs text-muted">
           Cadastre as taxas da sua maquininha em{" "}
-          <Link href="/dashboard/empresa/configuracoes" className="font-semibold text-accent-700 hover:underline dark:text-accent-300">
-            Minhas empresas
+          <Link href="/dashboard/empresa/configuracoes#maquininha" className="font-semibold text-accent-700 hover:underline dark:text-accent-300">
+            Perfil da empresa
           </Link>{" "}
           pra ver aqui quanto vai embora em taxa.
         </p>

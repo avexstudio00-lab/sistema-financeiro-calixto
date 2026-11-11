@@ -15,6 +15,8 @@ import {
   type AnexoSimples,
   type AtividadeMei,
 } from "@/lib/util/simuladorImpostos";
+import Link from "next/link";
+import type { PerfilFiscal } from "@/lib/data/perfilFiscal";
 
 type Regime = "mei" | "simples" | "manual";
 const CHAVE = "calixto:simulador-impostos";
@@ -34,7 +36,18 @@ function ler(): { regime: Regime; atividade: AtividadeMei; anexo: AnexoSimples; 
  * fiscais. Usa o faturamento real do app (mês e últimos 12 meses), estima o
  * imposto e diz quanto separar. É só estimativa.
  */
-export function SimuladorImpostos({ faturamentoMes, faturamento12m, ehMei }: { faturamentoMes: number; faturamento12m: number; ehMei: boolean }) {
+export function SimuladorImpostos({
+  faturamentoMes,
+  faturamento12m,
+  ehMei,
+  perfil = null,
+}: {
+  faturamentoMes: number;
+  faturamento12m: number;
+  ehMei: boolean;
+  /** Identificação fiscal salva no Perfil da empresa (tem prioridade). */
+  perfil?: PerfilFiscal | null;
+}) {
   const [regime, setRegime] = React.useState<Regime>(ehMei ? "mei" : "simples");
   const [atividade, setAtividade] = React.useState<AtividadeMei>("servicos");
   const [anexo, setAnexo] = React.useState<AnexoSimples>("III");
@@ -42,12 +55,19 @@ export function SimuladorImpostos({ faturamentoMes, faturamento12m, ehMei }: { f
   const [mesTexto, setMesTexto] = React.useState("");
 
   React.useEffect(() => {
+    if (perfil) {
+      setRegime(perfil.regime === "outro" ? "manual" : perfil.regime);
+      setAtividade(perfil.atividadeMei);
+      setAnexo(perfil.anexo);
+      setManual(String(perfil.percentual).replace(".", ","));
+      return;
+    }
     const s = ler();
     setRegime(s.regime);
     setAtividade(s.atividade);
     setAnexo(s.anexo);
     setManual(s.manual);
-  }, []);
+  }, [perfil]);
   React.useEffect(() => {
     try {
       localStorage.setItem(CHAVE, JSON.stringify({ regime, atividade, anexo, manual }));
@@ -61,9 +81,10 @@ export function SimuladorImpostos({ faturamentoMes, faturamento12m, ehMei }: { f
   let aliquota = 0;
   let explicacao = "";
   if (regime === "mei") {
-    imposto = dasMei(atividade);
+    // DAS que a pessoa informou no perfil (o dela varia um pouco) ou o oficial.
+    imposto = perfil?.regime === "mei" && perfil.dasValor != null ? perfil.dasValor : dasMei(atividade);
     aliquota = fatMes > 0 ? (imposto / fatMes) * 100 : 0;
-    explicacao = `DAS fixo do MEI: 5% do salário mínimo (R$ ${SALARIO_MINIMO_PADRAO.toLocaleString("pt-BR")}) ${atividade === "comercio" ? "+ R$ 1 de ICMS" : atividade === "servicos" ? "+ R$ 5 de ISS" : "+ R$ 1 de ICMS + R$ 5 de ISS"}. Vence todo dia 20.`;
+    explicacao = perfil?.regime === "mei" && perfil.dasValor != null ? `Valor de DAS informado no Perfil da empresa. Vence todo dia 20.` : `DAS fixo do MEI: 5% do salário mínimo (R$ ${SALARIO_MINIMO_PADRAO.toLocaleString("pt-BR")}) ${atividade === "comercio" ? "+ R$ 1 de ICMS" : atividade === "servicos" ? "+ R$ 5 de ISS" : "+ R$ 1 de ICMS + R$ 5 de ISS"}. Vence todo dia 20.`;
   } else if (regime === "simples") {
     const r = impostoSimplesDoMes(anexo, faturamento12m, fatMes);
     imposto = r.imposto;
@@ -169,6 +190,12 @@ export function SimuladorImpostos({ faturamentoMes, faturamento12m, ehMei }: { f
         </div>
       )}
 
+      <p className="text-xs text-muted">
+        {perfil ? "Usando a identificação fiscal do Perfil da empresa. " : "Salve como sua empresa paga imposto no Perfil da empresa pra não precisar escolher toda vez. "}
+        <Link href="/dashboard/empresa/configuracoes#identificacao" className="font-semibold text-accent-700 hover:underline dark:text-accent-300">
+          {perfil ? "Alterar" : "Preencher agora"}
+        </Link>
+      </p>
       <p className="flex items-start gap-2 text-xs text-muted">
         <Info size={14} className="mt-0.5 shrink-0" />
         Estimativa para planejamento. O valor oficial é o da guia (DAS/DARF) gerada no Portal do Simples Nacional ou pelo seu contador. O app não emite nota
