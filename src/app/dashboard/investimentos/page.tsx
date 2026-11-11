@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Wallet, LayoutGrid, Combine, Search, X } from "lucide-react";
+import { Plus, Wallet, LayoutGrid, Combine, Search, X, HandCoins } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -43,6 +43,9 @@ import { supabase } from "@/lib/supabase/client";
 import { InvestimentoCard, TIPO_META } from "@/components/dashboard/InvestimentoCard";
 import type { DadosJurosParcela, DadosEdicaoParcela } from "@/components/dashboard/ParcelasInvestimento";
 import { GraficoLinhaEvolucao } from "@/components/dashboard/graficos/GraficoLinhaEvolucao";
+import { ReceberVariasDialog } from "@/components/dashboard/ReceberVariasDialog";
+import { carregarOperacoesAbertas, type OperacaoAberta } from "@/lib/data/importarLigacoes";
+import { registrarRecebimentoVarias } from "@/lib/data/receberVarias";
 import type { Investimento, ParcelaInvestimento, PagamentoInvestimento, CotacoesMercado } from "@/lib/data/tipos";
 
 const ORDEM_TIPOS: Investimento["tipo"][] = [
@@ -108,6 +111,15 @@ export default function InvestimentosPage() {
   // Busca (10/nov/2026): nome da pessoa, código (E3, R2) ou descrição —
   // mostra TODOS que batem (à vista, parcelado e quitados juntos).
   const [busca, setBusca] = React.useState("");
+  // "Receber várias de uma vez" (10/nov/2026).
+  const [receberVarias, setReceberVarias] = React.useState<{ operacoes: OperacaoAberta[]; filtro: string } | null>(null);
+  const [salvandoVarias, setSalvandoVarias] = React.useState(false);
+  const [avisoVarias, setAvisoVarias] = React.useState<string | null>(null);
+  async function abrirReceberVarias(filtro: string) {
+    if (!user) return;
+    const operacoes = await carregarOperacoesAbertas(user.id);
+    setReceberVarias({ operacoes, filtro });
+  }
   // 5.12: "+" contextual por aba de tipo.
   const [tipoNovo, setTipoNovo] = React.useState<TipoInvestimento | null>(null);
   // 5.2: filtros das operações (empréstimo e compra e revenda).
@@ -304,7 +316,8 @@ export default function InvestimentosPage() {
         ? {
             usuarioId: user.id,
             contaId,
-            valor: Number(parcela.valor),
+            // Se já entrou uma parte antes, agora entra só o que falta.
+            valor: Number((Number(parcela.valor) - Number(parcela.valor_recebido ?? 0)).toFixed(2)),
             descricao: `${inv0?.nome ?? "Investimento"} — parcela ${parcela.numero} recebida`,
           }
         : null,
@@ -687,6 +700,15 @@ export default function InvestimentosPage() {
             )}
           </div>
 
+          {avisoVarias && (
+            <p className="flex items-start justify-between gap-2 rounded-xl border border-primary-200 bg-primary-50/60 px-3 py-2 text-small text-foreground dark:border-primary-800 dark:bg-primary-900/10">
+              {avisoVarias}
+              <button type="button" onClick={() => setAvisoVarias(null)} aria-label="Fechar aviso" className="text-muted">
+                <X size={14} />
+              </button>
+            </p>
+          )}
+
           {resultadosBusca ? (
             <div className="flex flex-col gap-4">
               <p className="text-small text-muted">
@@ -694,6 +716,12 @@ export default function InvestimentosPage() {
                   ? `Nada encontrado para "${busca.trim()}".`
                   : `${resultadosBusca.length} ${resultadosBusca.length === 1 ? "resultado" : "resultados"} para "${busca.trim()}" (abertos e quitados).`}
               </p>
+              {resultadosBusca.some((i) => (i.tipo === "emprestimo" || i.tipo === "revenda") && !estaQuitado(i)) && (
+                <Button size="sm" variant="secondary" className="self-start" onClick={() => void abrirReceberVarias(busca.trim())}>
+                  <HandCoins size={16} />
+                  Receber várias de uma vez
+                </Button>
+              )}
               {resultadosBusca.length > 0 && renderGradeCartoes(resultadosBusca)}
             </div>
           ) : modoVisualizacao === "combinado" ? (
@@ -763,10 +791,16 @@ export default function InvestimentosPage() {
                       <span className="text-small text-muted">
                         {itens.length === 1 ? "1 investimento" : `${itens.length} investimentos`}
                       </span>
+                      {ehOperacao && itens.some((i) => !estaQuitado(i)) && (
+                        <Button size="sm" variant="tertiary" className="ml-auto" onClick={() => void abrirReceberVarias("")}>
+                          <HandCoins size={16} />
+                          Receber várias
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="secondary"
-                        className="ml-auto"
+                        className={ehOperacao && itens.some((i) => !estaQuitado(i)) ? undefined : "ml-auto"}
                         onClick={() => {
                           setTipoNovo(tipo as TipoInvestimento);
                           setModalAberto(true);
@@ -829,6 +863,28 @@ export default function InvestimentosPage() {
         }}
         onSalvo={carregar}
       />
+
+      {receberVarias && (
+        <ReceberVariasDialog
+          operacoes={receberVarias.operacoes}
+          filtroInicial={receberVarias.filtro}
+          salvando={salvandoVarias}
+          onFechar={() => setReceberVarias(null)}
+          onConfirmarManual={async ({ contaId, data, alocacoes }) => {
+            if (!user) return;
+            setSalvandoVarias(true);
+            const r = await registrarRecebimentoVarias({ usuarioId: user.id, contaId, data, operacoes: receberVarias.operacoes, alocacoes });
+            setSalvandoVarias(false);
+            setReceberVarias(null);
+            setAvisoVarias(
+              r.falhas.length
+                ? `Registrado ${r.ok} de ${r.ok + r.falhas.length}. Não deu: ${r.falhas.join("; ")}`
+                : `Pronto: ${r.ok} ${r.ok === 1 ? "recebimento registrado" : "recebimentos registrados"} e lançados na carteira.`
+            );
+            await carregar();
+          }}
+        />
+      )}
 
       {parcelaParaReceber && (
         <EscolherCarteiraDialog
