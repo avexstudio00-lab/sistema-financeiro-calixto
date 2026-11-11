@@ -1,5 +1,6 @@
 "use client";
 
+import { MetaMesEmpresa } from "@/components/dashboard/MetaMesEmpresa";
 import * as React from "react";
 import Link from "next/link";
 import {
@@ -491,6 +492,9 @@ export default function PainelEmpresaPage() {
                 </div>
               )}
             </Card>
+            {!ehFuncionario && negocio && (
+              <MetaMesEmpresa contaMestreId={negocio.usuarioId} faturado={resumo.faturamento} ano={ano} mes={mes} podeEditar={papel === "dono" || papel === "socio"} />
+            )}
             <VisaoHoje itens={itensHoje} cor="accent" />
             {!ehFuncionario && negocio && (
               <CobrancasFiado contaMestreId={negocio.usuarioId} nomeEmpresa={empresaAtivaNome ?? negocio.nome} titulos={contasReceber} onAlterado={() => void carregar()} />
