@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, Receipt } from "lucide-react";
+import { ComprovanteVenda } from "@/components/dashboard/vendas/ComprovanteVenda";
 import Link from "next/link";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
@@ -25,6 +26,7 @@ import {
   resumirVendas,
   totalDosItens,
   agruparLinhasDeVenda,
+  type VendaAgrupada,
   type ItemVenda,
   type CondicoesFiadoVenda,
   agruparVendasPorDia,
@@ -70,7 +72,10 @@ function hojeMaisUmMes(base: string) {
 
 export default function VendasPage() {
   const { negocio, papel } = useAuth();
-  const { ramo } = useEmpresa();
+  const { ramo, empresaAtiva, empresas } = useEmpresa();
+  // Comprovante da venda (10/nov/2026).
+  const [comprovante, setComprovante] = React.useState<VendaAgrupada | null>(null);
+  const [ultimaVenda, setUltimaVenda] = React.useState<VendaAgrupada | null>(null);
   const hoje = new Date();
 
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
@@ -419,6 +424,18 @@ export default function VendasPage() {
       avisos.push("Venda fiada registrada: as parcelas estão em Contas → A receber (cada uma entra no caixa quando você marcar como recebida).");
     }
     setAviso(avisos.length ? avisos.join(" ") : null);
+    if (resultado.data && resultado.data.length) {
+      const clienteVenda = clientes.find((c) => c.id === clienteId) ?? null;
+      const linhas = resultado.data as Venda[];
+      setUltimaVenda({
+        chave: linhas[0].grupo_venda_id ?? linhas[0].id,
+        linhas: linhas.map((l, k) => (k === 0 && formaPagamento === "credito" ? { ...l, parcelas_cartao: parcelasCartao } : l)),
+        total: linhas.reduce((acc, l) => acc + Number(l.valor_total), 0),
+        data: linhas[0].data,
+        criado_em: linhas[0].criado_em,
+        cliente: clienteVenda,
+      });
+    }
     limparSeletor();
     setCarrinho([]);
     setFiado(false);
@@ -938,6 +955,30 @@ export default function VendasPage() {
         </Card>
       )}
 
+      {ultimaVenda && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-accent-200 bg-accent-50/60">
+          <p className="text-small text-foreground">
+            Venda de <strong>{formatarMoeda(ultimaVenda.total)}</strong> registrada.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => setComprovante(ultimaVenda)}>
+              <Receipt size={14} /> Mandar comprovante
+            </Button>
+            <Button size="sm" variant="tertiary" onClick={() => setUltimaVenda(null)}>
+              Fechar
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {comprovante && (
+        <ComprovanteVenda
+          grupo={comprovante}
+          nomeEmpresa={empresaAtiva?.nome_fantasia ?? empresas[0]?.nome_fantasia ?? negocio?.nome ?? ""}
+          onFechar={() => setComprovante(null)}
+        />
+      )}
+
       {aviso && (
         <Card className="flex items-center gap-3 border-amber-200 bg-amber-50/60">
           <AlertTriangle size={18} className="shrink-0 text-amber-600" />
@@ -1095,6 +1136,15 @@ export default function VendasPage() {
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                       <p className="text-body font-semibold text-accent-600">{formatarMoeda(g.total)}</p>
+                      <button
+                        type="button"
+                        onClick={() => setComprovante(g)}
+                        aria-label="Comprovante desta venda"
+                        title="Comprovante desta venda"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
+                      >
+                        <Receipt size={16} />
+                      </button>
                       {confirmandoExclusaoId === g.chave ? (
                         <div className="flex items-center gap-1">
                           <Button size="sm" variant="tertiary" onClick={() => setConfirmandoExclusaoId(null)}>
