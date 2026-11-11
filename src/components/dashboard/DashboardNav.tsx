@@ -1,5 +1,6 @@
 "use client";
 
+import { CentralNotificacoes } from "@/components/dashboard/CentralNotificacoes";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -31,7 +32,6 @@ import {
   Boxes,
   Wrench,
   ClipboardList,
-  FileSpreadsheet,
   FileDown,
   Settings2,
   type LucideIcon,
@@ -104,7 +104,6 @@ const LINKS_EMPRESA_FINANCEIRO = new Set([
   "/dashboard/empresa/fluxo-caixa",
   "/dashboard/empresa/extrato",
   "/dashboard/empresa/orcamentos",
-  "/dashboard/empresa/notas-fiscais",
   "/dashboard/empresa/configuracoes",
 ]);
 
@@ -134,7 +133,6 @@ const LINKS_EMPRESA: LinkNav[] = [
   { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
   { href: "/dashboard/empresa/contas-fixas", label: "Contas fixas", icon: Repeat },
   { href: "/dashboard/empresa/extrato", label: "Extrato", icon: ScrollText },
-  { href: "/dashboard/empresa/notas-fiscais", label: "Notas fiscais", icon: FileSpreadsheet },
   { href: "/dashboard/empresa/das", label: "DAS / Impostos", icon: FileText },
   { href: "/dashboard/empresa/fluxo-caixa", label: "Fluxo de caixa", icon: ArrowLeftRight },
   { href: "/dashboard/empresa/relatorio", label: "Relatório", icon: BarChart3 },
@@ -327,6 +325,7 @@ export function DashboardNav() {
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <BuscaGlobal />
+          <CentralNotificacoes />
           <ThemeToggle />
           <Link
             href="/dashboard/perfil"

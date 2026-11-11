@@ -111,7 +111,7 @@ export function HistoricoPagamentosEmprestimo({ pagamentos, onAlterado }: Histor
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-col">
                   <span className="font-medium text-foreground">
-                    {p.tipo === "juros" ? "Só juros" : "Quitação"} · {formatarMoeda(Number(p.valor_pago))}
+                    {p.tipo === "juros" ? "Só juros" : p.tipo === "parcial" ? "Parte de uma parcela" : p.tipo === "recebimento" ? "Recebimento" : "Quitação"} · {formatarMoeda(Number(p.valor_pago))}
                   </span>
                   <span className="text-muted">
                     {new Date(p.data_pagamento + "T00:00:00").toLocaleDateString("pt-BR")}

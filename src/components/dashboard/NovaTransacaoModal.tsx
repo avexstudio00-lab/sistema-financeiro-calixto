@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, Sparkles, Trash2, Home, Building2, CalendarClock, Layers, ArrowDownToLine } from "lucide-react";
+import { X, Plus, Sparkles, Trash2, Home, Building2, CalendarClock, Layers, ArrowDownToLine, ShoppingCart } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -450,6 +450,27 @@ export function NovaTransacaoModal({
             <X size={20} />
           </button>
         </div>
+
+        {/* 10/nov/2026: na empresa, registrar uma venda direto do "+". */}
+        {!editando && mundo === "negocio" && (
+          <Link
+            href="/dashboard/empresa/vendas?nova=1"
+            onClick={() => {
+              // Já na tela de vendas: só abre o formulário.
+              window.dispatchEvent(new Event("meucontrole:nova-venda"));
+              onFechar();
+            }}
+            className="mb-2 flex items-center gap-3 rounded-2xl border border-accent-200 bg-accent-50/60 px-3 py-2.5 text-left transition-colors hover:bg-accent-50 dark:border-accent-800 dark:bg-accent-900/10"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-700 text-white">
+              <ShoppingCart size={18} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-small font-semibold text-foreground">Registrar uma venda</span>
+              <span className="block text-xs text-muted">Produto ou serviço, à vista, no cartão (com a taxa da maquininha) ou fiado.</span>
+            </span>
+          </Link>
+        )}
 
         {/* 09/nov/2026: atalho pra importar o extrato logo de cara, em vez
             de anotar um por um (antes só existia no Extrato completo). */}
