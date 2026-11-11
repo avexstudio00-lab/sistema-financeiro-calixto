@@ -38,6 +38,22 @@ interface Aviso {
 
 const MAX_INDIVIDUAIS = 4;
 
+/** De qual parte do app é o aviso (sininho e título do push). */
+const TIPOS_EMPRESA = new Set([
+  "venc_pagar",
+  "venc_receber",
+  "cobranca_fiado",
+  "atraso_pagar",
+  "atraso_receber",
+  "estoque_baixo",
+  "followup_orcamento",
+  "dasn_anual",
+  "das_mensal",
+]);
+function areaDoAviso(tipo: string): "pessoal" | "empresa" {
+  return TIPOS_EMPRESA.has(tipo) ? "empresa" : "pessoal";
+}
+
 function moeda(v: number): string {
   return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -135,9 +151,20 @@ export async function GET(request: Request) {
   // Follow-up de orçamento: 3 DIAS ÚTEIS sem interação (item 4.6).
   const limiteFollowUp = new Date(subtrairDiasUteis(agoraBr, 3).getTime() + 24 * 60 * 60 * 1000 - 1).toISOString();
 
-  const { data: inscricoes } = await admin.from("push_subscriptions").select("usuario_id");
-  const usuarios: string[] = Array.from(new Set(((inscricoes ?? []) as { usuario_id: string }[]).map((i) => i.usuario_id)));
+  // 10/nov/2026: todos os usuários (não só quem ativou o push) — os avisos
+  // também vão pra central de notificações (sininho) dentro do app.
+  const [{ data: inscricoes }, { data: todosUsuarios }] = await Promise.all([
+    admin.from("push_subscriptions").select("usuario_id"),
+    admin.from("usuarios").select("id").limit(5000),
+  ]);
+  const usuarios: string[] = Array.from(
+    new Set([
+      ...((inscricoes ?? []) as { usuario_id: string }[]).map((i) => i.usuario_id),
+      ...((todosUsuarios ?? []) as { id: string }[]).map((u) => u.id),
+    ])
+  );
 
+  const temPush = new Set(((inscricoes ?? []) as { usuario_id: string }[]).map((i) => i.usuario_id));
   let notificacoesEnviadas = 0;
 
   for (const usuarioId of usuarios) {
@@ -640,12 +667,65 @@ export async function GET(request: Request) {
         });
       }
 
+      // DAS do MEI (10/nov/2026): vence todo dia 20 — avisa dia 13 (uma
+      // semana antes), 19 e 20, se a guia do mês ainda não foi paga.
+      const diaHoje = agoraBr.getUTCDate();
+      if (diaHoje === 13 || diaHoje === 19 || diaHoje === 20) {
+        const { data: perfilDas } = await admin.from("usuarios").select("tipo_perfil").eq("id", usuarioId).maybeSingle();
+        if ((perfilDas as { tipo_perfil: string | null } | null)?.tipo_perfil === "mei") {
+          const { data: guiaPaga } = await admin
+            .from("contas_pagar")
+            .select("id")
+            .eq("usuario_id", usuarioId)
+            .eq("categoria", "das")
+            .eq("status", "pago")
+            .gte("vencimento", inicioMes)
+            .lte("vencimento", fimMes)
+            .limit(1);
+          if (!guiaPaga || guiaPaga.length === 0) {
+            avisos.push({
+              tipo: "das_mensal",
+              chave: `${chaveMes}:${diaHoje}`,
+              payload: {
+                titulo: "Calixto — DAS do MEI",
+                corpo:
+                  diaHoje === 13
+                    ? "O DAS do MEI vence dia 20. Já separe o valor — dá pra ver quanto em DAS / Impostos."
+                    : diaHoje === 19
+                      ? "O DAS do MEI vence amanhã (dia 20). Pague pelo app do banco ou pelo Portal do Empreendedor."
+                      : "O DAS do MEI vence hoje. Depois de pagar, marque a guia como paga em DAS / Impostos.",
+                url: "/dashboard/empresa/das",
+                tag: `das-${chaveMes}`,
+              },
+            });
+          }
+        }
+      }
+
       // Dedupe: só o que ainda não foi avisado.
       const novos: Aviso[] = [];
       for (const a of avisos) {
         if (await marcarAvisoSeNovo(admin, usuarioId, a.tipo, a.chave)) novos.push(a);
       }
       if (novos.length === 0) continue;
+
+      // Central de notificações (sininho): guarda tudo, marcando se é da
+      // parte pessoal ou da empresa; o título do push também diz a parte.
+      for (const a of novos) {
+        const area = areaDoAviso(a.tipo);
+        a.payload = { ...a.payload, titulo: a.payload.titulo.replace(/^Calixto/, area === "empresa" ? "Calixto · Empresa" : "Calixto · Pessoal") };
+      }
+      const { error: erroCentral } = await admin.from("notificacoes").insert(
+        novos.map((a) => ({
+          usuario_id: usuarioId,
+          area: areaDoAviso(a.tipo),
+          titulo: a.payload.titulo.slice(0, 120),
+          corpo: a.payload.corpo.slice(0, 400),
+          url: a.payload.url ?? null,
+        }))
+      );
+      if (erroCentral) console.error("Central de notificações:", erroCentral.message);
+      if (!temPush.has(usuarioId)) continue;
 
       // Modo privado: uma única notificação genérica.
       const teste = await aplicarPrivacidade(admin, usuarioId, novos[0].payload);
