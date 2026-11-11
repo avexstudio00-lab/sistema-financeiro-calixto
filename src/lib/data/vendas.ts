@@ -77,6 +77,9 @@ export interface DadosVenda {
    * lançamento de receita por forma, cada um na sua carteira. A soma precisa
    * bater com o total da venda (a tela confere). */
   pagamentos?: PagamentoVenda[] | null;
+  /** Taxa da maquininha (10/nov/2026): vira despesa "Taxas de cartão" na
+   * mesma carteira e fica guardada na venda (fluxo de caixa mostra). */
+  maquininha?: { taxa: number; percentual: number; parcelas: number } | null;
 }
 
 export interface PagamentoVenda {
@@ -224,6 +227,36 @@ export async function registrarVenda(dados: DadosVenda) {
     return { data: null, error: erroVenda };
   }
 
+  // Taxa da maquininha: despesa separada (o faturamento continua o valor
+  // cheio; a taxa aparece como custo). Falhar aqui não desfaz a venda.
+  if (!fiado && !dividida && transacao && dados.maquininha && dados.maquininha.taxa > 0) {
+    const { data: categoriaTaxa } = await supabase.from("categorias").select("id").is("usuario_id", null).eq("nome", "Taxas de cartão").maybeSingle();
+    const forma = dados.formaPagamento === "credito" ? `crédito ${dados.maquininha.parcelas > 1 ? `${dados.maquininha.parcelas}x` : "à vista"}` : "débito";
+    const { data: tTaxa } = await criarTransacao({
+      usuario_id: dados.usuarioId,
+      conta_id: dados.contaId,
+      categoria_id: (categoriaTaxa as { id: string } | null)?.id ?? null,
+      tipo: "despesa",
+      valor: Number(dados.maquininha.taxa.toFixed(2)),
+      descricao: `Taxa da maquininha (${forma}): ${descricao}`.slice(0, 200),
+      data: dados.data,
+      forma_pagamento: dados.formaPagamento,
+      tipo_negocio: "negocio",
+      ...empresa,
+    });
+    const primeira = (vendasGravadas as Venda[])[0];
+    if (primeira) {
+      await supabase
+        .from("vendas")
+        .update({
+          taxa_maquininha: Number(dados.maquininha.taxa.toFixed(2)),
+          parcelas_cartao: dados.maquininha.parcelas,
+          taxa_transacao_id: (tTaxa as Transacao | null)?.id ?? null,
+        })
+        .eq("id", primeira.id);
+    }
+  }
+
   if (fiado) {
     const n = fiado.parcelas.length;
     const titulos = fiado.parcelas.map((p, i) => ({
@@ -342,7 +375,7 @@ export async function deletarVenda(venda: Venda) {
   // lançamentos (idempotente — o que já foi apagado não é achado de novo),
   // depois as linhas da venda e, SÓ por último, a devolução do estoque.
   const ids = linhas
-    .flatMap((l) => [...(Array.isArray(l.pagamentos) ? l.pagamentos.map((p) => p.transacao_id) : []), l.transacao_id])
+    .flatMap((l) => [...(Array.isArray(l.pagamentos) ? l.pagamentos.map((p) => p.transacao_id) : []), l.transacao_id, l.taxa_transacao_id])
     .filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
   for (const id of ids) {
     // eslint-disable-next-line no-await-in-loop

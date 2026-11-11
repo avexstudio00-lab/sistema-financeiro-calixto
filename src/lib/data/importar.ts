@@ -6,6 +6,7 @@ import { normalizarTexto } from "@/lib/util/texto";
 import type { Categoria } from "./tipos";
 import type { LancamentoLido, TransacaoExistente } from "@/lib/util/csvImportacao";
 import { registrarRecebimentoDoExtrato, type AcaoExtrato, type ModoRecebimento, type OperacaoAberta } from "./importarLigacoes";
+import { registrarRecebimentoVarias, type AlocacaoRecebimento } from "./receberVarias";
 
 /**
  * Camada de dados da importação de CSV (especificação de 05/out/2026).
@@ -164,6 +165,8 @@ export interface SugestaoExtrato {
   /** Emprestei/comprei para revenda: o formulário já lançou a saída — a
    * linha não é importada de novo. Texto do que foi criado. */
   lancadoPor: string | null;
+  /** Um recebimento dividido entre vários empréstimos/parcelas (10/nov/2026). */
+  divisao?: AlocacaoRecebimento[] | null;
 }
 
 export interface ContextoExtrato {
@@ -373,7 +376,7 @@ export async function importarExtratoInteligente(params: {
       return;
     }
     if ((s?.acao === "transferencia" || (!s?.acao && s?.transferirPara)) && s.transferirPara) transferencias.push(i);
-    else if ((s?.acao === "receb_emprestimo" || s?.acao === "receb_revenda") && s.investimentoId) recebimentos.push(i);
+    else if ((s?.acao === "receb_emprestimo" || s?.acao === "receb_revenda") && (s.investimentoId || (s.divisao && s.divisao.length > 0))) recebimentos.push(i);
     else if (s?.acao === "receb_emprestimo" || s?.acao === "receb_revenda" || s?.acao === "transferencia") ignorados += 1;
     else normais.push(i);
   });
@@ -437,6 +440,22 @@ export async function importarExtratoInteligente(params: {
   for (const idx of recebimentos) {
     const item = params.itens[idx];
     const s = params.sugestoes[idx];
+    if (s.divisao && s.divisao.length > 0) {
+      // eslint-disable-next-line no-await-in-loop -- sequencial (parcelas e saldo)
+      const r = await registrarRecebimentoVarias({
+        usuarioId: params.usuarioId,
+        contaId: params.contaId,
+        data: item.data,
+        operacoes: params.operacoes ?? [],
+        alocacoes: s.divisao,
+      });
+      r.falhas.forEach((motivo) => falhas.push({ linha: item.linha, motivo }));
+      if (r.ok > 0) {
+        inseridos += 1;
+        ligados += r.ok;
+      }
+      continue;
+    }
     const op = params.operacoes?.find((o) => o.investimento.id === s.investimentoId);
     if (!op) {
       falhas.push({ linha: item.linha, motivo: "Empréstimo/revenda não encontrado (já quitado?)" });

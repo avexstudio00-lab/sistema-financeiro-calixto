@@ -384,3 +384,69 @@ export function venceEmBreve(
   limite.setDate(limite.getDate() + dias);
   return vencimento >= hoje && vencimento <= limite;
 }
+
+/**
+ * "Receber várias de uma vez" do cliente (10/nov/2026): o cliente deve mais
+ * de um título (fiado em parcelas, orçamentos...) e paga tudo num Pix só.
+ * Cada título marcado vira recebido (com entrada na carteira). Valor menor
+ * que o título = pagou em parte: o título fica com o saldo que falta e a
+ * parte paga vira um título já recebido (mesmo cliente, mesma origem).
+ */
+export async function receberTitulosDoCliente(params: {
+  titulos: ContaReceber[];
+  alocacoes: { tituloId: string; valor: number }[];
+  contaBancariaId: string;
+  data: string;
+}): Promise<{ ok: number; falhas: string[] }> {
+  let ok = 0;
+  const falhas: string[] = [];
+  for (const a of params.alocacoes) {
+    const t = params.titulos.find((x) => x.id === a.tituloId);
+    if (!t || !(a.valor > 0)) continue;
+    const valorTitulo = Number(t.valor);
+    if (a.valor >= valorTitulo - 0.004) {
+      // eslint-disable-next-line no-await-in-loop -- sequencial: saldo da carteira
+      const { error } = await marcarContaReceberRecebida(t, true, params.contaBancariaId, true, params.data);
+      if (error) falhas.push(t.descricao);
+      else ok += 1;
+      continue;
+    }
+    // Parte: cria o título da parte paga e já recebe; o original fica com o resto.
+    const parte = Number(a.valor.toFixed(2));
+    // eslint-disable-next-line no-await-in-loop
+    const { data: novo, error: erroNovo } = await supabase
+      .from("contas_receber")
+      .insert({
+        usuario_id: t.usuario_id,
+        cliente_id: t.cliente_id,
+        descricao: `${t.descricao} (parte paga)`.slice(0, 200),
+        valor: parte,
+        vencimento: t.vencimento,
+        origem: t.origem ?? "manual",
+        venda_grupo_id: t.venda_grupo_id ?? null,
+        orcamento_id: t.orcamento_id ?? null,
+        ...(t.empresa_id ? { empresa_id: t.empresa_id } : {}),
+      })
+      .select()
+      .single();
+    if (erroNovo || !novo) {
+      falhas.push(t.descricao);
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const { error: erroRec } = await marcarContaReceberRecebida(novo as ContaReceber, true, params.contaBancariaId, true, params.data);
+    if (erroRec) {
+      // eslint-disable-next-line no-await-in-loop
+      await supabase.from("contas_receber").delete().eq("id", (novo as ContaReceber).id);
+      falhas.push(t.descricao);
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await supabase
+      .from("contas_receber")
+      .update({ valor: Number((valorTitulo - parte).toFixed(2)) })
+      .eq("id", t.id);
+    ok += 1;
+  }
+  return { ok, falhas };
+}
