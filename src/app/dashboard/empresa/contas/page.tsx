@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Receipt, Trash2, AlertTriangle, Check, Pencil, Clock, Layers, Package, PlusCircle, X } from "lucide-react";
+import { Plus, Receipt, Trash2, AlertTriangle, Check, Pencil, Clock, Layers, Package, PlusCircle, X, HandCoins } from "lucide-react";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import { listarProdutos } from "@/lib/data/produtos";
 import { Container } from "@/components/ui/Container";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
+import { ReceberTitulosDialog } from "@/components/dashboard/ReceberTitulosDialog";
 import { Badge } from "@/components/ui/Badge";
 import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } from "@/components/dashboard/FiltrosLista";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -32,6 +33,7 @@ import {
   deletarContaReceber,
   estaAtrasada,
   venceEmBreve,
+  receberTitulosDoCliente,
 } from "@/lib/data/contasEmpresa";
 import { formatarMoeda } from "@/lib/format";
 import { diasEntre, hojeIso } from "@/lib/util/texto";
@@ -58,6 +60,10 @@ export default function ContasEmpresaPage() {
   const { papel, negocio } = useAuth();
   const router = useRouter();
   const [aba, setAba] = React.useState<"pagar" | "receber">("pagar");
+  // Cliente pagando várias contas num pagamento só (10/nov/2026).
+  const [receberVarias, setReceberVarias] = React.useState(false);
+  const [salvandoVarias, setSalvandoVarias] = React.useState(false);
+  const [avisoVarias, setAvisoVarias] = React.useState<string | null>(null);
   const [modo, setModo] = React.useState<"vista" | "parcelado">("vista");
   const [periodo, setPeriodo] = React.useState<PeriodoMeses>(null);
   const [verQuitadas, setVerQuitadas] = React.useState(false);
@@ -419,11 +425,49 @@ export default function ContasEmpresaPage() {
           <h1 className="text-h2 text-foreground">Contas a pagar e a receber</h1>
           <p className="text-body text-muted">Quem te deve e para quem você deve — à vista, parcelado ou fiado.</p>
         </div>
-        <Button onClick={abrirNovo}>
-          <Plus size={18} />
-          {aba === "pagar" ? "Nova conta a pagar" : "Nova conta a receber"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {aba === "receber" && contasReceber.some((c) => c.status === "pendente") && (
+            <Button variant="secondary" onClick={() => setReceberVarias(true)}>
+              <HandCoins size={18} />
+              Receber várias de uma vez
+            </Button>
+          )}
+          <Button onClick={abrirNovo}>
+            <Plus size={18} />
+            {aba === "pagar" ? "Nova conta a pagar" : "Nova conta a receber"}
+          </Button>
+        </div>
       </div>
+
+      {avisoVarias && (
+        <p className="flex items-start justify-between gap-2 rounded-xl border border-accent-200 bg-accent-50/60 px-3 py-2 text-small text-foreground dark:border-accent-800 dark:bg-accent-900/10">
+          {avisoVarias}
+          <button type="button" onClick={() => setAvisoVarias(null)} aria-label="Fechar aviso" className="text-muted">
+            <X size={14} />
+          </button>
+        </p>
+      )}
+
+      {receberVarias && (
+        <ReceberTitulosDialog
+          titulos={contasReceber}
+          carteiras={carteiras}
+          salvando={salvandoVarias}
+          onFechar={() => setReceberVarias(false)}
+          onConfirmar={async ({ contaBancariaId, data, alocacoes }) => {
+            setSalvandoVarias(true);
+            const r = await receberTitulosDoCliente({ titulos: contasReceber, alocacoes, contaBancariaId, data });
+            setSalvandoVarias(false);
+            setReceberVarias(false);
+            setAvisoVarias(
+              r.falhas.length
+                ? `Recebido ${r.ok} de ${r.ok + r.falhas.length}. Não deu: ${r.falhas.join("; ")}`
+                : `Pronto: ${r.ok} ${r.ok === 1 ? "conta recebida" : "contas recebidas"} e lançadas na carteira.`
+            );
+            await carregar();
+          }}
+        />
+      )}
 
       <div className="flex flex-col gap-3">
         <div className="flex gap-1 self-start rounded-full bg-muted/10 p-1">

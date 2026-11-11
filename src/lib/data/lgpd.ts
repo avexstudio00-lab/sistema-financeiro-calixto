@@ -101,6 +101,7 @@ const TABELAS_DO_TITULAR = [
   "contas_pagar",
   "contas_receber",
   "config_negocio",
+  "notificacoes",
   "preferencias_privacidade",
 ] as const;
 

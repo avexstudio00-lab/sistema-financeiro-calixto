@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { HandCoins, MessageCircle, Settings2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -68,6 +69,9 @@ export function CobrancasFiado({
           <Settings2 size={13} /> Mensagem de cobrança
         </button>
       </div>
+      <Link href="/dashboard/empresa/cobranca" className="-mt-1 self-start text-xs font-semibold text-accent-700 hover:underline dark:text-accent-300">
+        Ver todos por cliente em Cobrança
+      </Link>
       {editando && (
         <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
           <textarea

@@ -14,6 +14,9 @@ import { atualizarEmpresa, criarEmpresa, ramoDaEmpresa, type RamoAtividade } fro
 import { PLANOS } from "@/lib/planos";
 import { cn } from "@/lib/utils";
 import type { Empresa } from "@/lib/data/tipos";
+import { ConfigMaquininha } from "@/components/dashboard/ConfigMaquininha";
+import { IdentificacaoFiscal } from "@/components/dashboard/IdentificacaoFiscal";
+import { CalculadoraPreco } from "@/components/dashboard/CalculadoraPreco";
 
 const RAMOS: { id: RamoAtividade; titulo: string; descricao: string }[] = [
   { id: "servicos", titulo: "Apenas serviços", descricao: "Esconde Estoque e Catálogo de produtos." },
@@ -98,6 +101,7 @@ export default function ConfiguracoesEmpresaPage() {
   const [ramoNova, setRamoNova] = React.useState<RamoAtividade>("produtos");
   const [erro, setErro] = React.useState<string | null>(null);
   const podeEditar = papel === "dono";
+  const [versaoPerfil, setVersaoPerfil] = React.useState(0);
   const podeCriar = podeEditar && empresas.length < limite;
 
   async function criar() {
@@ -113,7 +117,7 @@ export default function ConfiguracoesEmpresaPage() {
   return (
     <Container full className="flex flex-col gap-8 py-8">
       <div>
-        <h1 className="text-h2 text-foreground">Minhas empresas</h1>
+        <h1 className="text-h2 text-foreground">Perfil da empresa</h1>
         <p className="text-body text-muted">
           {limite >= 2 ? "Seu plano permite até 2 empresas independentes." : "Seu plano inclui 1 empresa."}{" "}
           {empresas.length > 1 && "Troque a empresa que está vendo no seletor do topo."}
@@ -129,6 +133,20 @@ export default function ConfiguracoesEmpresaPage() {
           <EditorEmpresa key={e.id} empresa={e} podeEditar={podeEditar} onSalvo={recarregar} />
         ))}
       </div>
+
+      {negocio && papel !== "funcionario" && (
+        <>
+          <div id="identificacao" className="scroll-mt-20">
+            <IdentificacaoFiscal contaMestreId={negocio.usuarioId} podeEditar={podeEditar} onSalvo={() => setVersaoPerfil((v) => v + 1)} />
+          </div>
+          <div id="maquininha" className="scroll-mt-20">
+            <ConfigMaquininha contaMestreId={negocio.usuarioId} podeEditar={podeEditar} />
+          </div>
+          <div id="preco" className="scroll-mt-20">
+            <CalculadoraPreco key={versaoPerfil} contaMestreId={negocio.usuarioId} />
+          </div>
+        </>
+      )}
 
       {podeCriar &&
         (criando ? (

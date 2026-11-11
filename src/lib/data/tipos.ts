@@ -337,6 +337,9 @@ export interface ParcelaInvestimento {
   data_criacao: string;
   /** Lançamento de entrada gerado ao receber essa parcela (item 5.10). */
   transacao_id?: string | null;
+  /** Já recebido EM PARTE antes da parcela fechar (10/nov/2026). Cada
+   * pedaço é um evento "parcial" em investimento_pagamentos. */
+  valor_recebido?: number | null;
 }
 
 /** Um evento de pagamento registrado num empréstimo — "só paguei o juros"
@@ -350,7 +353,7 @@ export interface PagamentoInvestimento {
   investimento_id: string;
   usuario_id: string;
   parcela_id: string | null;
-  tipo: "juros" | "quitacao" | "recebimento";
+  tipo: "juros" | "quitacao" | "recebimento" | "parcial";
   data_pagamento: string;
   dias_atraso: number;
   valor_juros: number | null;
@@ -521,6 +524,10 @@ export interface Venda {
   pagamentos?: { forma: string; valor: number; contaId: string | null; transacao_id?: string | null }[] | null;
   /** Seção 15.1: linhas da mesma venda (carrinho). Nulo em vendas antigas. */
   grupo_venda_id?: string | null;
+  /** Taxa da maquininha descontada nessa venda (10/nov/2026). */
+  taxa_maquininha?: number | null;
+  parcelas_cartao?: number | null;
+  taxa_transacao_id?: string | null;
 }
 
 export interface ContaPagar {

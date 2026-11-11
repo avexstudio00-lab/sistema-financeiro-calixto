@@ -1,5 +1,6 @@
 "use client";
 
+import { CentralNotificacoes } from "@/components/dashboard/CentralNotificacoes";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -12,6 +13,7 @@ import {
   Target,
   Repeat,
   HandCoins,
+  MessageCircle,
   CreditCard,
   ShieldCheck,
   LogOut,
@@ -31,7 +33,6 @@ import {
   Boxes,
   Wrench,
   ClipboardList,
-  FileSpreadsheet,
   FileDown,
   Settings2,
   type LucideIcon,
@@ -100,11 +101,11 @@ const LINKS_EMPRESA_FINANCEIRO = new Set([
   "/dashboard/empresa/contas-fixas",
   "/dashboard/empresa/relatorio",
   "/dashboard/empresa/contas",
+  "/dashboard/empresa/cobranca",
   "/dashboard/empresa/das",
   "/dashboard/empresa/fluxo-caixa",
   "/dashboard/empresa/extrato",
   "/dashboard/empresa/orcamentos",
-  "/dashboard/empresa/notas-fiscais",
   "/dashboard/empresa/configuracoes",
 ]);
 
@@ -132,13 +133,13 @@ const LINKS_EMPRESA: LinkNav[] = [
   { href: "/dashboard/empresa/estoque", label: "Estoque", icon: Boxes },
   { href: "/dashboard/empresa/clientes-fornecedores", label: "Clientes", icon: Users },
   { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
+  { href: "/dashboard/empresa/cobranca", label: "Cobrança", icon: MessageCircle },
   { href: "/dashboard/empresa/contas-fixas", label: "Contas fixas", icon: Repeat },
   { href: "/dashboard/empresa/extrato", label: "Extrato", icon: ScrollText },
-  { href: "/dashboard/empresa/notas-fiscais", label: "Notas fiscais", icon: FileSpreadsheet },
   { href: "/dashboard/empresa/das", label: "DAS / Impostos", icon: FileText },
   { href: "/dashboard/empresa/fluxo-caixa", label: "Fluxo de caixa", icon: ArrowLeftRight },
   { href: "/dashboard/empresa/relatorio", label: "Relatório", icon: BarChart3 },
-  { href: "/dashboard/empresa/configuracoes", label: "Minhas empresas", icon: Settings2 },
+  { href: "/dashboard/empresa/configuracoes", label: "Perfil da empresa", icon: Settings2 },
 ];
 
 export function DashboardNav() {
@@ -327,6 +328,7 @@ export function DashboardNav() {
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <BuscaGlobal />
+          <CentralNotificacoes />
           <ThemeToggle />
           <Link
             href="/dashboard/perfil"

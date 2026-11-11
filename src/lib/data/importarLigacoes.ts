@@ -10,6 +10,7 @@ import {
   registrarQuitacaoEmprestimo,
 } from "./investimentos";
 import { reavaliarQuitacaoRevenda, registrarRecebimentoRevenda } from "./revenda";
+import { itensAbertos, preSelecionar, type AlocacaoRecebimento } from "./receberVarias";
 
 /**
  * Importação de extrato — "O que é isso?" de cada linha (10/nov/2026).
@@ -122,7 +123,11 @@ export function sugerirLigacoes(params: {
   operacoes: OperacaoAberta[];
   carteiras: Conta[];
   contaImportacaoId: string;
-}): ({ acao: "transferencia"; carteiraId: string } | { acao: "receb_emprestimo"; investimentoId: string; modo: ModoRecebimento; parcelaId: string | null } | null)[] {
+}): (
+  | { acao: "transferencia"; carteiraId: string }
+  | { acao: "receb_emprestimo"; investimentoId: string; modo: ModoRecebimento; parcelaId: string | null; divisao?: AlocacaoRecebimento[] }
+  | null
+)[] {
   const carteiras = params.carteiras
     .filter((c) => c.id !== params.contaImportacaoId)
     .map((c) => ({ id: c.id, chave: normalizarTexto(c.nome).replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim() }))
@@ -143,6 +148,40 @@ export function sugerirLigacoes(params: {
       // o que tem parcela/valor igual ao recebido.
       const candidatos = emprestimos.filter((o) => o.palavras.every((p) => desc.includes(` ${p} `)));
       if (candidatos.length > 0) {
+        // 10/nov/2026: um Pix só pagando vários contratos/parcelas da mesma
+        // pessoa — se a soma do que vence no dia (ou outra combinação) bater
+        // exatamente com o valor, já sugere dividido.
+        const abertos = itensAbertos(candidatos).filter((i) => !i.parcela || !parcelasUsadas.has(i.parcela.id));
+        const pre = preSelecionar(abertos, item.valor, item.data);
+        if (pre.exata && pre.valores.size > 1) {
+          const divisao: AlocacaoRecebimento[] = [];
+          for (const it of abertos) {
+            const v = pre.valores.get(it.chave);
+            if (v == null) continue;
+            if (it.parcela) parcelasUsadas.add(it.parcela.id);
+            divisao.push({
+              investimentoId: it.operacao.investimento.id,
+              parcelaId: it.parcela?.id ?? null,
+              tipo: it.tipo,
+              valor: v,
+              modoAvista: it.tipo === "avista" ? "quitacao" : undefined,
+            });
+          }
+          return { acao: "receb_emprestimo", investimentoId: divisao[0].investimentoId, modo: "parcela", parcelaId: null, divisao };
+        }
+        if (pre.exata && pre.valores.size === 1) {
+          const [chave] = Array.from(pre.valores.keys());
+          const it = abertos.find((x) => x.chave === chave);
+          if (it) {
+            if (it.parcela) parcelasUsadas.add(it.parcela.id);
+            return {
+              acao: "receb_emprestimo",
+              investimentoId: it.operacao.investimento.id,
+              modo: it.tipo === "parcela" ? "parcela" : it.tipo === "revenda" ? "recebimento" : "quitacao",
+              parcelaId: it.parcela?.id ?? null,
+            };
+          }
+        }
         const comValor =
           candidatos.find((o) => o.parcelasAbertas.some((p) => Math.abs(Number(p.valor) - item.valor) < 0.01)) ??
           candidatos.find((o) => Math.abs(Number(o.investimento.valor_retornavel ?? 0) - item.valor) < 0.01) ??

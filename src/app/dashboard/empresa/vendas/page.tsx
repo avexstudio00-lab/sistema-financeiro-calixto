@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, FileText } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X } from "lucide-react";
 import Link from "next/link";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
@@ -38,6 +38,7 @@ import { formatarMoeda } from "@/lib/format";
 import { lerPadraoFiado, somarDias, somarMeses, validarCondicoesFiado } from "@/lib/util/fiado";
 import { CondicoesFiado, lerValorDigitado, type EstadoFiado } from "@/components/dashboard/vendas/CondicoesFiado";
 import type { Produto, Cliente, Conta, Venda, Servico } from "@/lib/data/tipos";
+import { buscarTaxasMaquininha, calcularTaxa, type TaxasMaquininha } from "@/lib/data/maquininha";
 
 const FORMAS_PAGAMENTO = [
   { id: "pix", label: "Pix" },
@@ -68,7 +69,7 @@ function hojeMaisUmMes(base: string) {
 }
 
 export default function VendasPage() {
-  const { negocio } = useAuth();
+  const { negocio, papel } = useAuth();
   const { ramo } = useEmpresa();
   const hoje = new Date();
 
@@ -82,6 +83,22 @@ export default function VendasPage() {
   const [carregando, setCarregando] = React.useState(true);
 
   const [formAberto, setFormAberto] = React.useState(false);
+  // "+" → "Registrar uma venda" (10/nov/2026): chega com ?nova=1 e já abre o formulário.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("nova") === "1") {
+      setFormAberto(true);
+      window.history.replaceState(null, "", window.location.pathname);
+      window.scrollTo({ top: 0 });
+    }
+    const abrir = () => {
+      setFormAberto(true);
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener("meucontrole:nova-venda", abrir);
+    return () => window.removeEventListener("meucontrole:nova-venda", abrir);
+  }, []);
   const [produtoId, setProdutoId] = React.useState("");
   const [quantidade, setQuantidade] = React.useState("1");
   const [valorUnitario, setValorUnitario] = React.useState("");
@@ -102,6 +119,12 @@ export default function VendasPage() {
   const [cadastroInline, setCadastroInline] = React.useState<"produto" | "servico" | null>(null);
   // Checklist: várias formas de pagamento na mesma venda.
   const [dividirPagamento, setDividirPagamento] = React.useState(false);
+  // Taxa da maquininha (10/nov/2026): débito/crédito descontam a taxa.
+  const [taxasMaquininha, setTaxasMaquininha] = React.useState<TaxasMaquininha | null>(null);
+  const [parcelasCartao, setParcelasCartao] = React.useState(1);
+  React.useEffect(() => {
+    if (negocio && papel !== "funcionario") buscarTaxasMaquininha(negocio.usuarioId).then(setTaxasMaquininha);
+  }, [negocio, papel]);
   const [partes, setPartes] = React.useState<{ forma: (typeof FORMAS_PAGAMENTO)[number]["id"]; valor: string; contaId: string }[]>([]);
   // Seção 15.2: fiado com termos em aberto, definidos a cada venda.
   const [fiado, setFiado] = React.useState(false);
@@ -207,6 +230,51 @@ export default function VendasPage() {
     setErro(null);
     setCarrinho((lista) => [...lista, item]);
     limparSeletor();
+  }
+
+  // Venda rápida (10/nov/2026): os 6 itens mais vendidos nos últimos 6
+  // meses viram botões — 1 toque coloca no carrinho com o preço de sempre.
+  const maisVendidos = React.useMemo(() => {
+    const contagem = new Map<string, { tipo: "produto" | "servico"; id: string; vezes: number }>();
+    for (const v of vendas) {
+      const id = v.produto_id ?? v.servico_id;
+      if (!id) continue;
+      const tipo = v.produto_id ? "produto" : "servico";
+      const atual = contagem.get(`${tipo}:${id}`) ?? { tipo, id, vezes: 0 };
+      atual.vezes += Number(v.quantidade) || 1;
+      contagem.set(`${tipo}:${id}`, atual);
+    }
+    return Array.from(contagem.values())
+      .sort((a, b) => b.vezes - a.vezes)
+      .map((c): { tipo: "produto" | "servico"; id: string; nome: string; preco: number | null } | null => {
+        if (c.tipo === "produto") {
+          const p = produtos.find((x) => x.id === c.id);
+          return p ? { tipo: "produto" as const, id: p.id, nome: p.nome, preco: Number(p.preco_venda) } : null;
+        }
+        const sv = servicos.find((x) => x.id === c.id);
+        return sv ? { tipo: "servico" as const, id: sv.id, nome: sv.nome, preco: sv.preco_fixo && sv.preco != null ? Number(sv.preco) : null } : null;
+      })
+      .filter((x): x is { tipo: "produto" | "servico"; id: string; nome: string; preco: number | null } => !!x)
+      .slice(0, 6);
+  }, [vendas, produtos, servicos]);
+
+  function adicionarRapido(item: { tipo: "produto" | "servico"; id: string; nome: string; preco: number | null }) {
+    setErro(null);
+    setCarrinho((lista) => {
+      const existente = lista.find((i) => i.tipo === item.tipo && i.refId === item.id);
+      if (existente) return lista.map((i) => (i === existente ? { ...i, quantidade: String((Number(i.quantidade) || 0) + 1) } : i));
+      return [
+        ...lista,
+        {
+          chave: `${item.tipo === "produto" ? "p" : "s"}:${item.id}:${Date.now()}`,
+          tipo: item.tipo,
+          refId: item.id,
+          nome: item.nome,
+          quantidade: "1",
+          valorUnitario: item.preco != null ? String(item.preco).replace(".", ",") : "",
+        },
+      ];
+    });
   }
 
   // O item que está no seletor e ainda não foi adicionado também entra na
@@ -324,6 +392,14 @@ export default function VendasPage() {
       data,
       clienteId: clienteId || null,
       contaId: contaId || null,
+      maquininha:
+        !fiado && !pagamentos && (formaPagamento === "debito" || formaPagamento === "credito") && taxasMaquininha
+          ? (() => {
+              const parcelas = formaPagamento === "credito" ? parcelasCartao : 1;
+              const t = calcularTaxa(taxasMaquininha, formaPagamento, parcelas, totalVenda);
+              return t.taxa > 0 ? { taxa: t.taxa, percentual: t.percentual, parcelas } : null;
+            })()
+          : null,
     });
     setSalvando(false);
 
@@ -348,6 +424,7 @@ export default function VendasPage() {
     setFiado(false);
     setDividirPagamento(false);
     setPartes([]);
+    setParcelasCartao(1);
     setClienteId("");
     setFormAberto(false);
     carregar();
@@ -418,6 +495,32 @@ export default function VendasPage() {
       {formAberto && (
         <Card padding="lg" className="flex flex-col gap-4">
           <h2 className="text-h3 text-foreground">Nova venda</h2>
+          {maisVendidos.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-small font-medium text-foreground">Venda rápida — seus mais vendidos</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {maisVendidos.map((item) => {
+                  const noCarrinho = carrinho.find((i) => i.tipo === item.tipo && i.refId === item.id);
+                  return (
+                    <button
+                      key={`${item.tipo}:${item.id}`}
+                      type="button"
+                      onClick={() => adicionarRapido(item)}
+                      className={`flex min-h-14 flex-col items-start justify-center rounded-xl border px-3 py-2 text-left transition-colors ${
+                        noCarrinho ? "border-accent-500 bg-accent-50 dark:bg-accent-900/20" : "border-border hover:bg-muted/5"
+                      }`}
+                    >
+                      <span className="line-clamp-1 text-small font-semibold text-foreground">{item.nome}</span>
+                      <span className="text-xs text-muted">
+                        {item.preco != null ? formatarMoeda(item.preco) : "valor na hora"}
+                        {noCarrinho ? ` · ${noCarrinho.quantidade}x no carrinho` : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {cadastroInline === "produto" && negocio && (
             <FormularioProduto
               compacto
@@ -623,6 +726,48 @@ export default function VendasPage() {
                 </div>
               )}
             </div>
+
+            {!fiado && !dividirPagamento && (formaPagamento === "debito" || formaPagamento === "credito") && (
+              <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+                {formaPagamento === "credito" && (
+                  <label className="flex flex-col gap-1.5 text-small font-medium text-foreground">
+                    Em quantas vezes?
+                    <select
+                      value={parcelasCartao}
+                      onChange={(e) => setParcelasCartao(Number(e.target.value))}
+                      className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n === 1 ? "À vista (1x)" : `${n}x`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {taxasMaquininha ? (
+                  (() => {
+                    const t = calcularTaxa(taxasMaquininha, formaPagamento, formaPagamento === "credito" ? parcelasCartao : 1, totalVenda);
+                    return t.taxa > 0 ? (
+                      <p className="text-small text-foreground">
+                        Taxa da maquininha: <strong className="text-rose-700 dark:text-rose-300">{formatarMoeda(t.taxa)}</strong> ({String(t.percentual).replace(".", ",")}%) · você
+                        recebe <strong>{formatarMoeda(t.liquido)}</strong>
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted">Sem taxa cadastrada para essa forma.</p>
+                    );
+                  })()
+                ) : papel !== "funcionario" ? (
+                  <p className="text-xs text-muted">
+                    Cadastre as taxas da sua maquininha em{" "}
+                    <Link href="/dashboard/empresa/configuracoes#maquininha" className="font-semibold text-accent-700 hover:underline dark:text-accent-300">
+                      Perfil da empresa
+                    </Link>{" "}
+                    e o app desconta a taxa de cada venda sozinho.
+                  </p>
+                ) : null}
+              </div>
+            )}
 
             {clientes.length > 0 && (
               <div className="flex flex-col gap-1.5">
@@ -950,16 +1095,6 @@ export default function VendasPage() {
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                       <p className="text-body font-semibold text-accent-600">{formatarMoeda(g.total)}</p>
-                      {/* 09/nov/2026: liga a venda à nota fiscal (já abre a
-                          nota preenchida com cliente, itens e valor). */}
-                      <Link
-                        href={`/dashboard/empresa/notas-fiscais?venda=${encodeURIComponent(v.grupo_venda_id ?? v.id)}`}
-                        aria-label="Fazer nota fiscal desta venda"
-                        title="Fazer nota fiscal desta venda"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
-                      >
-                        <FileText size={16} />
-                      </Link>
                       {confirmandoExclusaoId === g.chave ? (
                         <div className="flex items-center gap-1">
                           <Button size="sm" variant="tertiary" onClick={() => setConfirmandoExclusaoId(null)}>

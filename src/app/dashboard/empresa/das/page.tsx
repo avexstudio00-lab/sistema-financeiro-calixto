@@ -22,13 +22,15 @@ import { formatarMoeda } from "@/lib/format";
 import type { Conta, ContaPagar } from "@/lib/data/tipos";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
+import { SimuladorImpostos } from "@/components/dashboard/SimuladorImpostos";
+import { buscarPerfilNegocio, type PerfilFiscal } from "@/lib/data/perfilFiscal";
 
 /** Limite de receita bruta anual do MEI usado no acompanhamento da DASN.
  * Fica numa constante para atualizar fácil se a lei mudar. */
 const LIMITE_MEI_ANUAL = 81000;
 
 export default function DasPage() {
-  const { papel, negocio } = useAuth();
+  const { papel, negocio, perfil } = useAuth();
   const router = useRouter();
   const hoje = new Date();
 
@@ -53,8 +55,20 @@ export default function DasPage() {
   const [erro, setErro] = React.useState<string | null>(null);
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
+  const [faturamento12m, setFaturamento12m] = React.useState(0);
+  const [perfilFiscal, setPerfilFiscal] = React.useState<PerfilFiscal | null>(null);
+  React.useEffect(() => {
+    if (negocio) buscarPerfilNegocio(negocio.usuarioId).then((p) => setPerfilFiscal(p.fiscal));
+  }, [negocio]);
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
+    // Simulador: soma dos últimos 12 meses (ano atual + o anterior).
+    const anoAtual = hoje.getFullYear();
+    const mesAtual = hoje.getMonth() + 1;
+    Promise.all([faturamentoAnualPorMes(negocio.usuarioId, anoAtual), faturamentoAnualPorMes(negocio.usuarioId, anoAtual - 1)]).then(([este, anterior]) => {
+      const doze = [...anterior.filter((p) => p.mesNumero > mesAtual), ...este.filter((p) => p.mesNumero <= mesAtual)];
+      setFaturamento12m(doze.reduce((acc, p) => acc + p.faturamento, 0));
+    });
     // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
     // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
     // estava aberto (pedido do usuário em 05/out/2026).
@@ -156,13 +170,15 @@ export default function DasPage() {
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h2 text-foreground">DAS e impostos</h1>
-          <p className="text-body text-muted">Controle da guia mensal e uma reserva sugerida pra não ser pego de surpresa.</p>
+          <p className="text-body text-muted">Quanto vai pagar de imposto, a guia do mês e uma reserva pra não ser pego de surpresa.</p>
         </div>
         <Button onClick={abrirNovo}>
           <Plus size={18} />
           Nova guia
         </Button>
       </div>
+
+      <SimuladorImpostos faturamentoMes={faturamentoDoMes} faturamento12m={faturamento12m} ehMei={perfil?.tipo_perfil === "mei"} perfil={perfilFiscal} />
 
       <Card className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

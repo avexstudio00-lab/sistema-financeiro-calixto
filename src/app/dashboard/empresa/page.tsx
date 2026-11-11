@@ -1,5 +1,6 @@
 "use client";
 
+import { MetaMesEmpresa } from "@/components/dashboard/MetaMesEmpresa";
 import * as React from "react";
 import Link from "next/link";
 import {
@@ -98,6 +99,7 @@ export default function PainelEmpresaPage() {
   // Spinner só na 1ª carga ou ao trocar de mês; recarregar depois de
   // salvar é silencioso, sem pular pro topo (05/out/2026).
   const chaveCarregadaRef = React.useRef<string | null>(null);
+  const pendentesRodouRef = React.useRef(false);
   const [modalAberto, setModalAberto] = React.useState(false);
   const [transacaoEditando, setTransacaoEditando] = React.useState<Transacao | null>(null);
 
@@ -128,7 +130,13 @@ export default function PainelEmpresaPage() {
     if (!negocio) return;
     // 09/nov/2026: contas fixas da empresa lançam sozinhas quando o dono
     // abre o painel da empresa (mesmo esquema "preguiçoso" do painel pessoal).
-    if (papel === "dono" && navigator.onLine) await gerarLancamentosPendentes(negocio.usuarioId).catch(() => 0);
+    // 10/nov/2026: roda em paralelo (antes segurava a tela inteira) — se
+    // lançou alguma conta fixa, recarrega em silêncio no fim.
+    const pendentes =
+      papel === "dono" && navigator.onLine && !pendentesRodouRef.current
+        ? gerarLancamentosPendentes(negocio.usuarioId).catch(() => 0)
+        : Promise.resolve(0);
+    pendentesRodouRef.current = true;
 
     // Funcionário não tem acesso ao financeiro do negócio (contas a pagar/
     // receber e o extrato de transações ficam bloqueados pelo RLS) — só
@@ -154,7 +162,13 @@ export default function PainelEmpresaPage() {
       return;
     }
 
-    if (chaveCarregadaRef.current !== chaveCache) setCarregando(true);
+    // Abre na hora com o último retrato salvo deste mês (se houver) e
+    // atualiza por trás — o painel não fica mais na rodinha a cada visita.
+    if (chaveCarregadaRef.current !== chaveCache) {
+      const temRetrato = aplicarCache(chaveCache);
+      if (temRetrato) setOfflineDesde(null);
+      setCarregando(!temRetrato);
+    }
     chaveCarregadaRef.current = chaveCache;
     const inicio = new Date(ano, mes - 1, 1).toISOString().slice(0, 10);
     const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
@@ -194,7 +208,12 @@ export default function PainelEmpresaPage() {
       vendas: listaVendas,
     });
     setCarregando(false);
+    if ((await pendentes) > 0) void carregarRef.current?.();
   }, [negocio, ehFuncionario, ano, mes, aplicarCache, papel]);
+  const carregarRef = React.useRef<(() => Promise<void>) | null>(null);
+  React.useEffect(() => {
+    carregarRef.current = carregar;
+  }, [carregar]);
 
   React.useEffect(() => {
     carregar();
@@ -473,6 +492,9 @@ export default function PainelEmpresaPage() {
                 </div>
               )}
             </Card>
+            {!ehFuncionario && negocio && (
+              <MetaMesEmpresa contaMestreId={negocio.usuarioId} faturado={resumo.faturamento} ano={ano} mes={mes} podeEditar={papel === "dono" || papel === "socio"} />
+            )}
             <VisaoHoje itens={itensHoje} cor="accent" />
             {!ehFuncionario && negocio && (
               <CobrancasFiado contaMestreId={negocio.usuarioId} nomeEmpresa={empresaAtivaNome ?? negocio.nome} titulos={contasReceber} onAlterado={() => void carregar()} />

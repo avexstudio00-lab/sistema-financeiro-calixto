@@ -82,8 +82,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * (sócio/funcionário) — e, nesse caso, busca os dados básicos (nome,
    * plano) da conta de quem convidou, pra liberar "Minha empresa" e mostrar
    * de quem é a empresa que a pessoa está vendo. */
-  const carregarPapelENegocio = React.useCallback(async (userId: string, perfilAtual: Perfil | null) => {
-    const { data: papelData } = await supabase.rpc("papel_do_membro");
+  const carregarPapelENegocio = React.useCallback(async (userId: string, perfilAtual: Perfil | null, papelJaBuscado?: unknown) => {
+    // 10/nov/2026: o papel pode vir buscado em paralelo com o perfil.
+    const papelData = papelJaBuscado !== undefined ? papelJaBuscado : (await supabase.rpc("papel_do_membro")).data;
     const papelResolvido = ((papelData as string | null) ?? "dono") as Papel;
     setPapel(papelResolvido);
 
@@ -118,9 +119,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const minhaVez = ++sequenciaPerfilRef.current;
       // Seção 14.1 (15/out/2026): perfil e conferência do trial saem em
       // paralelo — antes eram 3 idas ao banco em fila antes de liberar a tela.
-      const [{ data }, trialExpirouAgora] = await Promise.all([
+      const [{ data }, trialExpirouAgora, papelRes] = await Promise.all([
         supabase.from("usuarios").select("*").eq("id", userId).maybeSingle(),
         verificarExpiracaoTrial(userId),
+        supabase.rpc("papel_do_membro"),
       ]);
       let perfilCarregado = data as Perfil | null;
 
@@ -138,7 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setPerfil(perfilCarregado);
-      await carregarPapelENegocio(userId, perfilCarregado);
+      await carregarPapelENegocio(userId, perfilCarregado, papelRes.error ? undefined : (papelRes.data ?? null));
       // Grava o aceite dos termos (feito no cadastro) se ainda não foi
       // registrado no servidor. Não bloqueia nada: falha só vira log.
       if (perfilCarregado) void registrarConsentimentoPendente(userId);

@@ -642,6 +642,22 @@ export async function editarPagamentoInvestimento(pagamento: PagamentoInvestimen
  * partir de parcelas/quitado — nada disso é guardado como número solto.
  * Se o evento lançou dinheiro numa carteira (5.10), o lançamento é estornado. */
 export async function excluirPagamentoInvestimento(pagamento: PagamentoInvestimento) {
+  if (pagamento.tipo === "parcial") {
+    // Pedaço de uma parcela (10/nov/2026): tira do "já recebido" da parcela
+    // e reabre a parcela se ela tinha fechado.
+    const { error } = await supabase.from("investimento_pagamentos").delete().eq("id", pagamento.id);
+    if (error) return { data: null, error };
+    await estornarMovimento(pagamento.transacao_id);
+    if (pagamento.parcela_id) {
+      const { data: parcela } = await supabase.from("investimento_parcelas").select("valor_recebido").eq("id", pagamento.parcela_id).maybeSingle();
+      const atual = Number((parcela as { valor_recebido: number | null } | null)?.valor_recebido ?? 0);
+      await supabase
+        .from("investimento_parcelas")
+        .update({ valor_recebido: Math.max(0, Number((atual - Number(pagamento.valor_pago)).toFixed(2))) })
+        .eq("id", pagamento.parcela_id);
+    }
+    return { data: null, error: null };
+  }
   if (pagamento.tipo === "recebimento") {
     // Recebimento de Compra e revenda (item 5.3): só apaga, estorna a
     // carteira e reavalia a quitação automática.
@@ -1197,7 +1213,8 @@ export function calcularRecebidoEntre(
         dentro(p.data_pagamento) &&
         !quitacoesAntecipadas.has(`${p.investimento_id}|${p.data_pagamento}`)
     )
-    .reduce((acc, p) => acc + Number(p.valor), 0);
+    // O que já entrou em pedaços ("parcial") está nos pagamentos: aqui só o resto.
+    .reduce((acc, p) => acc + Number(p.valor) - Number(p.valor_recebido ?? 0), 0);
   return Number((dePagamentos + deParcelas).toFixed(2));
 }
 
@@ -1262,7 +1279,7 @@ export function calcularLucroRecebidoEntre(
   for (const p of parcelas) {
     if (!porId.has(p.investimento_id) || !p.pago || !dentro(p.data_pagamento)) continue;
     if (quitacoesAntecipadas.has(`${p.investimento_id}|${p.data_pagamento}`)) continue;
-    lucro += Number(p.valor) * (fracaoLucro.get(p.investimento_id) ?? 0);
+    lucro += (Number(p.valor) - Number(p.valor_recebido ?? 0)) * (fracaoLucro.get(p.investimento_id) ?? 0);
   }
   return Number(lucro.toFixed(2));
 }

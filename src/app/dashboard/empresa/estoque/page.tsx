@@ -16,6 +16,7 @@ import { calcularSugestoesReposicao, valorDoEstoque } from "@/lib/data/estoque";
 import { formatarMoeda } from "@/lib/format";
 import type { Conta, Fornecedor, Produto, Venda } from "@/lib/data/tipos";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
+import { lerCache, salvarCache } from "@/lib/offline/cache";
 import { criarContaPagar, darEntradaEstoqueDaCompra, marcarContaPagarPaga } from "@/lib/data/contasEmpresa";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import type { ContaPagar } from "@/lib/data/tipos";
@@ -69,6 +70,18 @@ export default function EstoquePage() {
     // Recarregar depois de salvar NÃO mostra o spinner (só a 1ª carga):
     // trocar a lista pelo spinner jogava a tela pro topo e fechava o que
     // estava aberto (pedido do usuário em 05/out/2026).
+    // 10/nov/2026: abre na hora com o último retrato e atualiza por trás.
+    const chaveCache = `empresa-estoque:${negocio.usuarioId}`;
+    if (!retratoAplicadoRef.current) {
+      retratoAplicadoRef.current = true;
+      const retrato = lerCache<{ p: Produto[]; v: Venda[]; f: Fornecedor[] }>(chaveCache);
+      if (retrato) {
+        setProdutos(retrato.dados.p);
+        setVendas(retrato.dados.v);
+        setFornecedores(retrato.dados.f);
+        setCarregando(false);
+      }
+    }
     const inicio = new Date();
     inicio.setDate(inicio.getDate() - 60);
     const [p, v, f] = await Promise.all([
@@ -81,7 +94,9 @@ export default function EstoquePage() {
     setVendas(v);
     setFornecedores(f);
     setCarregando(false);
+    salvarCache(chaveCache, { p, v, f });
   }, [negocio]);
+  const retratoAplicadoRef = React.useRef(false);
 
   React.useEffect(() => {
     carregar();

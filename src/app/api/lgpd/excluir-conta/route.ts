@@ -23,6 +23,7 @@ const TABELAS_EM_ORDEM = [
   "contas_receber",
   "contas_pagar",
   "notas_fiscais",
+  "notificacoes",
   "orcamentos",
   "servicos",
   "produtos",

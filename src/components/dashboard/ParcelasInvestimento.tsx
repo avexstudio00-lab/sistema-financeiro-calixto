@@ -234,6 +234,11 @@ export function ParcelasInvestimento({
                   <div className="flex flex-col">
                     <span className="font-medium text-foreground">
                       Parcela {parcela.numero} · {formatarMoeda(Number(parcela.valor))}
+                      {!parcela.pago && Number(parcela.valor_recebido ?? 0) > 0 ? (
+                        <span className="ml-1 text-xs font-normal text-amber-800 dark:text-amber-200">
+                          (recebido {formatarMoeda(Number(parcela.valor_recebido))}, faltam {formatarMoeda(Number(parcela.valor) - Number(parcela.valor_recebido))})
+                        </span>
+                      ) : null}
                     </span>
                     {!editando && !emJuros && (
                       <span className={cn("text-xs", atrasada ? "text-red-600" : "text-muted")}>
