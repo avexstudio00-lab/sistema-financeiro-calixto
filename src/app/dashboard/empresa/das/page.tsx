@@ -23,6 +23,7 @@ import type { Conta, ContaPagar } from "@/lib/data/tipos";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
 import { SimuladorImpostos } from "@/components/dashboard/SimuladorImpostos";
+import { buscarPerfilNegocio, type PerfilFiscal } from "@/lib/data/perfilFiscal";
 
 /** Limite de receita bruta anual do MEI usado no acompanhamento da DASN.
  * Fica numa constante para atualizar fácil se a lei mudar. */
@@ -55,6 +56,10 @@ export default function DasPage() {
   const [confirmandoExclusaoId, setConfirmandoExclusaoId] = React.useState<string | null>(null);
 
   const [faturamento12m, setFaturamento12m] = React.useState(0);
+  const [perfilFiscal, setPerfilFiscal] = React.useState<PerfilFiscal | null>(null);
+  React.useEffect(() => {
+    if (negocio) buscarPerfilNegocio(negocio.usuarioId).then((p) => setPerfilFiscal(p.fiscal));
+  }, [negocio]);
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
     // Simulador: soma dos últimos 12 meses (ano atual + o anterior).
@@ -173,7 +178,7 @@ export default function DasPage() {
         </Button>
       </div>
 
-      <SimuladorImpostos faturamentoMes={faturamentoDoMes} faturamento12m={faturamento12m} ehMei={perfil?.tipo_perfil === "mei"} />
+      <SimuladorImpostos faturamentoMes={faturamentoDoMes} faturamento12m={faturamento12m} ehMei={perfil?.tipo_perfil === "mei"} perfil={perfilFiscal} />
 
       <Card className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
