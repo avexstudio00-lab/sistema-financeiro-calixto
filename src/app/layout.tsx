@@ -55,6 +55,10 @@ export default function RootLayout({
             sem dangerouslySetInnerHTML no código do app — o script é um
             arquivo estático servido pelo próprio domínio (CSP 'self'). */}
         <script src="/tema-inicial.js" />
+        {/* Sessão pedida já no começo (10/nov/2026): o servidor responde
+            enquanto o JavaScript do app ainda baixa. Só no modo cookie. */}
+        {process.env.NEXT_PUBLIC_SESSAO_COOKIE === "1" && <script src="/sessao-cedo.js" />}
+        <link rel="preconnect" href={process.env.NEXT_PUBLIC_SUPABASE_URL || "https://wtkwsyvjtnxpoopdniwq.supabase.co"} crossOrigin="anonymous" />
       </head>
       <body className="font-sans" suppressHydrationWarning>
         <PwaRegister />
