@@ -17,6 +17,7 @@ import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } 
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarFornecedores } from "@/lib/data/fornecedores";
 import { listarClientes } from "@/lib/data/clientes";
+import { SeletorParceiro } from "@/components/dashboard/SeletorParceiro";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import {
   listarContasPagar,
@@ -313,7 +314,6 @@ export default function ContasEmpresaPage() {
   const totalPendente = lista.filter((c) => c.status === "pendente").reduce((acc, c) => acc + Number(c.valor), 0);
   const totalAtrasado = lista.filter((c) => estaAtrasada(c)).reduce((acc, c) => acc + Number(c.valor), 0);
   const totalVencendo = lista.filter((c) => venceEmBreve(c, 3)).reduce((acc, c) => acc + Number(c.valor), 0);
-  const vinculos = aba === "pagar" ? fornecedores : clientes;
 
   function linhaTitulo(t: Titulo, dentroDeGrupo: boolean) {
     const atrasada = estaAtrasada(t);
@@ -576,19 +576,30 @@ export default function ContasEmpresaPage() {
                 Fiado: o dinheiro só entra no caixa quando cada parcela for marcada como recebida.
               </p>
             )}
-            {vinculos.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">
-                  {aba === "pagar" ? "Fornecedor (opcional)" : fiado ? "Cliente" : "Cliente (opcional)"}
-                </span>
-                <select value={vinculoId} onChange={(e) => setVinculoId(e.target.value)} className={classeSelect}>
-                  <option value="">Nenhum</option>
-                  {vinculos.map((v) => (
-                    <option key={v.id} value={v.id}>{v.nome}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {negocio &&
+              (aba === "pagar" ? (
+                <SeletorParceiro
+                  key="fornecedor"
+                  tipo="fornecedor"
+                  contaMestreId={negocio.usuarioId}
+                  lista={fornecedores}
+                  value={vinculoId}
+                  onChange={setVinculoId}
+                  rotulo="Fornecedor (opcional)"
+                  onCriado={(novo) => setFornecedores((lista) => [...lista, novo].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))}
+                />
+              ) : (
+                <SeletorParceiro
+                  key="cliente"
+                  contaMestreId={negocio.usuarioId}
+                  lista={clientes}
+                  value={vinculoId}
+                  onChange={setVinculoId}
+                  obrigatorio={fiado}
+                  rotulo={fiado ? "Cliente" : "Cliente (opcional)"}
+                  onCriado={(novo) => setClientes((lista) => [...lista, novo].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))}
+                />
+              ))}
             {aba === "pagar" && (
               <label className="flex items-center gap-2 text-small text-foreground">
                 <input
