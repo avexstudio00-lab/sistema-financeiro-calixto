@@ -18,6 +18,7 @@ import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { Badge } from "@/components/ui/Badge";
 
 import { listarClientes } from "@/lib/data/clientes";
+import { SeletorParceiro } from "@/components/dashboard/SeletorParceiro";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import {
   listarVendas,
@@ -786,26 +787,20 @@ export default function VendasPage() {
               </div>
             )}
 
-            {clientes.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Cliente {fiado ? "" : "(opcional)"}</span>
-                <select
-                  value={clienteId}
-                  onChange={(e) => {
-                    setClienteId(e.target.value);
-                    const novo = clientes.find((c) => c.id === e.target.value);
-                    if (fiado) aplicarPadraoFiado(true, lerPadraoFiado(novo?.padrao_fiado));
-                  }}
-                  className="h-11 rounded-xl border border-border bg-card px-3 text-body text-foreground focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
-                >
-                  <option value="">Sem cliente identificado</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {negocio && (
+              <SeletorParceiro
+                contaMestreId={negocio.usuarioId}
+                lista={clientes}
+                value={clienteId}
+                obrigatorio={fiado}
+                rotulo={fiado ? "Cliente" : "Cliente (opcional)"}
+                onChange={(id) => {
+                  setClienteId(id);
+                  const novo = clientes.find((c) => c.id === id);
+                  if (fiado) aplicarPadraoFiado(true, lerPadraoFiado(novo?.padrao_fiado));
+                }}
+                onCriado={(novo) => setClientes((lista) => [...lista, novo].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))}
+              />
             )}
 
             <label className="flex items-center gap-2 text-small text-foreground">
@@ -822,9 +817,6 @@ export default function VendasPage() {
               />
               Venda fiada (o cliente paga depois, nas condições que vocês combinarem)
             </label>
-            {fiado && !clienteId && (
-              <p className="text-xs text-amber-800 dark:text-amber-200">Escolha o cliente acima — o fiado fica no nome dele.</p>
-            )}
             {fiado && padraoCliente && (
               <p className="text-xs text-muted">Condições preenchidas com o padrão de {clienteSelecionado?.nome}. Pode mudar à vontade.</p>
             )}
