@@ -22,7 +22,7 @@ import { listarClientes } from "@/lib/data/clientes";
 import { SeletorParceiro } from "@/components/dashboard/SeletorParceiro";
 import { calcularResultadoVendedores, listarVendedores } from "@/lib/data/vendedores";
 import { buscarAgendamento, dataLocalIso, marcarAgendamentoVendido } from "@/lib/data/agenda";
-import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
+import { listarContas, carteirasDoAmbiente, listarCarteirasParaVenda } from "@/lib/data/contas";
 import {
   listarVendas,
   registrarVenda,
@@ -204,11 +204,13 @@ export default function VendasPage() {
     setServicos(listaServicos);
     void listarVendedores(negocio.usuarioId).then(setVendedoresCadastro);
     setClientes(listaClientes);
-    setContas(carteirasDoAmbiente(listaContas, "empresa"));
+    // Funcionário não vê as carteiras (nem saldo): só os nomes pra escolher.
+    const carteiras = papel === "funcionario" ? await listarCarteirasParaVenda() : carteirasDoAmbiente(listaContas, "empresa");
+    setContas(carteiras);
     setVendas(listaVendas);
-    if (!contaId && listaContas[0]) setContaId(listaContas[0].id);
+    if (!contaId && carteiras[0]) setContaId(carteiras[0].id);
     setCarregando(false);
-  }, [negocio, contaId]);
+  }, [negocio, contaId, papel]);
 
   React.useEffect(() => {
     carregar();
@@ -886,6 +888,8 @@ export default function VendasPage() {
               <p className="text-xs text-muted">Em branco fica com o seu nome. Serve pra ver as vendas e a comissão de cada um.</p>
             </div>
 
+            {/* Fiado vira conta a receber (financeiro): só dono/sócio. */}
+            {papel !== "funcionario" && (
             <label className="flex items-center gap-2 text-small text-foreground">
               <input
                 type="checkbox"
@@ -900,6 +904,7 @@ export default function VendasPage() {
               />
               Venda fiada (o cliente paga depois, nas condições que vocês combinarem)
             </label>
+            )}
             {fiado && padraoCliente && (
               <p className="text-xs text-muted">Condições preenchidas com o padrão de {clienteSelecionado?.nome}. Pode mudar à vontade.</p>
             )}
