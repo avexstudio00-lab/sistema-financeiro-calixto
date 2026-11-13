@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/Badge";
 
 import { listarClientes } from "@/lib/data/clientes";
 import { SeletorParceiro } from "@/components/dashboard/SeletorParceiro";
+import { calcularResultadoVendedores, listarVendedores } from "@/lib/data/vendedores";
 import { buscarAgendamento, dataLocalIso, marcarAgendamentoVendido } from "@/lib/data/agenda";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import {
@@ -41,8 +42,8 @@ import {
 } from "@/lib/data/vendas";
 import { formatarMoeda } from "@/lib/format";
 import { lerPadraoFiado, somarDias, somarMeses, validarCondicoesFiado } from "@/lib/util/fiado";
-import { CondicoesFiado, lerValorDigitado, type EstadoFiado } from "@/components/dashboard/vendas/CondicoesFiado";
-import type { Produto, Cliente, Conta, Venda, Servico } from "@/lib/data/tipos";
+import { CondicoesFiado, lerValorDigitado, totalCombinadoFiado, type EstadoFiado } from "@/components/dashboard/vendas/CondicoesFiado";
+import type { Produto, Cliente, Conta, Venda, Servico, Vendedor } from "@/lib/data/tipos";
 import { buscarTaxasMaquininha, calcularTaxa, type TaxasMaquininha } from "@/lib/data/maquininha";
 
 const FORMAS_PAGAMENTO = [
@@ -145,6 +146,7 @@ export default function VendasPage() {
   const [clienteId, setClienteId] = React.useState("");
   // Quem vendeu (13/nov/2026): começa com o nome de quem está logado.
   const [vendedor, setVendedor] = React.useState("");
+  const [vendedoresCadastro, setVendedoresCadastro] = React.useState<Vendedor[]>([]);
   const [filtroVendedor, setFiltroVendedor] = React.useState<string | null>(null);
   const [data, setData] = React.useState(() => hoje.toISOString().slice(0, 10));
   const [contaId, setContaId] = React.useState("");
@@ -181,6 +183,7 @@ export default function VendasPage() {
       parcelas: [],
       parcelasEditadas: false,
       salvarComoPadrao: true,
+      valorCombinado: "",
     };
   }
 
@@ -199,6 +202,7 @@ export default function VendasPage() {
     ]);
     setProdutos(listaProdutos);
     setServicos(listaServicos);
+    void listarVendedores(negocio.usuarioId).then(setVendedoresCadastro);
     setClientes(listaClientes);
     setContas(carteirasDoAmbiente(listaContas, "empresa"));
     setVendas(listaVendas);
@@ -352,7 +356,9 @@ export default function VendasPage() {
     const entradaValor = estadoFiado.temEntrada ? lerValorDigitado(estadoFiado.entradaValor) : 0;
     if (estadoFiado.temEntrada && !(entradaValor > 0)) return { erro: "Digite o valor da entrada (ou desmarque a entrada)." };
     const parcelas = estadoFiado.parcelas.map((p) => ({ vencimento: p.vencimento, valor: lerValorDigitado(p.valor) }));
-    const problema = validarCondicoesFiado(totalVenda, entradaValor, parcelas, data);
+    const combinadoTexto = (estadoFiado.valorCombinado ?? "").trim();
+    if (combinadoTexto && !(lerValorDigitado(combinadoTexto) >= totalVenda)) return { erro: "O valor combinado não pode ser menor que o total da venda." };
+    const problema = validarCondicoesFiado(totalCombinadoFiado(totalVenda, estadoFiado), entradaValor, parcelas, data);
     if (problema) return { erro: problema };
     return {
       condicoes: {
@@ -431,6 +437,7 @@ export default function VendasPage() {
       data,
       clienteId: clienteId || null,
       vendedorNome: (vendedor.trim() || nomeLogado) || null,
+      acrescimoFiado: fiado ? Number((totalCombinadoFiado(totalVenda, estadoFiado) - totalVenda).toFixed(2)) : null,
       contaId: contaId || null,
       maquininha:
         !fiado && !pagamentos && (formaPagamento === "debito" || formaPagamento === "credito") && taxasMaquininha
@@ -515,29 +522,21 @@ export default function VendasPage() {
   // Seção 15.1: as linhas da mesma venda (carrinho) aparecem juntas.
   const vendasAgrupadasTodas = React.useMemo(() => agruparLinhasDeVenda(vendas), [vendas]);
   const vendasAgrupadas = React.useMemo(
-    () => (filtroVendedor ? vendasAgrupadasTodas.filter((g) => (g.vendedor ?? "") === filtroVendedor) : vendasAgrupadasTodas),
+    () =>
+      filtroVendedor
+        ? vendasAgrupadasTodas.filter((g) => (g.vendedor ?? "").trim().toLocaleLowerCase("pt-BR") === filtroVendedor.trim().toLocaleLowerCase("pt-BR"))
+        : vendasAgrupadasTodas,
     [vendasAgrupadasTodas, filtroVendedor]
   );
   // Nomes já usados (pra sugerir no campo) e total do mês por vendedor.
   const nomesVendedores = React.useMemo(() => {
     const set = new Set<string>();
     if (nomeLogado) set.add(nomeLogado);
+    for (const vc of vendedoresCadastro) if (vc.ativo) set.add(vc.nome);
     for (const v of vendas) if (v.vendedor_nome) set.add(v.vendedor_nome);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [vendas, nomeLogado]);
-  const porVendedorMes = React.useMemo(() => {
-    const mapa = new Map<string, { total: number; vendas: Set<string> }>();
-    for (const v of vendasDoMes) {
-      if (!v.vendedor_nome) continue;
-      const g = mapa.get(v.vendedor_nome) ?? { total: 0, vendas: new Set<string>() };
-      g.total += Number(v.valor_total);
-      g.vendas.add(v.grupo_venda_id ?? v.id);
-      mapa.set(v.vendedor_nome, g);
-    }
-    return Array.from(mapa.entries())
-      .map(([nome, g]) => ({ nome, total: g.total, qtd: g.vendas.size }))
-      .sort((a, b) => b.total - a.total);
-  }, [vendasDoMes]);
+  }, [vendas, nomeLogado, vendedoresCadastro]);
+  const porVendedorMes = React.useMemo(() => calcularResultadoVendedores(vendasDoMes, vendedoresCadastro), [vendasDoMes, vendedoresCadastro]);
   // Ranking ABC de margem real (7.2) — últimos 6 meses carregados.
   const ranking = React.useMemo(() => rankingABC(vendas), [vendas]);
 
@@ -1134,7 +1133,7 @@ export default function VendasPage() {
             )}
           </Card>
 
-          {ranking.length > 0 && (
+          {ranking.length > 0 && papel !== "funcionario" && (
             <Card padding="lg" className="flex flex-col gap-4">
               <div className="flex items-center gap-2">
                 <Trophy size={20} className="text-accent-700" />
@@ -1180,7 +1179,17 @@ export default function VendasPage() {
             <Card className="flex flex-col gap-3">
               <div>
                 <h2 className="text-h3 text-foreground">Vendas por vendedor (este mês)</h2>
-                <p className="text-small text-muted">Toque num nome pra ver só as vendas dele.</p>
+                <p className="text-small text-muted">
+                  Toque num nome pra ver só as vendas dele.
+                  {papel !== "funcionario" && (
+                    <>
+                      {" "}
+                      <Link href="/dashboard/empresa/vendedores" className="font-semibold text-accent-700 hover:underline dark:text-accent-300">
+                        Comissão, repasse e metas
+                      </Link>
+                    </>
+                  )}
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 {porVendedorMes.map((pv) => (
@@ -1197,10 +1206,13 @@ export default function VendasPage() {
                       <UserRound size={16} className="shrink-0 text-accent-700" />
                       <span className="truncate text-small font-semibold text-foreground">{pv.nome}</span>
                       <span className="shrink-0 text-xs text-muted">
-                        {pv.qtd} {pv.qtd === 1 ? "venda" : "vendas"}
+                        {pv.vendas} {pv.vendas === 1 ? "venda" : "vendas"}
                       </span>
                     </span>
-                    <span className="shrink-0 text-small font-semibold text-foreground">{formatarMoeda(pv.total)}</span>
+                    <span className="flex shrink-0 flex-col items-end">
+                      <span className="text-small font-semibold text-foreground">{formatarMoeda(pv.vendido)}</span>
+                      {pv.falta != null && <span className="text-[11px] text-muted">{pv.falta > 0 ? `faltam ${formatarMoeda(pv.falta)}` : "meta batida"}</span>}
+                    </span>
                   </button>
                 ))}
               </div>
