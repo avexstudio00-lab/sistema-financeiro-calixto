@@ -16,10 +16,18 @@ export async function listarMembros(contaMestreId: string): Promise<Membro[]> {
  * valida o limite de 2 convidados e o plano Grupo via trigger — se algo
  * disso não bater, `error.message` vem com o motivo em português, pronto
  * pra mostrar na tela. */
-export async function convidarMembro(contaMestreId: string, email: string, papel: "socio" | "funcionario") {
+export async function convidarMembro(
+  contaMestreId: string,
+  email: string,
+  papel: "socio" | "funcionario",
+  /** 13/nov/2026: empresa liberada pro convidado. `null` = todas as empresas
+   * da conta. A RLS (`empresa_acessivel`) já respeita esse campo: quem foi
+   * convidado só pra empresa A nunca enxerga nada da B. */
+  empresaId: string | null = null
+) {
   return supabase
     .from("membros")
-    .insert({ conta_mestre_id: contaMestreId, email: email.trim().toLowerCase(), papel })
+    .insert({ conta_mestre_id: contaMestreId, email: email.trim().toLowerCase(), papel, empresa_id: empresaId })
     .select()
     .single();
 }
@@ -27,6 +35,11 @@ export async function convidarMembro(contaMestreId: string, email: string, papel
 /** Muda o papel de um membro já convidado/ativo (ex: promover funcionário a sócio). */
 export async function atualizarPapelMembro(membroId: string, papel: "socio" | "funcionario") {
   return supabase.from("membros").update({ papel }).eq("id", membroId);
+}
+
+/** Muda a(s) empresa(s) que o membro enxerga (`null` = todas). */
+export async function atualizarEmpresaMembro(membroId: string, empresaId: string | null) {
+  return supabase.from("membros").update({ empresa_id: empresaId }).eq("id", membroId);
 }
 
 /** Remove o acesso de um membro (convite pendente ou já ativo). Não apaga a

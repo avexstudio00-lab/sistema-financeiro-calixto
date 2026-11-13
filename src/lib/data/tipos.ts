@@ -590,6 +590,8 @@ export interface Membro {
   token: string;
   criado_em: string;
   aceito_em: string | null;
+  /** Empresa liberada pro membro (planos com 2 empresas). `null` = todas. */
+  empresa_id?: string | null;
 }
 
 /** Retorno de `consultar_convite` — o que a tela de convite mostra antes de
@@ -599,4 +601,25 @@ export interface DetalheConvite {
   papel: "socio" | "funcionario";
   nome_convidante: string;
   status: "pendente" | "ativo" | "removido";
+}
+
+/** Agenda de serviços (13/nov/2026). */
+export type StatusAgendamento = "marcado" | "confirmado" | "concluido" | "cancelado" | "faltou";
+
+export interface Agendamento {
+  id: string;
+  usuario_id: string;
+  empresa_id: string | null;
+  cliente_id: string | null;
+  servico_id: string | null;
+  descricao: string;
+  inicio: string;
+  duracao_min: number;
+  valor: number | null;
+  status: StatusAgendamento;
+  observacoes: string | null;
+  venda_grupo_id: string | null;
+  criado_em: string;
+  clientes?: Pick<Cliente, "id" | "nome" | "telefone"> | null;
+  servicos?: { id: string; nome: string } | null;
 }
