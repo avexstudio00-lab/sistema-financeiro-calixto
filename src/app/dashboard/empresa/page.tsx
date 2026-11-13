@@ -37,6 +37,7 @@ import { hojeIso } from "@/lib/util/texto";
 import { EVENTO_LANCAMENTO_SALVO } from "@/components/dashboard/BotaoLancamentoGlobal";
 import { AtalhosLancamento } from "@/components/dashboard/AtalhosLancamento";
 import { VisaoHoje, type ItemHoje } from "@/components/dashboard/VisaoHoje";
+import { ClientesSumidos } from "@/components/dashboard/ClientesSumidos";
 import { CobrancasFiado } from "@/components/dashboard/CobrancasFiado";
 import { ProjecaoLiquidez, type MovimentoPrevisto } from "@/components/dashboard/ProjecaoLiquidez";
 import { KpisEmpresa } from "@/components/dashboard/KpisEmpresa";
@@ -498,6 +499,9 @@ export default function PainelEmpresaPage() {
             <VisaoHoje itens={itensHoje} cor="accent" />
             {!ehFuncionario && negocio && (
               <CobrancasFiado contaMestreId={negocio.usuarioId} nomeEmpresa={empresaAtivaNome ?? negocio.nome} titulos={contasReceber} onAlterado={() => void carregar()} />
+            )}
+            {!ehFuncionario && negocio && (
+              <ClientesSumidos contaMestreId={negocio.usuarioId} nomeEmpresa={empresaAtivaNome ?? negocio.nome} />
             )}
           </div>
 
