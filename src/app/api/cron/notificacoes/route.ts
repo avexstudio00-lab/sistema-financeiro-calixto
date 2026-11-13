@@ -49,6 +49,7 @@ const TIPOS_EMPRESA = new Set([
   "followup_orcamento",
   "dasn_anual",
   "das_mensal",
+  "agenda_hoje",
 ]);
 function areaDoAviso(tipo: string): "pessoal" | "empresa" {
   return TIPOS_EMPRESA.has(tipo) ? "empresa" : "pessoal";
@@ -620,6 +621,45 @@ export async function GET(request: Request) {
             tag: `estoque-${pr.id}`,
           },
         });
+      }
+
+      // Agenda de serviços (13/nov/2026): resumo dos horários de hoje, de
+      // manhã. Antes do SQL da agenda rodar a consulta só falha e é ignorada.
+      {
+        const { data: agendaHoje } = await admin
+          .from("agendamentos")
+          .select("id, inicio, descricao, clientes(nome), servicos(nome)")
+          .eq("usuario_id", usuarioId)
+          .in("status", ["marcado", "confirmado"])
+          .gte("inicio", `${hoje}T00:00:00-03:00`)
+          .lte("inicio", `${hoje}T23:59:59-03:00`)
+          .order("inicio", { ascending: true });
+        const itensAgenda = (agendaHoje ?? []) as {
+          id: string;
+          inicio: string;
+          descricao: string;
+          clientes: { nome: string } | { nome: string }[] | null;
+          servicos: { nome: string } | { nome: string }[] | null;
+        }[];
+        if (itensAgenda.length > 0) {
+          const linhas = itensAgenda.slice(0, 4).map((a) => {
+            const horaBr = new Date(new Date(a.inicio).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(11, 16);
+            const cli = Array.isArray(a.clientes) ? a.clientes[0]?.nome : a.clientes?.nome;
+            const sv = (Array.isArray(a.servicos) ? a.servicos[0]?.nome : a.servicos?.nome) ?? a.descricao;
+            return `${horaBr} ${cli ? `${cli.split(" ")[0]} — ` : ""}${sv}`;
+          });
+          const resto = itensAgenda.length > 4 ? ` (+${itensAgenda.length - 4})` : "";
+          avisos.push({
+            tipo: "agenda_hoje",
+            chave: `${hoje}:hoje`,
+            payload: {
+              titulo: `Calixto — ${itensAgenda.length} ${itensAgenda.length === 1 ? "horário" : "horários"} hoje`,
+              corpo: linhas.join(" · ") + resto,
+              url: "/dashboard/empresa/agenda",
+              tag: `agenda-${hoje}`,
+            },
+          });
+        }
       }
 
       for (const o of (orcamentos.data ?? []) as {
