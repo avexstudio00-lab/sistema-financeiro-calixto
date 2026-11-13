@@ -51,7 +51,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
               "border-border focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100",
               "disabled:cursor-not-allowed disabled:bg-muted/10 disabled:text-muted",
               leftIcon && "pl-10",
-              (rightIcon || mostrarBotaoOlho) && "pr-10",
+              rightIcon && !mostrarBotaoOlho && "pr-10",
+              // Espaço do olhinho: o texto nunca passa por baixo dele.
+              mostrarBotaoOlho && "pr-12",
               error && "border-rose-400 focus:border-rose-500 focus:ring-rose-100",
               className
             )}
@@ -61,9 +63,14 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           {mostrarBotaoOlho ? (
             <button
               type="button"
+              // 13/nov/2026: área de toque de 40px (antes era só o ícone, fácil
+              // de errar) e sem roubar o foco do campo: tocar no olhinho não
+              // fecha o teclado nem move o cursor.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => setMostrarSenha((atual) => !atual)}
-              className="absolute right-3.5 text-muted transition-colors hover:text-foreground"
+              className="absolute right-1 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted transition-colors hover:bg-muted/10 hover:text-foreground"
               aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+              aria-pressed={mostrarSenha}
               tabIndex={-1}
             >
               <Icon icon={mostrarSenha ? EyeOff : Eye} size="sm" />
