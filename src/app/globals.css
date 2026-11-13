@@ -340,3 +340,15 @@ html:not(.dark) .text-amber-600 {
 .bg-red-500.text-white:hover {
   background-color: rgb(185 28 28);
 }
+
+/* 13/nov/2026: o Edge/Windows coloca o próprio "olhinho" e o "x" de apagar
+   dentro do campo de senha, em cima do nosso olhinho (o usuário tocava num e
+   apagava a senha). O app já tem o botão dele; esconde os do navegador. */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
+input[type="password"]::-webkit-contacts-auto-fill-button,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  margin-right: 0.25rem;
+}
