@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Boxes, Minus, Plus, ShoppingBag, AlertTriangle, Truck } from "lucide-react";
+import { Boxes, Minus, Plus, ShoppingBag, AlertTriangle, Truck, MessageCircle } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -12,7 +12,9 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { listarProdutos, ajustarEstoque, atualizarProduto, estoqueBaixo } from "@/lib/data/produtos";
 import { listarVendas } from "@/lib/data/vendas";
 import { listarFornecedores } from "@/lib/data/fornecedores";
-import { calcularSugestoesReposicao, valorDoEstoque } from "@/lib/data/estoque";
+import { calcularSugestoesReposicao, valorDoEstoque, agruparPedidosPorFornecedor, mensagemPedidoFornecedor, type PedidoFornecedor } from "@/lib/data/estoque";
+import { MensagemWhatsAppDialog } from "@/components/dashboard/MensagemWhatsAppDialog";
+import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { formatarMoeda } from "@/lib/format";
 import type { Conta, Fornecedor, Produto, Venda } from "@/lib/data/tipos";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
@@ -28,6 +30,10 @@ import type { ContaPagar } from "@/lib/data/tipos";
  */
 export default function EstoquePage() {
   const { negocio } = useAuth();
+  const { empresaAtiva, empresas } = useEmpresa();
+  const nomeEmpresa = empresaAtiva?.nome_fantasia ?? empresas[0]?.nome_fantasia ?? negocio?.nome ?? "";
+  // Pedir a reposição ao fornecedor pelo WhatsApp (13/nov/2026).
+  const [pedindo, setPedindo] = React.useState<PedidoFornecedor | null>(null);
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
   const [vendas, setVendas] = React.useState<Venda[]>([]);
   const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
@@ -104,6 +110,7 @@ export default function EstoquePage() {
 
   const sugestoes = React.useMemo(() => calcularSugestoesReposicao(produtos, vendas, fornecedores), [produtos, vendas, fornecedores]);
   const capitalTotal = sugestoes.reduce((acc, s) => acc + s.capitalNecessario, 0);
+  const pedidos = React.useMemo(() => agruparPedidosPorFornecedor(sugestoes), [sugestoes]);
 
   function abrirMovimento(p: Produto, tipo: "entrada" | "saida") {
     setMovendoId(p.id);
@@ -179,6 +186,15 @@ export default function EstoquePage() {
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
+      {pedindo && (
+        <MensagemWhatsAppDialog
+          titulo={`Pedido para ${pedindo.fornecedor.nome}`}
+          subtitulo="Lista de reposição pronta. Ajuste as quantidades se quiser antes de mandar."
+          textoInicial={mensagemPedidoFornecedor(pedindo.fornecedor.nome, pedindo.itens, nomeEmpresa)}
+          telefone={pedindo.fornecedor.telefone}
+          onFechar={() => setPedindo(null)}
+        />
+      )}
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h2 text-foreground">Gestão de estoque</h1>
@@ -215,6 +231,29 @@ export default function EstoquePage() {
           <p className="text-small text-foreground">
             Baseado no giro dos últimos 60 dias e no prazo de entrega de cada fornecedor (padrão: 7 dias). A quantidade cobre o prazo de entrega + 30 dias.
           </p>
+          {pedidos.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {pedidos.map((pd) => (
+                <div key={pd.fornecedor.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-card p-3">
+                  <div className="min-w-0">
+                    <p className="text-small font-semibold text-foreground">Pedido para {pd.fornecedor.nome}</p>
+                    <p className="text-xs text-muted">
+                      {pd.itens.length} {pd.itens.length === 1 ? "produto" : "produtos"}: {pd.itens.map((i) => `${i.quantidade} ${i.produto.nome}`).join(", ")}
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={() => setPedindo(pd)} className="shrink-0">
+                    <MessageCircle size={14} />
+                    Pedir pelo WhatsApp
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {sugestoes.some((s) => !s.fornecedor) && (
+            <p className="text-xs text-muted">
+              Dica: defina o fornecedor no cadastro do produto e o app monta o pedido pronto pra mandar no WhatsApp dele.
+            </p>
+          )}
           <div className="flex flex-col gap-2">
             {sugestoes.map((s) => (
               <div key={s.produto.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card p-3">
