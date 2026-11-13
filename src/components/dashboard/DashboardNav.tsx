@@ -5,6 +5,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BadgeDollarSign,
   BarChart3,
   CalendarClock,
   FileUp,
@@ -113,6 +114,7 @@ const LINK_EQUIPE: LinkNav = {
 // trás, isso aqui só evita mostrar um link que vai dar em tela vazia).
 const LINKS_EMPRESA_FINANCEIRO = new Set([
   "/dashboard/empresa/contas-fixas",
+  "/dashboard/empresa/vendedores",
   "/dashboard/empresa/relatorio",
   "/dashboard/empresa/contas",
   "/dashboard/empresa/cobranca",
@@ -145,6 +147,7 @@ const LINKS_EMPRESA: LinkNav[] = [
   { href: "/dashboard/empresa", label: "Empresa", icon: LayoutDashboard },
   { href: "/dashboard/empresa/vendas", label: "Vendas", icon: ShoppingCart },
   { href: "/dashboard/empresa/agenda", label: "Agenda", icon: CalendarClock },
+  { href: "/dashboard/empresa/vendedores", label: "Vendedores", icon: BadgeDollarSign },
   {
     href: "/dashboard/empresa/orcamentos",
     label: "Orçamentos",
