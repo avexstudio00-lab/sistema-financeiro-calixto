@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { COLS_VENDA } from "./colunas";
 import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import type { Cliente } from "./tipos";
 
@@ -107,7 +108,7 @@ export async function totaisPorFornecedor(contaMestreId: string): Promise<Map<st
 export async function carregarDossieCliente(clienteId: string, incluiFinanceiro: boolean) {
   const [{ data: cliente }, { data: vendas }, orc, rec] = await Promise.all([
     supabase.from("clientes").select("*").eq("id", clienteId).maybeSingle(),
-    supabase.from("vendas").select("*").eq("cliente_id", clienteId).order("data", { ascending: false }),
+    supabase.from("vendas").select(COLS_VENDA).eq("cliente_id", clienteId).order("data", { ascending: false }),
     incluiFinanceiro
       ? supabase.from("orcamentos").select("*").eq("cliente_id", clienteId).order("criado_em", { ascending: false })
       : Promise.resolve({ data: [] }),

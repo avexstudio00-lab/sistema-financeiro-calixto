@@ -2,14 +2,18 @@ import { supabase } from "@/lib/supabase/client";
 import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import { formatarMoeda } from "@/lib/format";
 import type { Servico } from "./tipos";
+import { COLS_SERVICO } from "./colunas";
+import { comCustoServicos } from "./custos";
 
 /** Catálogo de serviços (itens 5.6 e 5.7 da especificação de 03/out/2026) —
  * tabela própria, sem nenhuma relação com estoque. */
 export async function listarServicos(usuarioId: string): Promise<Servico[]> {
-  const { data } = await filtrarPorEmpresa(
-    supabase.from("servicos").select("*").eq("usuario_id", usuarioId).eq("ativo", true).order("nome", { ascending: true })
+  const { data, error } = await filtrarPorEmpresa(
+    supabase.from("servicos").select(COLS_SERVICO).eq("usuario_id", usuarioId).eq("ativo", true).order("nome", { ascending: true })
   );
-  return (data as Servico[]) ?? [];
+  if (error || !data) return [];
+  // Custo só chega pra dono/sócio (blindagem do funcionário, 14/nov/2026).
+  return (await comCustoServicos(data as unknown as Servico[])) as Servico[];
 }
 
 export interface NovoServico {
@@ -38,7 +42,10 @@ function limpar(s: NovoServico): NovoServico {
 }
 
 export async function criarServico(servico: NovoServico) {
-  return supabase.from("servicos").insert({ ...campoEmpresa(), ...limpar(servico) }).select().single();
+  const dados = limpar(servico);
+  const r = await supabase.from("servicos").insert({ ...campoEmpresa(), ...dados }).select(COLS_SERVICO).single();
+  if (r.data) return { ...r, data: { ...(r.data as unknown as Servico), custo: dados.custo } as Servico };
+  return { ...r, data: null };
 }
 
 export async function atualizarServico(id: string, servico: Omit<NovoServico, "usuario_id">) {

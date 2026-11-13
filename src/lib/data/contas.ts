@@ -90,3 +90,14 @@ export async function atualizarConta(
 export async function deletarConta(id: string) {
   return supabase.from("contas").delete().eq("id", id);
 }
+
+/** Carteiras da empresa pra registrar a venda (14/nov/2026). O funcionário
+ * não lê a tabela de carteiras (nem saldo): recebe só id e nome pela função
+ * protegida. O saldo é atualizado pelo banco quando ele lança a venda. */
+export async function listarCarteirasParaVenda(): Promise<Conta[]> {
+  const { data, error } = await supabase.rpc("carteiras_para_venda");
+  if (error || !data) return [];
+  return (data as { id: string; nome: string; tipo: Conta["tipo"] }[]).map(
+    (c) => ({ id: c.id, nome: c.nome, tipo: c.tipo, ambiente: "empresa", saldo_atual: 0, saldo_inicial: 0 }) as unknown as Conta
+  );
+}

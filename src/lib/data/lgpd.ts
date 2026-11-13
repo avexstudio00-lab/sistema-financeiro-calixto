@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
+import { COLS_PRODUTO, COLS_SERVICO, COLS_VENDA } from "./colunas";
+import { comCustoProdutos, comCustoServicos, comCustoVendas } from "./custos";
 
 /**
  * LGPD — Lei nº 13.709/2018 (item 2.4 da especificação de 09/out/2026).
@@ -110,13 +112,19 @@ async function lerTudo(tabela: string, usuarioId: string): Promise<Record<string
   const linhas: Record<string, unknown>[] = [];
   const pagina = 1000;
   for (let inicio = 0; inicio < 200000; inicio += pagina) {
+    // Produtos/serviços/vendas: o custo vem pelas funções protegidas.
+    const colunas = tabela === "produtos" ? COLS_PRODUTO : tabela === "servicos" ? COLS_SERVICO : tabela === "vendas" ? COLS_VENDA : "*";
     const { data, error } = await supabase
       .from(tabela)
-      .select("*")
+      .select(colunas)
       .eq(coluna, usuarioId)
       .range(inicio, inicio + pagina - 1);
     if (error || !data) break;
-    linhas.push(...(data as Record<string, unknown>[]));
+    let lote = data as unknown as (Record<string, unknown> & { id: string })[];
+    if (tabela === "produtos") lote = await comCustoProdutos(lote);
+    else if (tabela === "servicos") lote = await comCustoServicos(lote);
+    else if (tabela === "vendas") lote = await comCustoVendas(lote);
+    linhas.push(...lote);
     if (data.length < pagina) break;
   }
   return linhas;
