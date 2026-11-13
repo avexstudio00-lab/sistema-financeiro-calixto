@@ -66,6 +66,45 @@ interface AuthContextValue {
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
 
+/**
+ * A sessão veio do link "esqueci minha senha"? (13/nov/2026)
+ *
+ * Antes isso dependia só do evento PASSWORD_RECOVERY, que some fácil: no
+ * iPhone, ao trocar de app (pra copiar algo do e-mail) e voltar, o Supabase
+ * avisa "SIGNED_IN" de novo e o app zerava o aviso — a tela de nova senha
+ * virava "Link inválido" e a pessoa ficava pedindo link atrás de link
+ * (caso real do usuário: 5 pedidos, limite de e-mail estourado, senha nunca
+ * trocada). Agora vale o que está gravado no próprio token: o Supabase marca
+ * a sessão de recuperação com o método "recovery" (claim `amr`). Também
+ * sobrevive a recarregar a página e a fechar a aba.
+ */
+function metodosDaSessao(sessao: Session | null): string[] {
+  const token = sessao?.access_token;
+  if (!token) return [];
+  try {
+    const parte = token.split(".")[1];
+    const json = JSON.parse(atob(parte.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(parte.length / 4) * 4, "=")));
+    const amr = (json?.amr ?? []) as { method?: string }[];
+    return Array.isArray(amr) ? amr.map((a) => String(a?.method ?? "")) : [];
+  } catch {
+    return [];
+  }
+}
+
+function sessaoDeRecuperacao(sessao: Session | null): boolean {
+  return metodosDaSessao(sessao).includes("recovery");
+}
+
+/** Login normal com senha: aí sim não é mais recuperação. */
+function sessaoComSenha(sessao: Session | null): boolean {
+  return metodosDaSessao(sessao).includes("password");
+}
+
+/** O link do e-mail chega com "type=recovery" na URL; o Supabase apaga isso
+ * logo depois, então é lido assim que o módulo carrega. */
+const URL_DE_RECUPERACAO =
+  typeof window !== "undefined" && /(^|[#&?])type=recovery(&|$)/.test(window.location.hash + "&" + window.location.search.replace(/^\?/, "&"));
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<User | null>(null);
   const [session, setSession] = React.useState<Session | null>(null);
@@ -76,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Id do usuário já publicado em `user` — pra ignorar eventos de auth que
   // não mudam de pessoa (ver onAuthStateChange abaixo).
   const usuarioIdRef = React.useRef<string | null>(null);
-  const [recuperacaoSenhaAtiva, setRecuperacaoSenhaAtiva] = React.useState(false);
+  const [recuperacaoSenhaAtiva, setRecuperacaoSenhaAtiva] = React.useState(URL_DE_RECUPERACAO);
 
   /** Descobre se quem está logado é dono da própria conta ou foi convidado
    * (sócio/funcionário) — e, nesse caso, busca os dados básicos (nome,
@@ -168,6 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getSession().then(async ({ data }) => {
       if (!ativo) return;
+      if (sessaoDeRecuperacao(data.session)) setRecuperacaoSenhaAtiva(true);
       setSession(data.session ? { ...data.session, refresh_token: "" } : null);
       usuarioIdRef.current = data.session?.user?.id ?? null;
       setUser(data.session?.user ?? null);
@@ -186,8 +226,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // (ex: /redefinir-senha) montar o próprio listener.
       if (evento === "PASSWORD_RECOVERY") {
         setRecuperacaoSenhaAtiva(true);
-      } else if (evento === "SIGNED_IN" || evento === "SIGNED_OUT") {
+      } else if (evento === "SIGNED_OUT") {
         setRecuperacaoSenhaAtiva(false);
+      } else if (novaSessao) {
+        // SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED: decide pelo token, nunca
+        // zera só porque o app voltou pra frente.
+        // Só liga se o token é de recuperação e só desliga se for login com
+        // senha; qualquer outro caso mantém como estava.
+        if (sessaoDeRecuperacao(novaSessao)) setRecuperacaoSenhaAtiva(true);
+        else if (sessaoComSenha(novaSessao)) setRecuperacaoSenhaAtiva(false);
       }
 
       // O estado React nunca guarda o refresh token real (no modo cookie ele

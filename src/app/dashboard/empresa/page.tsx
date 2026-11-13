@@ -98,6 +98,9 @@ export default function PainelEmpresaPage() {
   const [contasReceber, setContasReceber] = React.useState<ContaReceber[]>([]);
   const [vendas, setVendas] = React.useState<Venda[]>([]);
   const [carregando, setCarregando] = React.useState(true);
+  // 13/nov/2026: se algo falhar (sessão vencida, internet caindo no meio),
+  // mostra o aviso com "Tentar de novo" em vez da rodinha eterna.
+  const [erroCarga, setErroCarga] = React.useState(false);
   // Spinner só na 1ª carga ou ao trocar de mês; recarregar depois de
   // salvar é silencioso, sem pular pro topo (05/out/2026).
   const chaveCarregadaRef = React.useRef<string | null>(null);
@@ -178,14 +181,28 @@ export default function PainelEmpresaPage() {
     // e ritmo diário (5.14 e 5.16 da especificação de 03/out/2026).
     const agora = new Date();
     const inicioVendas = new Date(agora.getFullYear(), agora.getMonth() - 5, 1).toISOString().slice(0, 10);
-    const [res, lista, listaProdutos, listaPagar, listaReceber, listaVendas] = await Promise.all([
-      gerarResumoEmpresa(negocio.usuarioId, ano, mes),
-      listarTransacoes(negocio.usuarioId, { inicio, fim }),
-      listarProdutos(negocio.usuarioId),
-      listarContasPagar(negocio.usuarioId),
-      listarContasReceber(negocio.usuarioId),
-      listarVendas(negocio.usuarioId, { inicio: inicioVendas }),
-    ]);
+    let dados;
+    try {
+      const limite = new Promise<never>((_, rejeitar) => setTimeout(() => rejeitar(new Error("tempo esgotado")), 25000));
+      dados = await Promise.race([
+        Promise.all([
+          gerarResumoEmpresa(negocio.usuarioId, ano, mes),
+          listarTransacoes(negocio.usuarioId, { inicio, fim }),
+          listarProdutos(negocio.usuarioId),
+          listarContasPagar(negocio.usuarioId),
+          listarContasReceber(negocio.usuarioId),
+          listarVendas(negocio.usuarioId, { inicio: inicioVendas }),
+        ]),
+        limite,
+      ]);
+    } catch (e) {
+      console.error("Painel da empresa não carregou:", e);
+      setErroCarga(true);
+      setCarregando(false);
+      return;
+    }
+    const [res, lista, listaProdutos, listaPagar, listaReceber, listaVendas] = dados;
+    setErroCarga(false);
 
     if (!navigator.onLine) {
       aplicarCache(chaveCache);
@@ -462,7 +479,23 @@ export default function PainelEmpresaPage() {
 
       {negocio && <AtalhosLancamento usuarioId={negocio.usuarioId} mundo="negocio" />}
 
-      {carregando || !resumo ? (
+      {erroCarga && !resumo ? (
+        <Card className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-body font-semibold text-foreground">Não consegui carregar o painel da empresa.</p>
+          <p className="max-w-md text-small text-muted">
+            Pode ser a internet ou a sessão que venceu. Tente de novo; se continuar, saia e entre de novo na conta.
+          </p>
+          <Button
+            onClick={() => {
+              setErroCarga(false);
+              setCarregando(true);
+              void carregar();
+            }}
+          >
+            Tentar de novo
+          </Button>
+        </Card>
+      ) : carregando || !resumo ? (
         <p className="py-8 text-center text-body text-muted">Carregando...</p>
       ) : (
         <>

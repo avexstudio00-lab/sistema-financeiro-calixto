@@ -30,7 +30,13 @@ export default function EsqueciSenhaPage() {
     setEnviando(false);
 
     if (resultado.error) {
-      setErro(resultado.error);
+      // Mensagens do Supabase em inglês viram explicação clara (13/nov/2026).
+      const msg = resultado.error;
+      const segundos = msg.match(/after (\d+) seconds/i)?.[1];
+      if (segundos) setErro(`Espere ${segundos} segundos e peça de novo.`);
+      else if (/rate limit|too many/i.test(msg))
+        setErro("Já mandamos vários e-mails em pouco tempo. Espere cerca de 1 hora e peça só um link; use sempre o e-mail mais recente.");
+      else setErro(msg);
       return;
     }
     setEnviado(true);
