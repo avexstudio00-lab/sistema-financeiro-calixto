@@ -32,7 +32,7 @@ jobs:
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Falta o segredo SUPABASE_DB_URL
         if: env.SUPABASE_DB_URL == ''
         run: |
@@ -58,7 +58,7 @@ jobs:
     name: Dependências — npm audit (alta/crítica bloqueia)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 24
