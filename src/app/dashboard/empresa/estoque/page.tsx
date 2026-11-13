@@ -121,7 +121,8 @@ export default function EstoquePage() {
       tipo,
       quantidade: "",
       minimo: String(p.estoque_minimo),
-      motivo: "compra",
+      // Funcionário não lança compra (mexe em dinheiro e custo): só ajuste.
+      motivo: veCusto ? "compra" : "ajuste",
       custoUnitario: Number(p.custo) > 0 ? Number(p.custo).toFixed(2).replace(".", ",") : "",
       pagamento: "vista",
       carteiraId: carteiras[0]?.id ?? "",
@@ -363,7 +364,7 @@ export default function EstoquePage() {
                     {movimento.tipo === "entrada" && (
                       <div className="flex flex-col gap-3">
                         <div className="flex gap-2">
-                          {(["compra", "ajuste"] as const).map((m) => (
+                          {(veCusto ? (["compra", "ajuste"] as const) : (["ajuste"] as const)).map((m) => (
                             <button
                               key={m}
                               type="button"
