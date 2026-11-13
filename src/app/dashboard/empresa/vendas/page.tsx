@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, Receipt } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, Receipt, UserRound } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { ComprovanteVenda } from "@/components/dashboard/vendas/ComprovanteVenda";
 import Link from "next/link";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
@@ -73,7 +74,7 @@ function hojeMaisUmMes(base: string) {
 }
 
 export default function VendasPage() {
-  const { negocio, papel } = useAuth();
+  const { negocio, papel, perfil } = useAuth();
   const { ramo, empresaAtiva, empresas } = useEmpresa();
   // Comprovante da venda (10/nov/2026).
   const [comprovante, setComprovante] = React.useState<VendaAgrupada | null>(null);
@@ -92,6 +93,7 @@ export default function VendasPage() {
   const [formAberto, setFormAberto] = React.useState(false);
   // Venda que veio da Agenda: ao registrar, o horário vira "Atendido".
   const [agendamentoOrigem, setAgendamentoOrigem] = React.useState<string | null>(null);
+  const nomeLogado = perfil?.nome?.trim() ?? "";
   // "+" → "Registrar uma venda" (10/nov/2026): chega com ?nova=1 e já abre o formulário.
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -141,6 +143,9 @@ export default function VendasPage() {
   const [carrinho, setCarrinho] = React.useState<ItemCarrinho[]>([]);
   const [formaPagamento, setFormaPagamento] = React.useState<(typeof FORMAS_PAGAMENTO)[number]["id"]>("pix");
   const [clienteId, setClienteId] = React.useState("");
+  // Quem vendeu (13/nov/2026): começa com o nome de quem está logado.
+  const [vendedor, setVendedor] = React.useState("");
+  const [filtroVendedor, setFiltroVendedor] = React.useState<string | null>(null);
   const [data, setData] = React.useState(() => hoje.toISOString().slice(0, 10));
   const [contaId, setContaId] = React.useState("");
   const [salvando, setSalvando] = React.useState(false);
@@ -425,6 +430,7 @@ export default function VendasPage() {
       formaPagamento,
       data,
       clienteId: clienteId || null,
+      vendedorNome: (vendedor.trim() || nomeLogado) || null,
       contaId: contaId || null,
       maquininha:
         !fiado && !pagamentos && (formaPagamento === "debito" || formaPagamento === "credito") && taxasMaquininha
@@ -477,6 +483,7 @@ export default function VendasPage() {
     setPartes([]);
     setParcelasCartao(1);
     setClienteId("");
+    setVendedor("");
     setFormAberto(false);
     carregar();
   }
@@ -506,7 +513,31 @@ export default function VendasPage() {
 
   const resumo = React.useMemo(() => resumirVendas(vendasDoMes), [vendasDoMes]);
   // Seção 15.1: as linhas da mesma venda (carrinho) aparecem juntas.
-  const vendasAgrupadas = React.useMemo(() => agruparLinhasDeVenda(vendas), [vendas]);
+  const vendasAgrupadasTodas = React.useMemo(() => agruparLinhasDeVenda(vendas), [vendas]);
+  const vendasAgrupadas = React.useMemo(
+    () => (filtroVendedor ? vendasAgrupadasTodas.filter((g) => (g.vendedor ?? "") === filtroVendedor) : vendasAgrupadasTodas),
+    [vendasAgrupadasTodas, filtroVendedor]
+  );
+  // Nomes já usados (pra sugerir no campo) e total do mês por vendedor.
+  const nomesVendedores = React.useMemo(() => {
+    const set = new Set<string>();
+    if (nomeLogado) set.add(nomeLogado);
+    for (const v of vendas) if (v.vendedor_nome) set.add(v.vendedor_nome);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [vendas, nomeLogado]);
+  const porVendedorMes = React.useMemo(() => {
+    const mapa = new Map<string, { total: number; vendas: Set<string> }>();
+    for (const v of vendasDoMes) {
+      if (!v.vendedor_nome) continue;
+      const g = mapa.get(v.vendedor_nome) ?? { total: 0, vendas: new Set<string>() };
+      g.total += Number(v.valor_total);
+      g.vendas.add(v.grupo_venda_id ?? v.id);
+      mapa.set(v.vendedor_nome, g);
+    }
+    return Array.from(mapa.entries())
+      .map(([nome, g]) => ({ nome, total: g.total, qtd: g.vendas.size }))
+      .sort((a, b) => b.total - a.total);
+  }, [vendasDoMes]);
   // Ranking ABC de margem real (7.2) — últimos 6 meses carregados.
   const ranking = React.useMemo(() => rankingABC(vendas), [vendas]);
 
@@ -836,6 +867,26 @@ export default function VendasPage() {
               />
             )}
 
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <label htmlFor="vendedor-venda" className="text-small font-medium text-foreground">
+                Quem vendeu
+              </label>
+              <input
+                id="vendedor-venda"
+                list="lista-vendedores"
+                value={vendedor}
+                onChange={(e) => setVendedor(e.target.value)}
+                placeholder={nomeLogado || "Nome de quem vendeu"}
+                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-body text-foreground placeholder:text-muted focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-100"
+              />
+              <datalist id="lista-vendedores">
+                {nomesVendedores.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
+              <p className="text-xs text-muted">Em branco fica com o seu nome. Serve pra ver as vendas e a comissão de cada um.</p>
+            </div>
+
             <label className="flex items-center gap-2 text-small text-foreground">
               <input
                 type="checkbox"
@@ -1125,8 +1176,50 @@ export default function VendasPage() {
             </Card>
           )}
 
+          {porVendedorMes.length > 0 && (
+            <Card className="flex flex-col gap-3">
+              <div>
+                <h2 className="text-h3 text-foreground">Vendas por vendedor (este mês)</h2>
+                <p className="text-small text-muted">Toque num nome pra ver só as vendas dele.</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                {porVendedorMes.map((pv) => (
+                  <button
+                    key={pv.nome}
+                    type="button"
+                    onClick={() => setFiltroVendedor((f) => (f === pv.nome ? null : pv.nome))}
+                    className={cn(
+                      "flex min-w-0 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors",
+                      filtroVendedor === pv.nome ? "border-accent-400 bg-accent-50 dark:bg-accent-900/20" : "border-border hover:bg-muted/10"
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <UserRound size={16} className="shrink-0 text-accent-700" />
+                      <span className="truncate text-small font-semibold text-foreground">{pv.nome}</span>
+                      <span className="shrink-0 text-xs text-muted">
+                        {pv.qtd} {pv.qtd === 1 ? "venda" : "vendas"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-small font-semibold text-foreground">{formatarMoeda(pv.total)}</span>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
+
           <div className="flex flex-col gap-4">
-            <h2 className="text-h3 text-foreground">Últimas vendas</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-h3 text-foreground">Últimas vendas</h2>
+              {filtroVendedor && (
+                <button
+                  type="button"
+                  onClick={() => setFiltroVendedor(null)}
+                  className="flex items-center gap-1 rounded-full bg-accent-50 px-3 py-1 text-xs font-semibold text-accent-800 dark:bg-accent-900/20 dark:text-accent-200"
+                >
+                  Só {filtroVendedor} <X size={12} />
+                </button>
+              )}
+            </div>
             {vendas.length === 0 ? (
               <Card className="flex flex-col items-center gap-3 py-12 text-center">
                 <ShoppingCart size={28} className="text-accent-400" />
@@ -1151,7 +1244,15 @@ export default function VendasPage() {
                         <ShoppingCart size={18} />
                       </span>
                       <div className="min-w-0">
-                        <p className="break-words text-body font-medium text-foreground">{titulo}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="break-words text-body font-medium text-foreground">{titulo}</p>
+                          {g.vendedor && (
+                            <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-accent-50 px-2 py-0.5 text-xs font-semibold text-accent-800 dark:bg-accent-900/20 dark:text-accent-200">
+                              <UserRound size={11} className="shrink-0" />
+                              <span className="truncate">{g.vendedor}</span>
+                            </span>
+                          )}
+                        </div>
                         <p className="text-small text-muted">
                           {new Date(g.data + "T00:00:00").toLocaleDateString("pt-BR")}
                           {g.cliente?.nome ? ` · ${g.cliente.nome}` : ""}
