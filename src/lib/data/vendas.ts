@@ -1,7 +1,9 @@
 import { supabase } from "@/lib/supabase/client";
 import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import { criarTransacao, deletarTransacao } from "./transacoes";
-import { ajustarEstoque } from "./produtos";
+import { ajustarEstoque, faltaColuna } from "./produtos";
+import { COLS_VENDA } from "./colunas";
+import { comCustoVendas } from "./custos";
 import {
   diasEntreDatasIso,
   validarCondicoesFiado,
@@ -16,18 +18,22 @@ export async function listarVendas(
   usuarioId: string,
   filtros?: { inicio?: string; fim?: string }
 ): Promise<Venda[]> {
-  let query = supabase
-    .from("vendas")
-    .select("*, clientes(*)")
-    .eq("usuario_id", usuarioId)
-    .order("data", { ascending: false })
-    .order("criado_em", { ascending: false });
-
-  if (filtros?.inicio) query = query.gte("data", filtros.inicio);
-  if (filtros?.fim) query = query.lte("data", filtros.fim);
-
-  const { data } = await filtrarPorEmpresa(query);
-  return (data as Venda[]) ?? [];
+  const consulta = (cols: string) => {
+    let query = supabase
+      .from("vendas")
+      .select(`${cols}, clientes(*)`)
+      .eq("usuario_id", usuarioId)
+      .order("data", { ascending: false })
+      .order("criado_em", { ascending: false });
+    if (filtros?.inicio) query = query.gte("data", filtros.inicio);
+    if (filtros?.fim) query = query.lte("data", filtros.fim);
+    return filtrarPorEmpresa(query);
+  };
+  let { data, error } = await consulta(COLS_VENDA);
+  if (faltaColuna(error)) ({ data, error } = await consulta("*"));
+  if (error || !data) return [];
+  // Custo e taxa só chegam pra dono/sócio (blindagem, 14/nov/2026).
+  return (await comCustoVendas(data as unknown as Venda[])) as Venda[];
 }
 
 async function idCategoriaVendas(): Promise<string | null> {
@@ -80,6 +86,14 @@ export interface DadosVenda {
   /** Taxa da maquininha (10/nov/2026): vira despesa "Taxas de cartão" na
    * mesma carteira e fica guardada na venda (fluxo de caixa mostra). */
   maquininha?: { taxa: number; percentual: number; parcelas: number } | null;
+  /** Quem vendeu (13/nov/2026): etiqueta com o nome, pra separar vendas e
+   * comissão/distribuição de lucro por vendedor. */
+  vendedorNome?: string | null;
+  /** Fiado com valor combinado acima do preço (13/nov/2026): ex. R$ 220 à
+   * vista, R$ 240 no parcelado → acréscimo de R$ 20. Entra no valor_total
+   * da 1ª linha (faturamento bate com o que o cliente vai pagar) sem mudar o
+   * preço do produto no cadastro. */
+  acrescimoFiado?: number | null;
 }
 
 export interface PagamentoVenda {
@@ -138,8 +152,10 @@ export async function registrarVenda(dados: DadosVenda) {
   }
   const nomes = itens.map((i) => (i.produto ?? i.servico)!.nome);
   const descricao = descricaoDaVenda(nomes);
-  const valorTotal = totalDosItens(itens);
-  const fiado = dados.fiado && dados.clienteId ? dados.fiado : null;
+  const fiadoPedido = dados.fiado && dados.clienteId ? dados.fiado : null;
+  const acrescimo = fiadoPedido && dados.acrescimoFiado && dados.acrescimoFiado > 0 ? Number(dados.acrescimoFiado.toFixed(2)) : 0;
+  const valorTotal = Number((totalDosItens(itens) + acrescimo).toFixed(2));
+  const fiado = fiadoPedido;
   if (fiado) {
     const erroFiado = validarCondicoesFiado(valorTotal, fiado.entrada?.valor ?? 0, fiado.parcelas, dados.data);
     if (erroFiado) return { data: null, error: new Error(erroFiado) };
@@ -212,13 +228,32 @@ export async function registrarVenda(dados: DadosVenda) {
       quantidade: item.quantidade,
       valor_unitario: item.valorUnitario,
       custo_unitario: custoUnitario,
-      valor_total: Number((item.quantidade * item.valorUnitario).toFixed(2)),
+      valor_total: Number((item.quantidade * item.valorUnitario + (i === 0 ? acrescimo : 0)).toFixed(2)),
+      ...(i === 0 && acrescimo > 0 ? { acrescimo } : {}),
+      ...(item.produto?.preco_repasse != null ? { repasse_unitario: Number(item.produto.preco_repasse) } : {}),
       forma_pagamento: fiado ? null : dados.formaPagamento,
       cliente_id: dados.clienteId,
       data: dados.data,
+      ...(dados.vendedorNome?.trim() ? { vendedor_nome: dados.vendedorNome.trim().slice(0, 80) } : {}),
     };
   });
-  const { data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(linhas).select();
+  let { data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(linhas).select(COLS_VENDA);
+  // Banco ainda sem a coluna do vendedor (SQL de 13/nov não rodado): grava
+  // a venda sem a etiqueta em vez de falhar.
+  if (erroVenda && /vendedor_nome|repasse_unitario|acrescimo/.test(erroVenda.message ?? "")) {
+    const semVendedor = linhas.map((l) => {
+      const copia: Record<string, unknown> = { ...l };
+      delete copia.vendedor_nome;
+      delete copia.repasse_unitario;
+      delete copia.acrescimo;
+      return copia;
+    });
+    ({ data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(semVendedor).select("*"));
+  }
+  // O banco não devolve custo/taxa (blindagem): repõe o que foi gravado.
+  if (vendasGravadas) {
+    vendasGravadas = (vendasGravadas as unknown as Venda[]).map((v, i) => ({ ...v, custo_unitario: Number(linhas[i]?.custo_unitario ?? 0) })) as never;
+  }
 
   if (erroVenda || !vendasGravadas) {
     // O lançamento de receita já foi criado — desfaz pra não deixar um
@@ -326,6 +361,7 @@ export interface VendaAgrupada {
   data: string;
   criado_em: string;
   cliente: Venda["clientes"];
+  vendedor?: string | null;
 }
 
 /** Junta as linhas da mesma venda, mantendo a ordem da lista. */
@@ -338,7 +374,7 @@ export function agruparLinhasDeVenda(vendas: Venda[]): VendaAgrupada[] {
       atual.linhas.push(v);
       atual.total = Number((atual.total + Number(v.valor_total)).toFixed(2));
     } else {
-      mapa.set(chave, { chave, linhas: [v], total: Number(v.valor_total), data: v.data, criado_em: v.criado_em, cliente: v.clientes ?? null });
+      mapa.set(chave, { chave, linhas: [v], total: Number(v.valor_total), data: v.data, criado_em: v.criado_em, cliente: v.clientes ?? null, vendedor: v.vendedor_nome ?? null });
     }
   }
   return Array.from(mapa.values());
@@ -352,8 +388,9 @@ export function agruparLinhasDeVenda(vendas: Venda[]): VendaAgrupada[] {
 export async function deletarVenda(venda: Venda) {
   let linhas: Venda[] = [venda];
   if (venda.grupo_venda_id) {
-    const { data } = await supabase.from("vendas").select("*").eq("grupo_venda_id", venda.grupo_venda_id);
-    if (data && data.length > 0) linhas = data as Venda[];
+    let { data, error } = await supabase.from("vendas").select(COLS_VENDA).eq("grupo_venda_id", venda.grupo_venda_id);
+    if (faltaColuna(error)) ({ data, error } = await supabase.from("vendas").select("*").eq("grupo_venda_id", venda.grupo_venda_id));
+    if (data && data.length > 0) linhas = data as unknown as Venda[];
   }
 
   if (venda.grupo_venda_id) {

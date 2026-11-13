@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -80,6 +81,8 @@ export function FormularioServico({
   compacto?: boolean;
   nomeInicial?: string;
 }) {
+  const { papel } = useAuth();
+  const ehFuncionario = papel === "funcionario";
   const [form, setForm] = React.useState<FormServico>(() => (servico ? formDoServico(servico) : { ...FORM_VAZIO, nome: nomeInicial }));
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
@@ -108,7 +111,9 @@ export function FormularioServico({
       tempo_estimado: form.tempo,
       preco_fixo: form.modoPreco === "fixo",
       preco: form.modoPreco === "fixo" ? preco : null,
-      custo,
+      // Funcionário não vê nem muda o custo (blindagem, 14/nov/2026).
+      // undefined = não manda o campo (o banco mantém o custo atual).
+      custo: (ehFuncionario ? undefined : custo) as number | null,
       referencia_preco: referencia,
     };
     setSalvando(true);
@@ -172,6 +177,7 @@ export function FormularioServico({
         {form.modoPreco !== "fixo" && (
           <p className="text-small text-foreground">O valor exato é definido no orçamento de cada cliente (aba Orçamentos).</p>
         )}
+        {!ehFuncionario && (
         <Input
           label="Custo direto (opcional)"
           inputMode="decimal"
@@ -179,6 +185,7 @@ export function FormularioServico({
           onChange={(e) => setForm((f) => ({ ...f, custo: e.target.value }))}
           helperText="Usado pra calcular a margem de lucro do serviço."
         />
+        )}
         {erro && <p className="text-small text-rose-700">{erro}</p>}
         <div className="flex gap-2">
           <Button type="submit" disabled={salvando} className="flex-1">{salvando ? "Salvando..." : "Salvar"}</Button>

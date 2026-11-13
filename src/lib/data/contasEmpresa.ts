@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { custoDoProduto } from "./custos";
 import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import { adicionarMeses } from "./investimentos";
 import { criarTransacao, deletarTransacao } from "./transacoes";
@@ -202,10 +203,11 @@ export async function darEntradaEstoqueDaCompra(contaPagarId: string, itens: Ite
   if (validos.length === 0) return { error: null };
   for (const item of validos) {
     // eslint-disable-next-line no-await-in-loop -- sequencial (leitura e escrita do mesmo estoque)
-    const { data: p } = await supabase.from("produtos").select("quantidade_estoque, custo").eq("id", item.produto_id).maybeSingle();
+    const { data: p } = await supabase.from("produtos").select("quantidade_estoque").eq("id", item.produto_id).maybeSingle();
     if (!p) continue;
     const atual = Number((p as { quantidade_estoque: number }).quantidade_estoque);
-    const custoAtual = Number((p as { custo: number }).custo);
+    // eslint-disable-next-line no-await-in-loop
+    const custoAtual = await custoDoProduto(item.produto_id);
     const novaQtd = atual + item.quantidade;
     const custoMedio = novaQtd > 0 ? (Math.max(atual, 0) * custoAtual + item.quantidade * item.custo_unitario) / (Math.max(atual, 0) + item.quantidade) : item.custo_unitario;
     // eslint-disable-next-line no-await-in-loop

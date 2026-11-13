@@ -38,6 +38,16 @@ export interface EstadoFiado {
    * ser recalculada sozinha (até tocar em "Recalcular"). */
   parcelasEditadas: boolean;
   salvarComoPadrao: boolean;
+  /** Valor combinado com o cliente no parcelado (13/nov/2026). Vazio = o
+   * total da venda. Ex.: R$ 220 à vista → combinou R$ 240 em 3x. */
+  valorCombinado?: string;
+}
+
+/** Total que o cliente vai pagar no fiado: o combinado (se maior que o
+ * total dos itens) ou o próprio total. */
+export function totalCombinadoFiado(totalItens: number, estado: EstadoFiado): number {
+  const v = lerValorDigitado(estado.valorCombinado ?? "");
+  return Number.isFinite(v) && v > totalItens ? arredondar2(v) : arredondar2(totalItens);
 }
 
 /** "1.234,56" / "1234,56" / "1234.56" → número. */
@@ -76,7 +86,11 @@ export function CondicoesFiado({
   temPadraoCliente: boolean;
 }) {
   const entrada = estado.temEntrada ? lerValorDigitado(estado.entradaValor) || 0 : 0;
-  const aParcelar = arredondar2(Math.max(0, total - entrada));
+  const totalCombinado = totalCombinadoFiado(total, estado);
+  const acrescimo = arredondar2(totalCombinado - total);
+  const combinadoDigitado = lerValorDigitado(estado.valorCombinado ?? "");
+  const combinadoMenor = (estado.valorCombinado ?? "").trim() !== "" && Number.isFinite(combinadoDigitado) && combinadoDigitado < total;
+  const aParcelar = arredondar2(Math.max(0, totalCombinado - entrada));
   const parcelasNumericas = estado.parcelas.map((p) => ({ vencimento: p.vencimento, valor: lerValorDigitado(p.valor) }));
   const soma = somaParcelas(parcelasNumericas);
   const falta = arredondar2(aParcelar - soma);
@@ -104,6 +118,25 @@ export function CondicoesFiado({
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-border p-3">
       <p className="text-small font-semibold text-foreground">Condições do fiado</p>
+
+      <div className="flex flex-col gap-1.5">
+        <Input
+          label="Valor combinado com o cliente (parcelado)"
+          inputMode="decimal"
+          value={estado.valorCombinado ?? ""}
+          onChange={(e) => onChange({ ...estado, valorCombinado: e.target.value, parcelasEditadas: false })}
+          placeholder={paraTexto(total)}
+        />
+        {acrescimo > 0 ? (
+          <p className="text-xs text-foreground">
+            À vista sairia {formatarMoeda(total)}. No parcelado: {formatarMoeda(totalCombinado)} (acréscimo de <strong>{formatarMoeda(acrescimo)}</strong>). O preço do produto no cadastro não muda.
+          </p>
+        ) : combinadoMenor ? (
+          <p className="text-xs text-amber-800 dark:text-amber-200">O combinado não pode ser menor que o total. Para dar desconto, mude o valor do item.</p>
+        ) : (
+          <p className="text-xs text-muted">Em branco = {formatarMoeda(total)}. Se combinou um valor maior no parcelado, digite aqui.</p>
+        )}
+      </div>
 
       <label className="flex items-center gap-2 text-small text-foreground">
         <input

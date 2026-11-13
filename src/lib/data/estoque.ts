@@ -77,3 +77,32 @@ export function calcularSugestoesReposicao(
 export function valorDoEstoque(produtos: Produto[]): number {
   return produtos.reduce((acc, p) => acc + Number(p.custo) * Number(p.quantidade_estoque), 0);
 }
+
+/** Pedido de reposição agrupado por fornecedor (13/nov/2026). */
+export interface PedidoFornecedor {
+  fornecedor: Fornecedor;
+  itens: { produto: Produto; quantidade: number }[];
+}
+
+export function agruparPedidosPorFornecedor(sugestoes: SugestaoReposicao[]): PedidoFornecedor[] {
+  const mapa = new Map<string, PedidoFornecedor>();
+  for (const s of sugestoes) {
+    if (!s.fornecedor) continue;
+    const g = mapa.get(s.fornecedor.id) ?? { fornecedor: s.fornecedor, itens: [] };
+    g.itens.push({ produto: s.produto, quantidade: s.quantidadeSugerida });
+    mapa.set(s.fornecedor.id, g);
+  }
+  return Array.from(mapa.values());
+}
+
+/** Mensagem pronta pra pedir a reposição ao fornecedor pelo WhatsApp. */
+export function mensagemPedidoFornecedor(
+  nomeFornecedor: string,
+  itens: { produto: Produto; quantidade: number }[],
+  nomeEmpresa: string
+): string {
+  const primeiro = nomeFornecedor.split(" ")[0];
+  const empresa = nomeEmpresa ? ` Aqui é da *${nomeEmpresa}*.` : "";
+  const lista = itens.map((i) => `• ${i.quantidade} un. — ${i.produto.nome}`).join("\n");
+  return `Olá, ${primeiro}! Tudo bem?${empresa}\n\nGostaria de fazer um pedido:\n\n${lista}\n\nPode me confirmar a disponibilidade, o valor e o prazo de entrega? Obrigado!`;
+}

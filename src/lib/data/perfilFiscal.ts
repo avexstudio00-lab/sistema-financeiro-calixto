@@ -122,3 +122,28 @@ export async function faturamentoUltimos12Meses(usuarioId: string): Promise<numb
   const [este, anterior] = await Promise.all([faturamentoAnualPorMes(usuarioId, ano), faturamentoAnualPorMes(usuarioId, ano - 1)]);
   return [...anterior.filter((p) => p.mesNumero > mes), ...este.filter((p) => p.mesNumero <= mes)].reduce((acc, p) => acc + p.faturamento, 0);
 }
+
+/** Meta de lucro líquido do mês (13/nov/2026). Consulta separada: antes do
+ * SQL que cria a coluna, só volta null (não derruba o resto do perfil). */
+export async function buscarMetaLucro(usuarioId: string): Promise<number | null> {
+  const { data, error } = await supabase.from("config_negocio").select("meta_lucro").eq("usuario_id", usuarioId).maybeSingle();
+  if (error || !data) return null;
+  const v = (data as { meta_lucro: number | null }).meta_lucro;
+  return v != null ? Number(v) : null;
+}
+
+export async function salvarMetaLucro(usuarioId: string, meta: number | null) {
+  return supabase
+    .from("config_negocio")
+    .upsert(
+      { usuario_id: usuarioId, meta_lucro: meta != null && meta > 0 ? Number(meta.toFixed(2)) : null, atualizado_em: new Date().toISOString() },
+      { onConflict: "usuario_id" }
+    );
+}
+
+/** Imposto estimado do mês: MEI paga o DAS fixo; os outros, % do faturamento. */
+export function impostoEstimadoMes(perfil: PerfilFiscal | null, faturamentoMes: number, faturamento12m: number): number {
+  if (!perfil) return 0;
+  if (perfil.regime === "mei") return perfil.dasValor ?? dasMei(perfil.atividadeMei);
+  return (faturamentoMes * percentualImposto(perfil, faturamento12m)) / 100;
+}

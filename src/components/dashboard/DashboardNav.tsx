@@ -5,7 +5,9 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BadgeDollarSign,
   BarChart3,
+  CalendarClock,
   FileUp,
   LayoutDashboard,
   Sparkles,
@@ -67,6 +69,7 @@ const HREFS_PRINCIPAIS_MOBILE_EMPRESA = [
   "/dashboard/empresa",
   "/dashboard/empresa/vendas",
   "/dashboard/empresa/estoque",
+  "/dashboard/empresa/agenda",
   "/dashboard/empresa/servicos",
   "/dashboard/empresa/clientes-fornecedores",
 ];
@@ -111,6 +114,7 @@ const LINK_EQUIPE: LinkNav = {
 // trás, isso aqui só evita mostrar um link que vai dar em tela vazia).
 const LINKS_EMPRESA_FINANCEIRO = new Set([
   "/dashboard/empresa/contas-fixas",
+  "/dashboard/empresa/vendedores",
   "/dashboard/empresa/relatorio",
   "/dashboard/empresa/contas",
   "/dashboard/empresa/cobranca",
@@ -128,7 +132,7 @@ const LINKS_SO_PRODUTO = new Set([
   "/dashboard/empresa/produtos",
   "/dashboard/empresa/estoque",
 ]);
-const LINKS_SO_SERVICO = new Set(["/dashboard/empresa/servicos"]);
+const LINKS_SO_SERVICO = new Set(["/dashboard/empresa/servicos", "/dashboard/empresa/agenda"]);
 
 const LINKS_EMPRESA: LinkNav[] = [
   // Rótulo curto de propósito ("Empresa", não "Painel da empresa"): esse
@@ -142,6 +146,8 @@ const LINKS_EMPRESA: LinkNav[] = [
   // do menu/barra mudou.
   { href: "/dashboard/empresa", label: "Empresa", icon: LayoutDashboard },
   { href: "/dashboard/empresa/vendas", label: "Vendas", icon: ShoppingCart },
+  { href: "/dashboard/empresa/agenda", label: "Agenda", icon: CalendarClock },
+  { href: "/dashboard/empresa/vendedores", label: "Vendedores", icon: BadgeDollarSign },
   {
     href: "/dashboard/empresa/orcamentos",
     label: "Orçamentos",

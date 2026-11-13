@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
+import { COLS_VENDA } from "./colunas";
+import { comCustoVendas } from "./custos";
 import { ehMovimentoInterno } from "./transacoes";
 import { CATEGORIA_APLICACAO, CATEGORIA_RESGATE } from "./movimentosInvestimento";
 import {
@@ -60,7 +62,7 @@ export async function carregarDadosRelatorio(
             .gte("data", inicio)
             .lte("data", fim)
             .limit(5000),
-          supabase.from("vendas").select("*").eq("usuario_id", empresaUsuarioId).gte("data", inicio).lte("data", fim).limit(5000),
+          supabase.from("vendas").select(COLS_VENDA).eq("usuario_id", empresaUsuarioId).gte("data", inicio).lte("data", fim).limit(5000),
         ])
       : Promise.resolve(null),
   ]);
@@ -71,7 +73,7 @@ export async function carregarDadosRelatorio(
     pagamentosInv,
     metas,
     empresa: empresa
-      ? { transacoes: (empresa[0].data as Transacao[]) ?? [], vendas: (empresa[1].data as Venda[]) ?? [] }
+      ? { transacoes: (empresa[0].data as Transacao[]) ?? [], vendas: (await comCustoVendas(((empresa[1].data as unknown as Venda[]) ?? []))) as Venda[] }
       : null,
   };
 }

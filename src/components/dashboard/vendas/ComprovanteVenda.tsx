@@ -28,8 +28,11 @@ function montar(grupo: VendaAgrupada, nomeEmpresa: string, parcelas: ParcelaFiad
     nome: l.produto_nome,
     qtd: Number(l.quantidade),
     unit: Number(l.valor_unitario),
-    total: Number(l.valor_total),
+    total: Number(l.valor_total) - Number(l.acrescimo ?? 0),
   }));
+  // Acréscimo combinado no parcelado (13/nov/2026) aparece como linha própria.
+  const acrescimo = grupo.linhas.reduce((a, l) => a + Number(l.acrescimo ?? 0), 0);
+  if (acrescimo > 0) itens.push({ nome: "Acréscimo do parcelado", qtd: 1, unit: acrescimo, total: acrescimo });
   let pagamento: string;
   if (Array.isArray(v.pagamentos) && v.pagamentos.length) {
     pagamento = v.pagamentos.map((p) => `${FORMAS[p.forma] ?? p.forma} ${formatarMoeda(Number(p.valor))}`).join(" + ");

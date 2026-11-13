@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { custoDoProduto, custoDoServico } from "./custos";
 import { campoEmpresa, filtrarPorEmpresa } from "@/lib/empresa/empresaAtiva";
 import { criarContaReceberParcelada } from "./contasEmpresa";
 import { diasUteisEntre } from "@/lib/util/diasUteis";
@@ -110,6 +111,30 @@ export function mensagemFollowUp(o: Orcamento, nomeEmpresa: string): string {
   return `Olá, ${nome}! Aqui é da ${nomeEmpresa}. Passando pra saber se você conseguiu avaliar o orçamento "${o.titulo}"${itens ? `:\n${itens}` : ""}\nTotal: ${total}${o.validade ? ` (válido até ${new Date(o.validade + "T00:00:00").toLocaleDateString("pt-BR")})` : ""}.\nPosso ajudar com alguma dúvida?`;
 }
 
+/** Mensagem pra MANDAR o orçamento ao cliente (13/nov/2026): saudação com o
+ * nome, o assunto, os itens com valor, total, validade e observações. A
+ * pessoa revisa e muda o que quiser antes de enviar. */
+export function mensagemEnvioOrcamento(o: Orcamento, nomeEmpresa: string): string {
+  const moeda = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const primeiroNome = o.clientes?.nome?.split(" ")[0];
+  const saudacao = primeiroNome ? `Olá, ${primeiroNome}! Tudo bem?` : "Olá! Tudo bem?";
+  const empresa = nomeEmpresa ? `Aqui é da *${nomeEmpresa}*. ` : "";
+  const itens = o.itens
+    .map((i) => {
+      const subtotal = Number(i.quantidade) * Number(i.valor_unitario);
+      return Number(i.quantidade) === 1
+        ? `• ${i.descricao}: ${moeda(subtotal)}`
+        : `• ${i.quantidade}x ${i.descricao} (${moeda(Number(i.valor_unitario))} cada): ${moeda(subtotal)}`;
+    })
+    .join("\n");
+  const validade = o.validade ? `\nVálido até ${new Date(o.validade + "T00:00:00").toLocaleDateString("pt-BR")}.` : "";
+  const obs = o.observacoes?.trim() ? `\n\n${o.observacoes.trim()}` : "";
+  return (
+    `${saudacao}\n${empresa}Segue o orçamento de *${o.titulo}*, como combinamos:\n\n${itens}\n\n*Total: ${moeda(Number(o.valor_total))}*${validade}${obs}` +
+    `\n\nQualquer dúvida é só me chamar. Se estiver tudo certo, me avisa que já deixo agendado/separado pra você. 😊`
+  );
+}
+
 /** Ao fechar, os itens entram na esteira de vendas (5.8 / 12.2): uma linha
  * em `vendas` por item (sem lançamento de caixa — o dinheiro entra pelo
  * Contas a Receber), com baixa de estoque nos produtos e o MESMO id de
@@ -128,15 +153,14 @@ export async function registrarVendasDoOrcamento(o: Orcamento) {
     if (livre) {
       // nada a buscar
     } else if (item.tipo === "produto") {
-      const { data: p } = await supabase.from("produtos").select("custo, quantidade_estoque").eq("id", item.ref_id).maybeSingle();
+      const { data: p } = await supabase.from("produtos").select("quantidade_estoque").eq("id", item.ref_id).maybeSingle();
       if (p) {
-        custo = Number((p as { custo: number }).custo);
+        custo = await custoDoProduto(item.ref_id as string);
         const atual = Number((p as { quantidade_estoque: number }).quantidade_estoque);
         await supabase.from("produtos").update({ quantidade_estoque: Math.max(0, atual - item.quantidade) }).eq("id", item.ref_id);
       }
     } else {
-      const { data: sv } = await supabase.from("servicos").select("custo").eq("id", item.ref_id).maybeSingle();
-      custo = Number((sv as { custo: number | null } | null)?.custo ?? 0);
+      custo = await custoDoServico(item.ref_id as string);
     }
     await supabase.from("vendas").insert({
       ...(o.empresa_id ? { empresa_id: o.empresa_id } : campoEmpresa()),

@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { comCustoProdutos } from "./custos";
 import { calcularValorAtualEstimado } from "./investimentos";
 import type { Conta, CotacoesMercado, Investimento } from "./tipos";
 
@@ -100,7 +101,7 @@ export async function calcularPatrimonioEmpresa(
   const [movsTodos, { data: cartoes }, { data: produtos }, { data: receber }, { data: pagar }] = await Promise.all([
     lerMovimentosNegocio(contaMestreId),
     supabase.from("contas").select("id").eq("usuario_id", contaMestreId).eq("tipo", "cartao_credito"),
-    supabase.from("produtos").select("custo, quantidade_estoque, ativo").eq("usuario_id", contaMestreId),
+    supabase.from("produtos").select("id, quantidade_estoque, ativo").eq("usuario_id", contaMestreId),
     supabase.from("contas_receber").select("valor").eq("usuario_id", contaMestreId).eq("status", "pendente"),
     supabase.from("contas_pagar").select("valor").eq("usuario_id", contaMestreId).eq("status", "pendente"),
   ]);
@@ -110,7 +111,8 @@ export async function calcularPatrimonioEmpresa(
   const idsCartao = new Set(((cartoes as { id: string }[]) ?? []).map((c) => c.id));
   const movs = movsTodos.filter((m) => !m.conta_id || !idsCartao.has(m.conta_id));
   const caixa = movs.reduce((a, m) => a + (m.tipo === "receita" ? Number(m.valor) : -Number(m.valor)), 0);
-  const estoque = ((produtos as { custo: number; quantidade_estoque: number; ativo: boolean }[]) ?? [])
+  const produtosComCusto = await comCustoProdutos(((produtos as { id: string; quantidade_estoque: number; ativo: boolean }[]) ?? []));
+  const estoque = produtosComCusto
     .filter((p) => p.ativo)
     .reduce((a, p) => a + Number(p.custo) * Number(p.quantidade_estoque), 0);
   const aReceber = ((receber as { valor: number }[]) ?? []).reduce((a, c) => a + Number(c.valor), 0);

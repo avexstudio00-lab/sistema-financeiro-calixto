@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
+import { ClientesSumidos } from "@/components/dashboard/ClientesSumidos";
 import Link from "next/link";
 import { Plus, Users, Trash2, Pencil, Phone, Mail } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -28,6 +30,7 @@ import type { Cliente, Fornecedor } from "@/lib/data/tipos";
 
 export default function ClientesFornecedoresPage() {
   const { papel, negocio } = useAuth();
+  const { empresaAtiva, empresas } = useEmpresa();
   const ehFuncionario = papel === "funcionario";
   const [aba, setAba] = React.useState<"clientes" | "fornecedores">("clientes");
 
@@ -171,6 +174,10 @@ export default function ClientesFornecedoresPage() {
           </button>
         ))}
       </div>
+
+      {aba === "clientes" && !ehFuncionario && negocio && !formAberto && (
+        <ClientesSumidos contaMestreId={negocio.usuarioId} nomeEmpresa={empresaAtiva?.nome_fantasia ?? empresas[0]?.nome_fantasia ?? negocio.nome} />
+      )}
 
       {formAberto && (
         <Card padding="lg" className="flex flex-col gap-4">

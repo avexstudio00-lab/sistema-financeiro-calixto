@@ -419,6 +419,8 @@ export interface Produto {
   criado_em: string;
   empresa_id?: string;
   fornecedor_id?: string | null;
+  /** Preço de repasse (13/nov/2026): quanto o vendedor de repasse paga por peça. */
+  preco_repasse?: number | null;
 }
 
 /** Catálogo de serviços (itens 5.6/5.7) — sem nenhum dado de estoque. */
@@ -528,6 +530,26 @@ export interface Venda {
   taxa_maquininha?: number | null;
   parcelas_cartao?: number | null;
   taxa_transacao_id?: string | null;
+  /** Quem vendeu (13/nov/2026). */
+  vendedor_nome?: string | null;
+  vendedor_id?: string | null;
+  /** Repasse da peça no dia da venda e acréscimo combinado no fiado. */
+  repasse_unitario?: number | null;
+  acrescimo?: number | null;
+}
+
+/** Vendedor (13/nov/2026): comissão em % ou preço de repasse por peça. */
+export interface Vendedor {
+  id: string;
+  usuario_id: string;
+  empresa_id: string | null;
+  nome: string;
+  modelo: "comissao" | "repasse" | "nenhum";
+  comissao_pct: number | null;
+  meta_mensal: number | null;
+  telefone: string | null;
+  ativo: boolean;
+  criado_em: string;
 }
 
 export interface ContaPagar {
@@ -590,6 +612,8 @@ export interface Membro {
   token: string;
   criado_em: string;
   aceito_em: string | null;
+  /** Empresa liberada pro membro (planos com 2 empresas). `null` = todas. */
+  empresa_id?: string | null;
 }
 
 /** Retorno de `consultar_convite` — o que a tela de convite mostra antes de
@@ -599,4 +623,25 @@ export interface DetalheConvite {
   papel: "socio" | "funcionario";
   nome_convidante: string;
   status: "pendente" | "ativo" | "removido";
+}
+
+/** Agenda de serviços (13/nov/2026). */
+export type StatusAgendamento = "marcado" | "confirmado" | "concluido" | "cancelado" | "faltou";
+
+export interface Agendamento {
+  id: string;
+  usuario_id: string;
+  empresa_id: string | null;
+  cliente_id: string | null;
+  servico_id: string | null;
+  descricao: string;
+  inicio: string;
+  duracao_min: number;
+  valor: number | null;
+  status: StatusAgendamento;
+  observacoes: string | null;
+  venda_grupo_id: string | null;
+  criado_em: string;
+  clientes?: Pick<Cliente, "id" | "nome" | "telefone"> | null;
+  servicos?: { id: string; nome: string } | null;
 }
