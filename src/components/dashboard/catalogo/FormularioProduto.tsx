@@ -2,6 +2,7 @@
 
 import { DicaPrecoSugerido } from "./DicaPrecoSugerido";
 import * as React from "react";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -34,7 +35,7 @@ export function FormularioProduto({
   onCancelar,
   compacto = false,
   nomeInicial = "",
-  ocultarCusto = false,
+  ocultarCusto: ocultarCustoProp = false,
 }: {
   contaMestreId: string;
   produto?: Produto | null;
@@ -46,6 +47,8 @@ export function FormularioProduto({
   /** Funcionário/vendedor não vê nem mexe no custo (13/nov/2026). */
   ocultarCusto?: boolean;
 }) {
+  const { papel } = useAuth();
+  const ocultarCusto = ocultarCustoProp || papel === "funcionario";
   const [form, setForm] = React.useState<FormularioProdutoCampos>(() =>
     produto
       ? {
@@ -91,8 +94,9 @@ export function FormularioProduto({
     const mudouRepasse = precoRepasse !== (produto?.preco_repasse ?? null);
     const dados = {
       nome: form.nome.trim(),
-      // Funcionário não vê o custo: mantém o que já estava.
-      custo: ocultarCusto ? Number(produto?.custo ?? 0) : custo,
+      // Funcionário não vê o custo: não manda o campo (o banco mantém o atual;
+      // produto novo fica com custo 0 até o dono preencher).
+      custo: (ocultarCusto ? (produto ? undefined : 0) : custo) as number,
       preco_venda: precoVenda,
       ...(mudouRepasse || precoRepasse != null ? { preco_repasse: precoRepasse } : {}),
       quantidade_estoque: quantidade,
