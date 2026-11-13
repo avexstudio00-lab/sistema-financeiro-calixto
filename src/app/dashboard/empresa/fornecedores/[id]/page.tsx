@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Phone, Mail, Package, Receipt, Truck, MessageCircle } from "lucide-react";
+import { ArrowLeft, Phone, Mail, Package, Receipt, Truck, MessageCircle, ShoppingBag, Boxes } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +12,9 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { supabase } from "@/lib/supabase/client";
 import { formatarMoeda } from "@/lib/format";
 import { linkWhatsApp } from "@/lib/util/texto";
+import { mensagemPedidoFornecedor } from "@/lib/data/estoque";
+import { MensagemWhatsAppDialog } from "@/components/dashboard/MensagemWhatsAppDialog";
+import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import type { ContaPagar, Fornecedor, Produto } from "@/lib/data/tipos";
 
 interface ItemCompra {
@@ -35,6 +38,8 @@ export default function DossieFornecedorPage() {
   const [contas, setContas] = React.useState<ContaPagar[]>([]);
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
   const [carregando, setCarregando] = React.useState(true);
+  const { empresaAtiva, empresas } = useEmpresa();
+  const [pedindo, setPedindo] = React.useState(false);
 
   React.useEffect(() => {
     if (!negocio || !fornecedorId || papel === "funcionario") return;
@@ -95,7 +100,16 @@ export default function DossieFornecedorPage() {
       itensComprados.set(i.produto_id, atual);
     }
   }
-  const whats = linkWhatsApp(fornecedor.telefone, `Olá! Aqui é da ${negocio?.nome ?? "empresa"}.`);
+  const nomeEmpresa = empresaAtiva?.nome_fantasia ?? empresas[0]?.nome_fantasia ?? negocio?.nome ?? "";
+  const whats = linkWhatsApp(fornecedor.telefone, `Olá! Aqui é da ${nomeEmpresa || "empresa"}.`);
+  // Pedido pronto (13/nov/2026): o que está no mínimo ou abaixo, pra repor
+  // até o dobro do mínimo. Sem nada baixo, lista os produtos dele com 1 un.
+  const ativos = produtos.filter((p) => p.ativo !== false);
+  const baixos = ativos.filter((p) => Number(p.estoque_minimo) > 0 && Number(p.quantidade_estoque) <= Number(p.estoque_minimo));
+  const itensPedido = (baixos.length ? baixos : ativos).map((p) => ({
+    produto: p,
+    quantidade: baixos.length ? Math.max(Number(p.estoque_minimo) * 2 - Number(p.quantidade_estoque), 1) : 1,
+  }));
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
@@ -116,16 +130,40 @@ export default function DossieFornecedorPage() {
               {fornecedor.prazo_entrega_dias != null && <span>Entrega em ~{fornecedor.prazo_entrega_dias} dias</span>}
             </div>
           </div>
-          {whats && (
-            <a href={whats} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary">
-                <MessageCircle size={16} />
-                WhatsApp
+          <div className="flex flex-wrap gap-2">
+            {itensPedido.length > 0 && (
+              <Button onClick={() => setPedindo(true)}>
+                <ShoppingBag size={16} />
+                {baixos.length ? `Fazer pedido (${baixos.length} em falta)` : "Fazer pedido"}
               </Button>
-            </a>
-          )}
+            )}
+            <Link href="/dashboard/empresa/estoque">
+              <Button variant="secondary">
+                <Boxes size={16} />
+                Registrar compra
+              </Button>
+            </Link>
+            {whats && (
+              <a href={whats} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary">
+                  <MessageCircle size={16} />
+                  WhatsApp
+                </Button>
+              </a>
+            )}
+          </div>
         </div>
       </div>
+
+      {pedindo && (
+        <MensagemWhatsAppDialog
+          titulo={`Pedido para ${fornecedor.nome}`}
+          subtitulo={baixos.length ? "Produtos dele que estão no mínimo ou abaixo. Ajuste as quantidades antes de mandar." : "Nenhum produto em falta agora: ajuste a lista e as quantidades antes de mandar."}
+          textoInicial={mensagemPedidoFornecedor(fornecedor.nome, itensPedido, nomeEmpresa)}
+          telefone={fornecedor.telefone}
+          onFechar={() => setPedindo(false)}
+        />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="flex flex-col gap-2">
