@@ -36,7 +36,7 @@ import {
   FileDown,
   Settings2,
   type LucideIcon,
- Lock as IconeCadeado,
+  Lock as IconeCadeado,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -78,7 +78,11 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
   { href: "/dashboard/meu-relatorio", label: "Meu relatório", icon: BarChart3 },
   { href: "/dashboard/relatorio", label: "Relatório PDF", icon: FileDown },
-  { href: "/dashboard/investimentos", label: "Investimentos", icon: TrendingUp },
+  {
+    href: "/dashboard/investimentos",
+    label: "Investimentos",
+    icon: TrendingUp,
+  },
   { href: "/dashboard/metas", label: "Metas", icon: PiggyBank },
   { href: "/dashboard/orcamento", label: "Orçamento", icon: Target },
   { href: "/dashboard/contas-fixas", label: "Contas fixas", icon: Repeat },
@@ -86,12 +90,20 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/carteiras", label: "Carteiras", icon: Wallet },
   { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
   { href: "/dashboard/seguranca", label: "Segurança", icon: ShieldCheck },
-  { href: "/dashboard/privacidade", label: "Privacidade e dados", icon: IconeCadeado },
+  {
+    href: "/dashboard/privacidade",
+    label: "Privacidade e dados",
+    icon: IconeCadeado,
+  },
 ];
 
 // Só quem é dono da própria conta convida gente — sócio/funcionário nunca
 // veem esse link, mesmo estando na conta de alguém que tem o plano Grupo.
-const LINK_EQUIPE: LinkNav = { href: "/dashboard/equipe", label: "Minha equipe", icon: UserPlus };
+const LINK_EQUIPE: LinkNav = {
+  href: "/dashboard/equipe",
+  label: "Minha equipe",
+  icon: UserPlus,
+};
 
 // Links do mundo "negócio" que são financeiro (contas a pagar/receber, DAS
 // e fluxo de caixa) — escondidos de quem entrou como funcionário, que só
@@ -112,7 +124,10 @@ const LINKS_EMPRESA_FINANCEIRO = new Set([
 // Itens que dependem do ramo de atividade da empresa (item 5.5): quem só
 // presta serviço não vê estoque/produtos; quem só vende produto não vê o
 // catálogo de serviços.
-const LINKS_SO_PRODUTO = new Set(["/dashboard/empresa/produtos", "/dashboard/empresa/estoque"]);
+const LINKS_SO_PRODUTO = new Set([
+  "/dashboard/empresa/produtos",
+  "/dashboard/empresa/estoque",
+]);
 const LINKS_SO_SERVICO = new Set(["/dashboard/empresa/servicos"]);
 
 const LINKS_EMPRESA: LinkNav[] = [
@@ -127,19 +142,43 @@ const LINKS_EMPRESA: LinkNav[] = [
   // do menu/barra mudou.
   { href: "/dashboard/empresa", label: "Empresa", icon: LayoutDashboard },
   { href: "/dashboard/empresa/vendas", label: "Vendas", icon: ShoppingCart },
-  { href: "/dashboard/empresa/orcamentos", label: "Orçamentos", icon: ClipboardList },
+  {
+    href: "/dashboard/empresa/orcamentos",
+    label: "Orçamentos",
+    icon: ClipboardList,
+  },
   { href: "/dashboard/empresa/servicos", label: "Serviços", icon: Wrench },
   { href: "/dashboard/empresa/produtos", label: "Produtos", icon: Package },
   { href: "/dashboard/empresa/estoque", label: "Estoque", icon: Boxes },
-  { href: "/dashboard/empresa/clientes-fornecedores", label: "Clientes", icon: Users },
+  {
+    href: "/dashboard/empresa/clientes-fornecedores",
+    label: "Clientes",
+    icon: Users,
+  },
   { href: "/dashboard/empresa/contas", label: "Contas", icon: Receipt },
-  { href: "/dashboard/empresa/cobranca", label: "Cobrança", icon: MessageCircle },
-  { href: "/dashboard/empresa/contas-fixas", label: "Contas fixas", icon: Repeat },
+  {
+    href: "/dashboard/empresa/cobranca",
+    label: "Cobrança",
+    icon: MessageCircle,
+  },
+  {
+    href: "/dashboard/empresa/contas-fixas",
+    label: "Contas fixas",
+    icon: Repeat,
+  },
   { href: "/dashboard/empresa/extrato", label: "Extrato", icon: ScrollText },
   { href: "/dashboard/empresa/das", label: "DAS / Impostos", icon: FileText },
-  { href: "/dashboard/empresa/fluxo-caixa", label: "Fluxo de caixa", icon: ArrowLeftRight },
+  {
+    href: "/dashboard/empresa/fluxo-caixa",
+    label: "Fluxo de caixa",
+    icon: ArrowLeftRight,
+  },
   { href: "/dashboard/empresa/relatorio", label: "Relatório", icon: BarChart3 },
-  { href: "/dashboard/empresa/configuracoes", label: "Perfil da empresa", icon: Settings2 },
+  {
+    href: "/dashboard/empresa/configuracoes",
+    label: "Perfil da empresa",
+    icon: Settings2,
+  },
 ];
 
 export function DashboardNav() {
@@ -147,10 +186,12 @@ export function DashboardNav() {
   const router = useRouter();
   const { perfil, papel, signOut } = useAuth();
   const { empresas, empresaAtivaId, selecionarEmpresa, ramo } = useEmpresa();
-  const navRef = React.useRef<HTMLElement>(null);
-  const [scrollInfo, setScrollInfo] = React.useState({ podeEsquerda: false, podeDireita: false });
 
-  const mundo: "pessoal" | "negocio" = pathname?.startsWith("/dashboard/empresa") ? "negocio" : "pessoal";
+  const mundo: "pessoal" | "negocio" = pathname?.startsWith(
+    "/dashboard/empresa",
+  )
+    ? "negocio"
+    : "pessoal";
   // IMPORTANTE: memoizado por `papel` — "[...LINKS_PESSOAL, LINK_EQUIPE]" cria
   // um array NOVO a cada render. Sem o useMemo, `links` (abaixo) muda de
   // referência em todo render, o que faz o useEffect que depende de `links`
@@ -160,17 +201,23 @@ export function DashboardNav() {
   // por URL não sofre isso porque monta o componente do zero uma vez só.
   const linksPessoal = React.useMemo(
     () => (papel === "dono" ? [...LINKS_PESSOAL, LINK_EQUIPE] : LINKS_PESSOAL),
-    [papel]
+    [papel],
   );
   const linksEmpresa = React.useMemo(
     () =>
-      LINKS_EMPRESA.filter((l) => !(papel === "funcionario" && LINKS_EMPRESA_FINANCEIRO.has(l.href)))
+      LINKS_EMPRESA.filter(
+        (l) =>
+          !(papel === "funcionario" && LINKS_EMPRESA_FINANCEIRO.has(l.href)),
+      )
         .filter((l) => !(ramo === "servicos" && LINKS_SO_PRODUTO.has(l.href)))
         .filter((l) => !(ramo === "produtos" && LINKS_SO_SERVICO.has(l.href))),
-    [papel, ramo]
+    [papel, ramo],
   );
   const links = mundo === "negocio" ? linksEmpresa : linksPessoal;
-  const corAtiva = mundo === "negocio" ? "bg-accent-50 text-accent-700" : "bg-primary-50 text-primary-700";
+  const corAtiva =
+    mundo === "negocio"
+      ? "bg-accent-50 text-accent-700"
+      : "bg-primary-50 text-primary-700";
 
   // Divide os links do mundo atual entre "principais" (barra fixa do
   // rodapé no celular) e "mais" (o resto, atrás do botão "Mais") --
@@ -178,41 +225,22 @@ export function DashboardNav() {
   // (funcionário não vê os financeiros da empresa, só dono vê "Minha
   // equipe").
   const hrefsPrincipaisMobile =
-    mundo === "negocio" ? HREFS_PRINCIPAIS_MOBILE_EMPRESA : HREFS_PRINCIPAIS_MOBILE_PESSOAL;
+    mundo === "negocio"
+      ? HREFS_PRINCIPAIS_MOBILE_EMPRESA
+      : HREFS_PRINCIPAIS_MOBILE_PESSOAL;
   const principaisMobile = hrefsPrincipaisMobile
     .map((href) => links.find((link) => link.href === href))
     .filter((link): link is LinkNav => Boolean(link))
     .slice(0, 4);
-  const maisMobile = links.filter((link) => !principaisMobile.some((p) => p.href === link.href));
+  const maisMobile = links.filter(
+    (link) => !principaisMobile.some((p) => p.href === link.href),
+  );
   const iniciais = perfil?.nome
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
     .map((parte) => parte[0]?.toUpperCase())
     .join("");
-
-  // Detecta se dá pra arrastar o menu pra esquerda/direita, pra mostrar (ou
-  // esconder) o degradê nas bordas — em vez de deixar sempre visível, o que
-  // ficaria estranho quando o menu já cabe inteiro na tela.
-  const atualizarScrollInfo = React.useCallback(() => {
-    const el = navRef.current;
-    if (!el) return;
-    const podeEsquerda = el.scrollLeft > 4;
-    const podeDireita = el.scrollLeft < el.scrollWidth - el.clientWidth - 4;
-    // Só atualiza o estado se algum valor realmente mudou — evita criar um
-    // objeto novo (e um re-render) a cada chamada quando nada mudou de fato.
-    setScrollInfo((atual) =>
-      atual.podeEsquerda === podeEsquerda && atual.podeDireita === podeDireita
-        ? atual
-        : { podeEsquerda, podeDireita }
-    );
-  }, []);
-
-  React.useEffect(() => {
-    atualizarScrollInfo();
-    window.addEventListener("resize", atualizarScrollInfo);
-    return () => window.removeEventListener("resize", atualizarScrollInfo);
-  }, [atualizarScrollInfo, links]);
 
   async function handleSignOut() {
     await signOut();
@@ -221,8 +249,8 @@ export function DashboardNav() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur print:hidden">
-      {/* Sem "justify-between": no celular, com o menu de cima escondido (vira
+      <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur print:hidden md:static">
+        {/* Sem "justify-between": no celular, com o menu de cima escondido (vira
           a barra fixa do rodapé), sobrava um vão vazio grande no meio do
           cabeçalho porque cada bloco (logo, seletor de mundo, ícones) ficava
           espalhado em pontos fixos da largura toda. Agrupando logo + seletor
@@ -231,132 +259,148 @@ export function DashboardNav() {
           compactos em vez de três pontos soltos -- no computador o menu
           `flex-1` do meio continua absorvendo o espaço extra normalmente,
           então nada muda lá. */}
-      <Container full className="flex h-16 items-center gap-4">
-        <Link href="/dashboard" className="flex shrink-0 items-center gap-2 text-foreground">
-          <span
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-lg text-white",
-              mundo === "negocio" ? "bg-accent-500" : "bg-primary-500"
-            )}
+        <Container full className="flex h-16 items-center gap-4">
+          <Link
+            href="/dashboard"
+            className="flex shrink-0 items-center gap-2 text-foreground"
           >
-            <Wallet size={18} strokeWidth={2} />
-          </span>
-          <span className="hidden text-base font-semibold sm:inline">Meu Controle</span>
-        </Link>
+            <span
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg text-white",
+                mundo === "negocio" ? "bg-accent-500" : "bg-primary-500",
+              )}
+            >
+              <Wallet size={18} strokeWidth={2} />
+            </span>
+            <span className="hidden text-base font-semibold sm:inline">
+              Meu Controle
+            </span>
+          </Link>
 
-        {/* Seletor de mundo — visível pra qualquer perfil (CLT, MEI ou ME).
+          {/* Seletor de mundo — visível pra qualquer perfil (CLT, MEI ou ME).
             "Minha empresa" é liberada só no plano Avançado, mas o seletor
             aparece pra todo mundo como convite: quem ainda não tem o plano
             cai em "Meu plano" ao clicar (ver empresa/layout.tsx). */}
-        <div className="flex shrink-0 gap-1 rounded-full bg-muted/10 p-1">
-          <Link
-            href="/dashboard"
-            className={cn(
-              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
-              mundo === "pessoal" ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground"
-            )}
-          >
-            <Home size={14} />
-            <span className="hidden sm:inline">Minha vida</span>
-          </Link>
-          <Link
-            href="/dashboard/empresa"
-            className={cn(
-              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
-              mundo === "negocio" ? "bg-card text-accent-700 shadow-sm" : "text-muted hover:text-foreground"
-            )}
-          >
-            <Building2 size={14} />
-            <span className="hidden sm:inline">Minha empresa</span>
-          </Link>
-        </div>
+          <div className="flex shrink-0 gap-1 rounded-full bg-muted/10 p-1">
+            <Link
+              href="/dashboard"
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
+                mundo === "pessoal"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted hover:text-foreground",
+              )}
+            >
+              <Home size={14} />
+              <span className="hidden sm:inline">Minha vida</span>
+            </Link>
+            <Link
+              href="/dashboard/empresa"
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-small font-medium transition-colors",
+                mundo === "negocio"
+                  ? "bg-card text-accent-700 shadow-sm"
+                  : "text-muted hover:text-foreground",
+              )}
+            >
+              <Building2 size={14} />
+              <span className="hidden sm:inline">Minha empresa</span>
+            </Link>
+          </div>
 
-        {/* No celular esse menu vira a barra fixa do rodapé (MobileTabBar,
-            renderizada abaixo) -- aqui só aparece a partir do `md`, onde
-            já cabe tudo sem precisar arrastar nem adivinhar. */}
-        <div className="relative hidden min-w-0 flex-1 md:block">
-          <nav
-            ref={navRef}
-            onScroll={atualizarScrollInfo}
-            className="scrollbar-hide flex items-center justify-start gap-1 overflow-x-auto px-1"
-          >
+          {/* Seletor de empresa (planos Bi-Empresa, item 5.4) — só aparece na
+            área "Minha empresa" e só pra quem tem mais de uma empresa. */}
+          {mundo === "negocio" && empresas.length > 1 && (
+            <select
+              aria-label="Empresa"
+              value={empresaAtivaId ?? "todas"}
+              onChange={(e) =>
+                selecionarEmpresa(
+                  e.target.value === "todas" ? null : e.target.value,
+                )
+              }
+              className="h-9 min-w-0 max-w-[150px] shrink truncate rounded-full border border-border bg-card px-3 text-small font-medium text-foreground focus:border-primary-500 focus:outline-none"
+            >
+              {empresas.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nome_fantasia}
+                </option>
+              ))}
+              <option value="todas">Todas (consolidado)</option>
+            </select>
+          )}
+
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <BuscaGlobal />
+            <CentralNotificacoes />
+            <ThemeToggle />
+            <Link
+              href="/dashboard/perfil"
+              className="flex items-center gap-2 rounded-full py-1 pl-1 pr-1 text-small font-medium text-muted transition-colors hover:bg-muted/10 hover:text-foreground sm:pr-3"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
+                {perfil?.foto_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={perfil.foto_url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  iniciais || <User size={14} />
+                )}
+              </span>
+              <span className="hidden sm:inline">
+                {perfil?.nome.split(" ")[0] ?? "..."}
+              </span>
+            </Link>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              aria-label="Sair"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-rose-600"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+        </Container>
+        {/* Menu do computador/tablet (13/nov/2026): ganhou uma linha própria
+          embaixo do cabeçalho e QUEBRA LINHA quando não cabe. Antes ele
+          dividia a mesma linha com o seletor de empresa e os ícones e, numa
+          janela estreita no PC, era espremido até sumir (sem barra de
+          rolagem e sem gesto de arrastar no mouse, não tinha como chegar em
+          Vendas, Orçamentos, Serviços...). Abaixo do `md` quem cuida é a
+          barra fixa do rodapé (MobileTabBar). */}
+        <Container full className="hidden pb-2 md:block">
+          <nav aria-label="Menu" className="flex flex-wrap items-center gap-1">
             {links.map((link) => {
               const ativo = pathname === link.href;
               return (
                 <Link
                   key={link.href}
                   href={link.href}
+                  aria-current={ativo ? "page" : undefined}
                   className={cn(
-                    "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-small font-medium transition-colors",
-                    ativo ? corAtiva : "text-muted hover:bg-muted/10 hover:text-foreground"
+                    "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-small font-medium transition-colors",
+                    ativo
+                      ? corAtiva
+                      : "text-muted hover:bg-muted/10 hover:text-foreground",
                   )}
                 >
-                  <link.icon size={16} />
-                  <span className="hidden md:inline">{link.label}</span>
+                  <link.icon size={15} className="shrink-0" />
+                  <span>{link.label}</span>
                 </Link>
               );
             })}
           </nav>
-          {/* Degradê nas bordas — só aparece quando dá pra arrastar mais pra
-              aquele lado, avisando (mesmo com a barrinha de scroll escondida)
-              que tem mais itens ali. */}
-          {scrollInfo.podeEsquerda && (
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent" />
-          )}
-          {scrollInfo.podeDireita && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent" />
-          )}
-        </div>
-
-        {/* Seletor de empresa (planos Bi-Empresa, item 5.4) — só aparece na
-            área "Minha empresa" e só pra quem tem mais de uma empresa. */}
-        {mundo === "negocio" && empresas.length > 1 && (
-          <select
-            aria-label="Empresa"
-            value={empresaAtivaId ?? "todas"}
-            onChange={(e) => selecionarEmpresa(e.target.value === "todas" ? null : e.target.value)}
-            className="h-9 max-w-[150px] shrink rounded-full border border-border bg-card px-3 text-small font-medium text-foreground focus:border-primary-500 focus:outline-none"
-          >
-            {empresas.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.nome_fantasia}
-              </option>
-            ))}
-            <option value="todas">Todas (consolidado)</option>
-          </select>
-        )}
-
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <BuscaGlobal />
-          <CentralNotificacoes />
-          <ThemeToggle />
-          <Link
-            href="/dashboard/perfil"
-            className="flex items-center gap-2 rounded-full py-1 pl-1 pr-1 text-small font-medium text-muted transition-colors hover:bg-muted/10 hover:text-foreground sm:pr-3"
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
-              {perfil?.foto_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={perfil.foto_url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                iniciais || <User size={14} />
-              )}
-            </span>
-            <span className="hidden sm:inline">{perfil?.nome.split(" ")[0] ?? "..."}</span>
-          </Link>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            aria-label="Sair"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-rose-600"
-          >
-            <LogOut size={18} />
-          </button>
-        </div>
-      </Container>
+        </Container>
       </header>
 
-      <MobileTabBar principais={principaisMobile} mais={maisMobile} mundo={mundo} />
+      <MobileTabBar
+        principais={principaisMobile}
+        mais={maisMobile}
+        mundo={mundo}
+      />
     </>
   );
 }

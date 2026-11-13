@@ -350,33 +350,48 @@ export function SeletorParceiro<T extends ParceiroOpcao>({
         </div>
       ) : (
         <div>
-          <div className="relative">
-            <Search
-              size={16}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-            />
-            <input
-              ref={buscaRef}
-              value={busca}
-              onChange={(e) => {
-                setBusca(e.target.value);
-                setDestaque(0);
-                setAberto(true);
-              }}
-              onFocus={() => setAberto(true)}
-              onKeyDown={teclaBusca}
-              placeholder={
-                lista.length > 0
-                  ? `Buscar ou cadastrar ${palavras.um}`
-                  : `Digite o nome do ${palavras.um}`
-              }
-              role="combobox"
-              aria-expanded={aberto}
-              aria-controls={idLista}
-              aria-autocomplete="list"
-              autoComplete="off"
-              className={cn(classeCampo, "pl-9")}
-            />
+          {/* Busca ocupa o espaço que sobrar e o botão "Novo cliente" fica
+              sempre à vista, do lado (pedido do usuário em 13/nov/2026). */}
+          <div className="flex min-w-0 items-stretch gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                size={16}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+              />
+              <input
+                ref={buscaRef}
+                value={busca}
+                onChange={(e) => {
+                  setBusca(e.target.value);
+                  setDestaque(0);
+                  setAberto(true);
+                }}
+                onFocus={() => setAberto(true)}
+                onKeyDown={teclaBusca}
+                placeholder={
+                  lista.length > 0
+                    ? `Buscar ${palavras.um}`
+                    : `Nome do ${palavras.um}`
+                }
+                role="combobox"
+                aria-expanded={aberto}
+                aria-controls={idLista}
+                aria-autocomplete="list"
+                autoComplete="off"
+                className={cn(classeCampo, "pl-9")}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={abrirCadastro}
+              className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-primary-200 bg-primary-50 px-3 text-sm font-semibold text-primary-800 hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
+            >
+              <UserPlus size={16} className="shrink-0" />
+              <span className="hidden min-[380px]:inline">
+                Novo {palavras.um}
+              </span>
+              <span className="min-[380px]:hidden">Novo</span>
+            </button>
           </div>
           {aberto && (
             <ul
