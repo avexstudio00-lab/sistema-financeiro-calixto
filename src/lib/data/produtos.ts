@@ -19,14 +19,28 @@ export interface NovoProduto {
   quantidade_estoque: number;
   estoque_minimo: number;
   fornecedor_id?: string | null;
+  preco_repasse?: number | null;
 }
 
+/** Banco ainda sem a coluna preco_repasse (SQL de 13/nov não rodado): tira
+ * o campo e tenta de novo, pra não travar o cadastro. */
+function semRepasse<T extends object>(dados: T): T {
+  const copia = { ...dados };
+  delete (copia as Record<string, unknown>).preco_repasse;
+  return copia;
+}
+const faltaColunaRepasse = (e: { message?: string } | null) => !!e && /preco_repasse/.test(e.message ?? "");
+
 export async function criarProduto(produto: NovoProduto) {
-  return supabase.from("produtos").insert({ ...campoEmpresa(), ...produto }).select().single();
+  const r = await supabase.from("produtos").insert({ ...campoEmpresa(), ...produto }).select().single();
+  if (faltaColunaRepasse(r.error)) return supabase.from("produtos").insert({ ...campoEmpresa(), ...semRepasse(produto) }).select().single();
+  return r;
 }
 
 export async function atualizarProduto(id: string, dados: Omit<NovoProduto, "usuario_id">) {
-  return supabase.from("produtos").update(dados).eq("id", id);
+  const r = await supabase.from("produtos").update(dados).eq("id", id);
+  if (faltaColunaRepasse(r.error)) return supabase.from("produtos").update(semRepasse(dados)).eq("id", id);
+  return r;
 }
 
 export async function deletarProduto(id: string) {

@@ -83,6 +83,11 @@ export interface DadosVenda {
   /** Quem vendeu (13/nov/2026): etiqueta com o nome, pra separar vendas e
    * comissão/distribuição de lucro por vendedor. */
   vendedorNome?: string | null;
+  /** Fiado com valor combinado acima do preço (13/nov/2026): ex. R$ 220 à
+   * vista, R$ 240 no parcelado → acréscimo de R$ 20. Entra no valor_total
+   * da 1ª linha (faturamento bate com o que o cliente vai pagar) sem mudar o
+   * preço do produto no cadastro. */
+  acrescimoFiado?: number | null;
 }
 
 export interface PagamentoVenda {
@@ -141,8 +146,10 @@ export async function registrarVenda(dados: DadosVenda) {
   }
   const nomes = itens.map((i) => (i.produto ?? i.servico)!.nome);
   const descricao = descricaoDaVenda(nomes);
-  const valorTotal = totalDosItens(itens);
-  const fiado = dados.fiado && dados.clienteId ? dados.fiado : null;
+  const fiadoPedido = dados.fiado && dados.clienteId ? dados.fiado : null;
+  const acrescimo = fiadoPedido && dados.acrescimoFiado && dados.acrescimoFiado > 0 ? Number(dados.acrescimoFiado.toFixed(2)) : 0;
+  const valorTotal = Number((totalDosItens(itens) + acrescimo).toFixed(2));
+  const fiado = fiadoPedido;
   if (fiado) {
     const erroFiado = validarCondicoesFiado(valorTotal, fiado.entrada?.valor ?? 0, fiado.parcelas, dados.data);
     if (erroFiado) return { data: null, error: new Error(erroFiado) };
@@ -215,7 +222,9 @@ export async function registrarVenda(dados: DadosVenda) {
       quantidade: item.quantidade,
       valor_unitario: item.valorUnitario,
       custo_unitario: custoUnitario,
-      valor_total: Number((item.quantidade * item.valorUnitario).toFixed(2)),
+      valor_total: Number((item.quantidade * item.valorUnitario + (i === 0 ? acrescimo : 0)).toFixed(2)),
+      ...(i === 0 && acrescimo > 0 ? { acrescimo } : {}),
+      ...(item.produto?.preco_repasse != null ? { repasse_unitario: Number(item.produto.preco_repasse) } : {}),
       forma_pagamento: fiado ? null : dados.formaPagamento,
       cliente_id: dados.clienteId,
       data: dados.data,
@@ -225,10 +234,12 @@ export async function registrarVenda(dados: DadosVenda) {
   let { data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(linhas).select();
   // Banco ainda sem a coluna do vendedor (SQL de 13/nov não rodado): grava
   // a venda sem a etiqueta em vez de falhar.
-  if (erroVenda && /vendedor_nome/.test(erroVenda.message ?? "")) {
+  if (erroVenda && /vendedor_nome|repasse_unitario|acrescimo/.test(erroVenda.message ?? "")) {
     const semVendedor = linhas.map((l) => {
       const copia: Record<string, unknown> = { ...l };
       delete copia.vendedor_nome;
+      delete copia.repasse_unitario;
+      delete copia.acrescimo;
       return copia;
     });
     ({ data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(semVendedor).select());

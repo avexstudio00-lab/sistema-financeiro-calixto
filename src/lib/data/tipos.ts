@@ -419,6 +419,8 @@ export interface Produto {
   criado_em: string;
   empresa_id?: string;
   fornecedor_id?: string | null;
+  /** Preço de repasse (13/nov/2026): quanto o vendedor de repasse paga por peça. */
+  preco_repasse?: number | null;
 }
 
 /** Catálogo de serviços (itens 5.6/5.7) — sem nenhum dado de estoque. */
@@ -531,6 +533,23 @@ export interface Venda {
   /** Quem vendeu (13/nov/2026). */
   vendedor_nome?: string | null;
   vendedor_id?: string | null;
+  /** Repasse da peça no dia da venda e acréscimo combinado no fiado. */
+  repasse_unitario?: number | null;
+  acrescimo?: number | null;
+}
+
+/** Vendedor (13/nov/2026): comissão em % ou preço de repasse por peça. */
+export interface Vendedor {
+  id: string;
+  usuario_id: string;
+  empresa_id: string | null;
+  nome: string;
+  modelo: "comissao" | "repasse" | "nenhum";
+  comissao_pct: number | null;
+  meta_mensal: number | null;
+  telefone: string | null;
+  ativo: boolean;
+  criado_em: string;
 }
 
 export interface ContaPagar {
