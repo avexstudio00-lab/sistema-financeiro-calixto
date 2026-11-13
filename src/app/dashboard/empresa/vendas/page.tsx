@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/Badge";
 
 import { listarClientes } from "@/lib/data/clientes";
 import { SeletorParceiro } from "@/components/dashboard/SeletorParceiro";
+import { buscarAgendamento, dataLocalIso, marcarAgendamentoVendido } from "@/lib/data/agenda";
 import { listarContas, carteirasDoAmbiente } from "@/lib/data/contas";
 import {
   listarVendas,
@@ -89,11 +90,38 @@ export default function VendasPage() {
   const [carregando, setCarregando] = React.useState(true);
 
   const [formAberto, setFormAberto] = React.useState(false);
+  // Venda que veio da Agenda: ao registrar, o horário vira "Atendido".
+  const [agendamentoOrigem, setAgendamentoOrigem] = React.useState<string | null>(null);
   // "+" → "Registrar uma venda" (10/nov/2026): chega com ?nova=1 e já abre o formulário.
   React.useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("nova") === "1") {
+    // Agenda → "Virar venda" (13/nov/2026): ?agendamento=<id>.
+    const agendamentoDaUrl = params.get("agendamento");
+    if (agendamentoDaUrl) {
+      setAgendamentoOrigem(agendamentoDaUrl);
+      void buscarAgendamento(agendamentoDaUrl).then((ag) => {
+        if (!ag) return;
+        if (ag.cliente_id) setClienteId(ag.cliente_id);
+        setData(dataLocalIso(ag.inicio) > new Date().toISOString().slice(0, 10) ? new Date().toISOString().slice(0, 10) : dataLocalIso(ag.inicio));
+        if (ag.servico_id) {
+          setCarrinho([
+            {
+              chave: `ag-${ag.id}`,
+              tipo: "servico",
+              refId: ag.servico_id,
+              nome: ag.servicos?.nome ?? ag.descricao,
+              quantidade: "1",
+              valorUnitario: ag.valor != null ? String(ag.valor).replace(".", ",") : "",
+            },
+          ]);
+        }
+      });
+    }
+    // Ficha do cliente → "Nova venda" (13/nov/2026): chega com ?cliente=<id>.
+    const clienteDaUrl = params.get("cliente");
+    if (params.get("nova") === "1" || clienteDaUrl || agendamentoDaUrl) {
+      if (clienteDaUrl) setClienteId(clienteDaUrl);
       setFormAberto(true);
       window.history.replaceState(null, "", window.location.pathname);
       window.scrollTo({ top: 0 });
@@ -436,6 +464,11 @@ export default function VendasPage() {
         criado_em: linhas[0].criado_em,
         cliente: clienteVenda,
       });
+    }
+    if (agendamentoOrigem) {
+      const linhas = (resultado.data ?? []) as Venda[];
+      void marcarAgendamentoVendido(agendamentoOrigem, linhas[0]?.grupo_venda_id ?? null);
+      setAgendamentoOrigem(null);
     }
     limparSeletor();
     setCarrinho([]);
