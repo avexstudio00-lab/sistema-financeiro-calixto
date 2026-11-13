@@ -29,7 +29,9 @@ import type { ContaPagar } from "@/lib/data/tipos";
  * manuais, estoque mínimo e a recomendação de compra.
  */
 export default function EstoquePage() {
-  const { negocio } = useAuth();
+  const { negocio, papel } = useAuth();
+  // Funcionário (vendedor) não vê custo nem valor do estoque (13/nov/2026).
+  const veCusto = papel !== "funcionario";
   const { empresaAtiva, empresas } = useEmpresa();
   const nomeEmpresa = empresaAtiva?.nome_fantasia ?? empresas[0]?.nome_fantasia ?? negocio?.nome ?? "";
   // Pedir a reposição ao fornecedor pelo WhatsApp (13/nov/2026).
@@ -207,18 +209,22 @@ export default function EstoquePage() {
 
       {!carregando && (
         <div className="grid gap-4 sm:grid-cols-3">
-          <Card className="flex flex-col gap-2">
-            <p className="text-small text-muted">Valor do estoque (pelo custo)</p>
-            <p className="text-h3 text-foreground">{formatarMoeda(valorDoEstoque(produtos))}</p>
-          </Card>
+          {veCusto && (
+            <Card className="flex flex-col gap-2">
+              <p className="text-small text-muted">Valor do estoque (pelo custo)</p>
+              <p className="text-h3 text-foreground">{formatarMoeda(valorDoEstoque(produtos))}</p>
+            </Card>
+          )}
           <Card className="flex flex-col gap-2">
             <p className="text-small text-muted">Itens abaixo do mínimo</p>
             <p className="text-h3 text-foreground">{produtos.filter((p) => estoqueBaixo(p)).length}</p>
           </Card>
-          <Card className="flex flex-col gap-2">
-            <p className="text-small text-muted">Capital pra repor o sugerido</p>
-            <p className="text-h3 text-foreground">{formatarMoeda(capitalTotal)}</p>
-          </Card>
+          {veCusto && (
+            <Card className="flex flex-col gap-2">
+              <p className="text-small text-muted">Capital pra repor o sugerido</p>
+              <p className="text-h3 text-foreground">{formatarMoeda(capitalTotal)}</p>
+            </Card>
+          )}
         </div>
       )}
 
@@ -274,7 +280,7 @@ export default function EstoquePage() {
                 </div>
                 <div className="text-right">
                   <p className="text-body font-semibold text-foreground">Comprar {s.quantidadeSugerida} un.</p>
-                  <p className="text-small text-muted">{formatarMoeda(s.capitalNecessario)} de capital de giro</p>
+                  {veCusto && <p className="text-small text-muted">{formatarMoeda(s.capitalNecessario)} de capital de giro</p>}
                   {/* 09/nov/2026: liga a sugestão direto à compra (custo +
                       de qual carteira saiu / conta a pagar). */}
                   <Button
@@ -321,7 +327,10 @@ export default function EstoquePage() {
                       )}
                     </div>
                     <p className="text-small text-muted">
-                      Mínimo {p.estoque_minimo} · custo {formatarMoeda(Number(p.custo))} · total {formatarMoeda(Number(p.custo) * Number(p.quantidade_estoque))}
+                      Mínimo {p.estoque_minimo}
+                      {veCusto
+                        ? ` · custo ${formatarMoeda(Number(p.custo))} · total ${formatarMoeda(Number(p.custo) * Number(p.quantidade_estoque))}`
+                        : ` · venda ${formatarMoeda(Number(p.preco_venda))}${p.preco_repasse != null ? ` · repasse ${formatarMoeda(Number(p.preco_repasse))}` : ""}`}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
