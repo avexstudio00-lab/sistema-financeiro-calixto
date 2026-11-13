@@ -528,6 +528,9 @@ export interface Venda {
   taxa_maquininha?: number | null;
   parcelas_cartao?: number | null;
   taxa_transacao_id?: string | null;
+  /** Quem vendeu (13/nov/2026). */
+  vendedor_nome?: string | null;
+  vendedor_id?: string | null;
 }
 
 export interface ContaPagar {

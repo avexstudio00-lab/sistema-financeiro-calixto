@@ -80,6 +80,9 @@ export interface DadosVenda {
   /** Taxa da maquininha (10/nov/2026): vira despesa "Taxas de cartão" na
    * mesma carteira e fica guardada na venda (fluxo de caixa mostra). */
   maquininha?: { taxa: number; percentual: number; parcelas: number } | null;
+  /** Quem vendeu (13/nov/2026): etiqueta com o nome, pra separar vendas e
+   * comissão/distribuição de lucro por vendedor. */
+  vendedorNome?: string | null;
 }
 
 export interface PagamentoVenda {
@@ -216,9 +219,20 @@ export async function registrarVenda(dados: DadosVenda) {
       forma_pagamento: fiado ? null : dados.formaPagamento,
       cliente_id: dados.clienteId,
       data: dados.data,
+      ...(dados.vendedorNome?.trim() ? { vendedor_nome: dados.vendedorNome.trim().slice(0, 80) } : {}),
     };
   });
-  const { data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(linhas).select();
+  let { data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(linhas).select();
+  // Banco ainda sem a coluna do vendedor (SQL de 13/nov não rodado): grava
+  // a venda sem a etiqueta em vez de falhar.
+  if (erroVenda && /vendedor_nome/.test(erroVenda.message ?? "")) {
+    const semVendedor = linhas.map((l) => {
+      const copia: Record<string, unknown> = { ...l };
+      delete copia.vendedor_nome;
+      return copia;
+    });
+    ({ data: vendasGravadas, error: erroVenda } = await supabase.from("vendas").insert(semVendedor).select());
+  }
 
   if (erroVenda || !vendasGravadas) {
     // O lançamento de receita já foi criado — desfaz pra não deixar um
@@ -326,6 +340,7 @@ export interface VendaAgrupada {
   data: string;
   criado_em: string;
   cliente: Venda["clientes"];
+  vendedor?: string | null;
 }
 
 /** Junta as linhas da mesma venda, mantendo a ordem da lista. */
@@ -338,7 +353,7 @@ export function agruparLinhasDeVenda(vendas: Venda[]): VendaAgrupada[] {
       atual.linhas.push(v);
       atual.total = Number((atual.total + Number(v.valor_total)).toFixed(2));
     } else {
-      mapa.set(chave, { chave, linhas: [v], total: Number(v.valor_total), data: v.data, criado_em: v.criado_em, cliente: v.clientes ?? null });
+      mapa.set(chave, { chave, linhas: [v], total: Number(v.valor_total), data: v.data, criado_em: v.criado_em, cliente: v.clientes ?? null, vendedor: v.vendedor_nome ?? null });
     }
   }
   return Array.from(mapa.values());
