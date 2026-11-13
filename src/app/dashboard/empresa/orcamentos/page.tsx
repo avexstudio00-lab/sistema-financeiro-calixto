@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, ClipboardList, Trash2, Pencil, MessageCircle, BellRing, CheckCircle2, X, PlusCircle } from "lucide-react";
+import { Plus, ClipboardList, Trash2, Pencil, MessageCircle, BellRing, CheckCircle2, X, PlusCircle, Send } from "lucide-react";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
 import { Container } from "@/components/ui/Container";
@@ -29,11 +29,13 @@ import {
   gerarContaReceberDoOrcamento,
   registrarVendasDoOrcamento,
   mensagemFollowUp,
+  mensagemEnvioOrcamento,
   ROTULO_STATUS_ORCAMENTO,
   DIAS_FOLLOW_UP,
 } from "@/lib/data/orcamentos";
 import { formatarMoeda } from "@/lib/format";
 import { linkWhatsApp, hojeIso, somarDias } from "@/lib/util/texto";
+import { MensagemWhatsAppDialog } from "@/components/dashboard/MensagemWhatsAppDialog";
 import { cn } from "@/lib/utils";
 import type { Cliente, ItemOrcamento, Orcamento, Produto, Servico, StatusOrcamento } from "@/lib/data/tipos";
 
@@ -97,6 +99,8 @@ export default function OrcamentosPage() {
   const [vencimentoFechamento, setVencimentoFechamento] = React.useState(() => hojeIso());
   const [gerarTitulo, setGerarTitulo] = React.useState(true);
   const [confirmandoExclusao, setConfirmandoExclusao] = React.useState<string | null>(null);
+  // Mandar o orçamento ao cliente pelo WhatsApp (13/nov/2026).
+  const [enviandoOrc, setEnviandoOrc] = React.useState<Orcamento | null>(null);
 
   React.useEffect(() => {
     if (papel === "funcionario") router.replace("/dashboard/empresa");
@@ -123,6 +127,20 @@ export default function OrcamentosPage() {
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Ficha do cliente → "Novo orçamento" (13/nov/2026): ?novo=1&cliente=<id>.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const clienteDaUrl = params.get("cliente");
+    if (params.get("novo") === "1" || clienteDaUrl) {
+      abrirNovo();
+      if (clienteDaUrl) setClienteId(clienteDaUrl);
+      window.history.replaceState(null, "", window.location.pathname);
+      window.scrollTo({ top: 0 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function abrirNovo() {
     setEditandoId(null);
@@ -221,12 +239,17 @@ export default function OrcamentosPage() {
       validade: validade || null,
       observacoes: observacoes.trim() || null,
     };
-    const { error } = editandoId
+    const resposta = editandoId
       ? await atualizarOrcamento(editandoId, dados)
       : await criarOrcamento({ ...dados, usuario_id: negocio.usuarioId });
     setSalvando(false);
-    if (error) return setErro("Não foi possível salvar. Tente de novo.");
+    if (resposta.error) return setErro("Não foi possível salvar. Tente de novo.");
     setFormAberto(false);
+    // Orçamento novo: já oferece mandar pro cliente, com a mensagem pronta.
+    if (!editandoId && "data" in resposta && resposta.data) {
+      const novo = resposta.data as Orcamento;
+      setEnviandoOrc({ ...novo, clientes: clientes.find((c) => c.id === novo.cliente_id) ?? null });
+    }
     carregar();
   }
 
@@ -274,6 +297,19 @@ export default function OrcamentosPage() {
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
+      {enviandoOrc && (
+        <MensagemWhatsAppDialog
+          titulo={enviandoOrc.clientes?.nome ? `Enviar orçamento para ${enviandoOrc.clientes.nome.split(" ")[0]}` : "Enviar orçamento"}
+          subtitulo="A mensagem já vem pronta com os itens e o total. Mude o que quiser antes de mandar."
+          textoInicial={mensagemEnvioOrcamento(enviandoOrc, nomeEmpresa)}
+          telefone={enviandoOrc.clientes?.telefone}
+          onFechar={() => setEnviandoOrc(null)}
+          onEnviado={() => {
+            const id = enviandoOrc.id;
+            void registrarContatoOrcamento(id).then(carregar);
+          }}
+        />
+      )}
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h2 text-foreground">Orçamentos</h1>
@@ -548,6 +584,10 @@ export default function OrcamentosPage() {
                       <option key={st} value={st}>{ROTULO_STATUS_ORCAMENTO[st]}</option>
                     ))}
                   </select>
+                  <Button size="sm" variant="secondary" onClick={() => setEnviandoOrc(o)}>
+                    <Send size={14} />
+                    Enviar ao cliente
+                  </Button>
                   <Button size="sm" variant="tertiary" onClick={() => abrirEdicao(o)}>
                     <Pencil size={14} />
                     Editar
