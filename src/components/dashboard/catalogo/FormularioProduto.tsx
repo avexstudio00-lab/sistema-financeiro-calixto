@@ -13,12 +13,13 @@ interface FormularioProdutoCampos {
   nome: string;
   custo: string;
   precoVenda: string;
+  precoRepasse: string;
   quantidade: string;
   estoqueMinimo: string;
   fornecedorId: string;
 }
 
-const FORM_VAZIO: FormularioProdutoCampos = { nome: "", custo: "", precoVenda: "", quantidade: "", estoqueMinimo: "", fornecedorId: "" };
+const FORM_VAZIO: FormularioProdutoCampos = { nome: "", custo: "", precoVenda: "", precoRepasse: "", quantidade: "", estoqueMinimo: "", fornecedorId: "" };
 
 /**
  * Formulário de cadastro/edição de produto — o MESMO usado no Catálogo de
@@ -33,6 +34,7 @@ export function FormularioProduto({
   onCancelar,
   compacto = false,
   nomeInicial = "",
+  ocultarCusto = false,
 }: {
   contaMestreId: string;
   produto?: Produto | null;
@@ -41,6 +43,8 @@ export function FormularioProduto({
   onCancelar: () => void;
   compacto?: boolean;
   nomeInicial?: string;
+  /** Funcionário/vendedor não vê nem mexe no custo (13/nov/2026). */
+  ocultarCusto?: boolean;
 }) {
   const [form, setForm] = React.useState<FormularioProdutoCampos>(() =>
     produto
@@ -48,6 +52,7 @@ export function FormularioProduto({
           nome: produto.nome,
           custo: String(produto.custo).replace(".", ","),
           precoVenda: String(produto.preco_venda).replace(".", ","),
+          precoRepasse: produto.preco_repasse != null ? String(produto.preco_repasse).replace(".", ",") : "",
           quantidade: String(produto.quantidade_estoque),
           estoqueMinimo: String(produto.estoque_minimo),
           fornecedorId: produto.fornecedor_id ?? "",
@@ -62,6 +67,8 @@ export function FormularioProduto({
     e.stopPropagation();
     const custo = Number(form.custo.replace(",", ".")) || 0;
     const precoVenda = Number(form.precoVenda.replace(",", ".")) || 0;
+    const repasseTexto = form.precoRepasse.trim();
+    const precoRepasse = repasseTexto ? Number(repasseTexto.replace(/\./g, "").replace(",", ".")) : null;
     const quantidade = Number(form.quantidade) || 0;
     const estoqueMinimo = Number(form.estoqueMinimo) || 0;
 
@@ -74,12 +81,20 @@ export function FormularioProduto({
       return;
     }
 
+    if (precoRepasse != null && !(precoRepasse >= 0)) {
+      setErro("Preço de repasse inválido.");
+      return;
+    }
+
     setErro(null);
     setSalvando(true);
+    const mudouRepasse = precoRepasse !== (produto?.preco_repasse ?? null);
     const dados = {
       nome: form.nome.trim(),
-      custo,
+      // Funcionário não vê o custo: mantém o que já estava.
+      custo: ocultarCusto ? Number(produto?.custo ?? 0) : custo,
       preco_venda: precoVenda,
+      ...(mudouRepasse || precoRepasse != null ? { preco_repasse: precoRepasse } : {}),
       quantidade_estoque: quantidade,
       estoque_minimo: estoqueMinimo,
       fornecedor_id: form.fornecedorId || null,
@@ -111,27 +126,46 @@ export function FormularioProduto({
           placeholder="Ex: Bolo de cenoura"
           autoFocus
         />
-        <div className="grid grid-cols-2 gap-4">
+        {/* Três preços (13/nov/2026): custo (só dono/sócio), venda e
+            repasse (o que o vendedor de repasse te paga por peça). */}
+        <div className={cn("grid gap-4", ocultarCusto ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3")}>
+          {!ocultarCusto && (
+            <Input
+              label="Custo (unidade)"
+              inputMode="decimal"
+              value={form.custo}
+              onChange={(e) => setForm((f) => ({ ...f, custo: e.target.value }))}
+              placeholder="0,00"
+            />
+          )}
           <Input
-            label="Custo (unidade)"
-            inputMode="decimal"
-            value={form.custo}
-            onChange={(e) => setForm((f) => ({ ...f, custo: e.target.value }))}
-            placeholder="0,00"
-          />
-          <Input
-            label="Preço de venda (unidade)"
+            label="Preço de venda"
             inputMode="decimal"
             value={form.precoVenda}
             onChange={(e) => setForm((f) => ({ ...f, precoVenda: e.target.value }))}
             placeholder="0,00"
           />
+          <Input
+            label="Preço de repasse"
+            inputMode="decimal"
+            value={form.precoRepasse}
+            onChange={(e) => setForm((f) => ({ ...f, precoRepasse: e.target.value }))}
+            placeholder="Opcional"
+            disabled={ocultarCusto}
+          />
         </div>
-        <DicaPrecoSugerido
-          contaMestreId={contaMestreId}
-          custo={Number(form.custo.trim().replace(/\./g, "").replace(",", ".")) || 0}
-          onUsar={(preco) => setForm((f) => ({ ...f, precoVenda: preco.toFixed(2).replace(".", ",") }))}
-        />
+        {!ocultarCusto && (
+          <p className="-mt-2 text-xs text-muted">
+            Repasse: quanto o vendedor de repasse te paga por peça (ele fica com o que vender acima). O vendedor vê só o repasse e a venda, nunca o custo.
+          </p>
+        )}
+        {!ocultarCusto && (
+          <DicaPrecoSugerido
+            contaMestreId={contaMestreId}
+            custo={Number(form.custo.trim().replace(/\./g, "").replace(",", ".")) || 0}
+            onUsar={(preco) => setForm((f) => ({ ...f, precoVenda: preco.toFixed(2).replace(".", ",") }))}
+          />
+        )}
         <div className="grid grid-cols-2 gap-4">
           <Input
             label="Quantidade em estoque"
