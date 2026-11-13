@@ -16,6 +16,9 @@ import { estaAtrasada, receberTitulosDoCliente } from "@/lib/data/contasEmpresa"
 import { carregarDossieCliente } from "@/lib/data/clientes";
 import { formatarMoeda } from "@/lib/format";
 import { linkWhatsApp } from "@/lib/util/texto";
+import { lerMensagemCobranca, montarMensagemCliente, registrarCobrancaFeitaVarios } from "@/lib/data/cobranca";
+import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
+import { MensagemWhatsAppDialog } from "@/components/dashboard/MensagemWhatsAppDialog";
 import type { Cliente, Conta, ContaReceber, Orcamento, Venda } from "@/lib/data/tipos";
 
 /**
@@ -38,6 +41,16 @@ export default function DossieClientePage() {
   const [salvandoVarias, setSalvandoVarias] = React.useState(false);
   const [aviso, setAviso] = React.useState<string | null>(null);
   const [versao, setVersao] = React.useState(0);
+  const { empresaAtiva, empresas } = useEmpresa();
+  const nomeEmpresa = empresaAtiva?.nome_fantasia ?? empresas[0]?.nome_fantasia ?? negocio?.nome ?? "";
+  // "Cobrar" direto da ficha (13/nov/2026): mensagem pronta e editável.
+  const [cobrando, setCobrando] = React.useState<string | null>(null);
+
+  async function abrirCobranca(abertos: ContaReceber[], nome: string) {
+    if (!negocio) return;
+    const modelo = await lerMensagemCobranca(negocio.usuarioId);
+    setCobrando(montarMensagemCliente(modelo, nome, abertos, nomeEmpresa));
+  }
 
   async function abrirReceberVarias() {
     if (!negocio) return;
@@ -102,22 +115,54 @@ export default function DossieClientePage() {
               <span>Cliente desde {new Date(cliente.criado_em).toLocaleDateString("pt-BR")}</span>
             </div>
           </div>
-          {veFinanceiro && titulos.some((t) => t.status === "pendente") && (
-            <Button variant="secondary" onClick={() => void abrirReceberVarias()}>
-              <HandCoins size={16} />
-              Receber várias de uma vez
-            </Button>
-          )}
-          {whats && (
-            <a href={whats} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary">
-                <MessageCircle size={16} />
-                WhatsApp
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/dashboard/empresa/vendas?cliente=${cliente.id}`}>
+              <Button>
+                <ShoppingCart size={16} />
+                Nova venda
               </Button>
-            </a>
-          )}
+            </Link>
+            {veFinanceiro && (
+              <Link href={`/dashboard/empresa/orcamentos?novo=1&cliente=${cliente.id}`}>
+                <Button variant="secondary">
+                  <ClipboardList size={16} />
+                  Novo orçamento
+                </Button>
+              </Link>
+            )}
+            {veFinanceiro && abertos.length > 0 && (
+              <Button variant="secondary" onClick={() => void abrirCobranca(abertos, cliente.nome)}>
+                <Receipt size={16} />
+                Cobrar
+              </Button>
+            )}
+            {veFinanceiro && abertos.length > 0 && (
+              <Button variant="secondary" onClick={() => void abrirReceberVarias()}>
+                <HandCoins size={16} />
+                Receber
+              </Button>
+            )}
+            {whats && (
+              <a href={whats} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary">
+                  <MessageCircle size={16} />
+                  WhatsApp
+                </Button>
+              </a>
+            )}
+          </div>
         </div>
       </div>
+
+      {cobrando !== null && (
+        <MensagemWhatsAppDialog
+          titulo={`Cobrar ${cliente.nome.split(" ")[0]}`}
+          textoInicial={cobrando}
+          telefone={cliente.telefone}
+          onFechar={() => setCobrando(null)}
+          onEnviado={() => void registrarCobrancaFeitaVarios(abertos.map((t) => t.id))}
+        />
+      )}
 
       {aviso && <p className="rounded-xl border border-accent-200 bg-accent-50/60 px-3 py-2 text-small text-foreground dark:border-accent-800 dark:bg-accent-900/10">{aviso}</p>}
 
