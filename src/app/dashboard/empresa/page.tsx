@@ -38,6 +38,7 @@ import { EVENTO_LANCAMENTO_SALVO } from "@/components/dashboard/BotaoLancamentoG
 import { AtalhosLancamento } from "@/components/dashboard/AtalhosLancamento";
 import { VisaoHoje, type ItemHoje } from "@/components/dashboard/VisaoHoje";
 import { ClientesSumidos } from "@/components/dashboard/ClientesSumidos";
+import { MetaLucroEmpresa } from "@/components/dashboard/MetaLucroEmpresa";
 import { CobrancasFiado } from "@/components/dashboard/CobrancasFiado";
 import { ProjecaoLiquidez, type MovimentoPrevisto } from "@/components/dashboard/ProjecaoLiquidez";
 import { KpisEmpresa } from "@/components/dashboard/KpisEmpresa";
@@ -495,6 +496,9 @@ export default function PainelEmpresaPage() {
             </Card>
             {!ehFuncionario && negocio && (
               <MetaMesEmpresa contaMestreId={negocio.usuarioId} faturado={resumo.faturamento} ano={ano} mes={mes} podeEditar={papel === "dono" || papel === "socio"} />
+            )}
+            {!ehFuncionario && negocio && (
+              <MetaLucroEmpresa contaMestreId={negocio.usuarioId} ano={ano} mes={mes} podeEditar={papel === "dono" || papel === "socio"} />
             )}
             <VisaoHoje itens={itensHoje} cor="accent" />
             {!ehFuncionario && negocio && (
