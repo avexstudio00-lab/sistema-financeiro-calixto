@@ -103,7 +103,8 @@ export default function RedefinirSenhaPage() {
           <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
             <h1 className="text-h2 text-foreground">Link inválido ou expirado</h1>
             <p className="text-body text-muted">
-              Peça um novo link de recuperação de senha e abra o e-mail mais recente.
+              Cada link funciona uma vez só, e pedir um novo cancela os anteriores. Peça um novo link e abra só o
+              e-mail mais recente, de preferência no mesmo aparelho.
             </p>
             <Link href="/esqueci-senha" className="text-small font-semibold text-primary-600">
               Pedir novo link
