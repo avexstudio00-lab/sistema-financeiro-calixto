@@ -99,3 +99,12 @@ create policy transacoes_delete on public.transacoes as permissive for delete to
       and (empresa_id is null or empresa_acessivel(empresa_id))
     )
   );
+
+-- ---------------------------------------------------------------------------
+-- Quem vendeu (13/nov/2026): etiqueta com o nome do vendedor em cada venda,
+-- pra separar vendas, comissão e distribuição de lucro. vendedor_id guarda
+-- quem estava logado; vendedor_nome é o nome escolhido no formulário (pode
+-- ser um vendedor sem login).
+alter table public.vendas add column if not exists vendedor_id uuid default auth.uid();
+alter table public.vendas add column if not exists vendedor_nome text;
+create index if not exists vendas_vendedor_nome on public.vendas (usuario_id, vendedor_nome) where vendedor_nome is not null;
