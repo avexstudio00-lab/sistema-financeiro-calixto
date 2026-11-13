@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { supabase } from "@/lib/supabase/client";
+import { listarProdutosDoFornecedor } from "@/lib/data/produtos";
 import { formatarMoeda } from "@/lib/format";
 import { linkWhatsApp } from "@/lib/util/texto";
 import { mensagemPedidoFornecedor } from "@/lib/data/estoque";
@@ -48,7 +49,7 @@ export default function DossieFornecedorPage() {
       const [{ data: f }, { data: c }, { data: p }] = await Promise.all([
         supabase.from("fornecedores").select("*").eq("id", fornecedorId).maybeSingle(),
         supabase.from("contas_pagar").select("*").eq("fornecedor_id", fornecedorId).order("vencimento", { ascending: false }),
-        supabase.from("produtos").select("*").eq("fornecedor_id", fornecedorId).order("nome"),
+        listarProdutosDoFornecedor(fornecedorId).then((data) => ({ data })),
       ]);
       setFornecedor((f as Fornecedor | null) ?? null);
       setContas((c as ContaPagar[]) ?? []);
