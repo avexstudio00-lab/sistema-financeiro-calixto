@@ -264,6 +264,11 @@ export default function DossieClientePage() {
               <p className="text-small text-foreground">
                 {v.produto_nome} · {v.quantidade}x
                 <span className="text-muted"> · {new Date(v.data + "T00:00:00").toLocaleDateString("pt-BR")}</span>
+                {v.vendedor_nome && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-accent-50 px-2 py-0.5 text-xs font-semibold text-accent-800 dark:bg-accent-900/20 dark:text-accent-200">
+                    {v.vendedor_nome}
+                  </span>
+                )}
               </p>
               <span className="text-small font-semibold text-foreground">{formatarMoeda(Number(v.valor_total))}</span>
             </div>
