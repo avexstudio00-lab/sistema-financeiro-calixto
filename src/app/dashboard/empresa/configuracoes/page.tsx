@@ -136,13 +136,13 @@ export default function ConfiguracoesEmpresaPage() {
 
       {negocio && papel !== "funcionario" && (
         <>
-          <div id="identificacao" className="scroll-mt-20">
+          <div id="identificacao" className="scroll-mt-20 md:scroll-mt-4">
             <IdentificacaoFiscal contaMestreId={negocio.usuarioId} podeEditar={podeEditar} onSalvo={() => setVersaoPerfil((v) => v + 1)} />
           </div>
-          <div id="maquininha" className="scroll-mt-20">
+          <div id="maquininha" className="scroll-mt-20 md:scroll-mt-4">
             <ConfigMaquininha contaMestreId={negocio.usuarioId} podeEditar={podeEditar} />
           </div>
-          <div id="preco" className="scroll-mt-20">
+          <div id="preco" className="scroll-mt-20 md:scroll-mt-4">
             <CalculadoraPreco key={versaoPerfil} contaMestreId={negocio.usuarioId} />
           </div>
         </>

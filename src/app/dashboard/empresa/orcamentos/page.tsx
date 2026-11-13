@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { useEmpresa } from "@/lib/empresa/EmpresaProvider";
 import { listarClientes } from "@/lib/data/clientes";
+import { SeletorParceiro } from "@/components/dashboard/SeletorParceiro";
 import { listarServicos, rotuloPrecoServico } from "@/lib/data/servicos";
 import { listarProdutos } from "@/lib/data/produtos";
 import {
@@ -338,15 +339,15 @@ export default function OrcamentosPage() {
           <form onSubmit={salvar} className="flex flex-col gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Input label="Título" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex: Site institucional" autoFocus />
-              <div className="flex flex-col gap-1.5">
-                <span className="text-small font-medium text-foreground">Cliente</span>
-                <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className={classeSelect}>
-                  <option value="">Sem cliente cadastrado</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nome}</option>
-                  ))}
-                </select>
-              </div>
+              {negocio && (
+                <SeletorParceiro
+                  contaMestreId={negocio.usuarioId}
+                  lista={clientes}
+                  value={clienteId}
+                  onChange={setClienteId}
+                  onCriado={(novo) => setClientes((lista) => [...lista, novo].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))}
+                />
+              )}
             </div>
 
             <div className="flex flex-col gap-3">
