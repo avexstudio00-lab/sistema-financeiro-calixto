@@ -19,7 +19,8 @@ import { formatarMoeda } from "@/lib/format";
 import type { Fornecedor, Produto } from "@/lib/data/tipos";
 
 export default function ProdutosPage() {
-  const { negocio } = useAuth();
+  const { negocio, papel } = useAuth();
+  const ehFuncionario = papel === "funcionario";
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
   const [fornecedores, setFornecedores] = React.useState<Fornecedor[]>([]);
   const [carregando, setCarregando] = React.useState(true);
@@ -67,7 +68,7 @@ export default function ProdutosPage() {
         <div>
           <h1 className="text-h2 text-foreground">Catálogo de produtos</h1>
           <p className="text-body text-muted">
-            O que você vende, com custo, preço e margem. Entradas, saídas e reposição ficam em Gestão de estoque.
+            O que você vende, com os preços (custo, venda e repasse). Entradas, saídas e reposição ficam em Gestão de estoque.
           </p>
         </div>
         <Button onClick={abrirNovo}>
@@ -82,6 +83,7 @@ export default function ProdutosPage() {
           contaMestreId={negocio.usuarioId}
           produto={editandoId ? produtos.find((x) => x.id === editandoId) ?? null : null}
           fornecedores={fornecedores}
+          ocultarCusto={ehFuncionario}
           onSalvo={() => {
             setFormAberto(false);
             setEditandoId(null);
@@ -124,21 +126,38 @@ export default function ProdutosPage() {
                   )}
                 </div>
 
+                {/* Funcionário (vendedor) vê venda e repasse, nunca custo e margem (13/nov/2026). */}
                 <div className="grid grid-cols-2 gap-2 text-small">
-                  <div>
-                    <p className="text-xs text-muted">Custo</p>
-                    <p className="font-semibold text-foreground">{formatarMoeda(Number(p.custo))}</p>
-                  </div>
+                  {!ehFuncionario && (
+                    <div>
+                      <p className="text-xs text-muted">Custo</p>
+                      <p className="font-semibold text-foreground">{formatarMoeda(Number(p.custo))}</p>
+                    </div>
+                  )}
                   <div>
                     <p className="text-xs text-muted">Venda</p>
                     <p className="font-semibold text-foreground">{formatarMoeda(Number(p.preco_venda))}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted">Margem / lucro por unidade</p>
-                    <p className={`font-semibold ${margem >= 0 ? "text-accent-600" : "text-red-500"}`}>
-                      {margem.toFixed(0)}% · {formatarMoeda(Number(p.preco_venda) - Number(p.custo))}
-                    </p>
-                  </div>
+                  {p.preco_repasse != null && (
+                    <div>
+                      <p className="text-xs text-muted">Repasse</p>
+                      <p className="font-semibold text-foreground">{formatarMoeda(Number(p.preco_repasse))}</p>
+                    </div>
+                  )}
+                  {!ehFuncionario && (
+                    <div>
+                      <p className="text-xs text-muted">Margem / lucro por unidade</p>
+                      <p className={`font-semibold ${margem >= 0 ? "text-accent-600" : "text-red-500"}`}>
+                        {margem.toFixed(0)}% · {formatarMoeda(Number(p.preco_venda) - Number(p.custo))}
+                      </p>
+                    </div>
+                  )}
+                  {!ehFuncionario && p.preco_repasse != null && (
+                    <div>
+                      <p className="text-xs text-muted">Você ganha no repasse</p>
+                      <p className="font-semibold text-foreground">{formatarMoeda(Number(p.preco_repasse) - Number(p.custo))}</p>
+                    </div>
+                  )}
                   <div>
                     <p className="text-xs text-muted">Em estoque</p>
                     <p className={`font-semibold ${baixo ? "text-amber-600" : "text-foreground"}`}>
