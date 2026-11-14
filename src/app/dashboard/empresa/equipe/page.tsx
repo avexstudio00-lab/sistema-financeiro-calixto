@@ -177,7 +177,7 @@ export default function EquipePage() {
             privada — só o negócio é compartilhado.
           </p>
           <Link href="/dashboard/plano">
-            <Button>Ver plano Grupo</Button>
+            <Button>Ver planos com equipe</Button>
           </Link>
         </Card>
       ) : (
