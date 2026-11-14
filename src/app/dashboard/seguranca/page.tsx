@@ -31,6 +31,7 @@ import {
   removerBiometriaServidor,
 } from "@/lib/seguranca/webauthnCliente";
 import { lerOcultarPrevia, salvarOcultarPrevia } from "@/lib/data/privacidade";
+import { AbasPerfil } from "@/components/dashboard/AbasPerfil";
 
 interface CredencialConta {
   credential_id: string;
@@ -79,6 +80,7 @@ export default function SegurancaPage() {
 
   return (
     <Container full className="flex flex-col gap-6 py-8">
+      <AbasPerfil />
       <div>
         <h1 className="text-h2 text-foreground">Segurança e privacidade</h1>
         <p className="text-small text-muted">
