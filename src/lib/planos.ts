@@ -138,6 +138,16 @@ export function podeConvidarMembros(plano: Plano): boolean {
   return plano === "grupo" || plano === "grupo_multi";
 }
 
+/** Parte pessoal de quem foi convidado (14/nov/2026): o patrão que paga um
+ * plano com equipe dá de brinde o pessoal "Completo" para o sócio ou
+ * funcionário — lançamentos ilimitados, metas, IA, painel e gráficos. Não
+ * dá empresa própria (só a do patrão). Se a pessoa já assina algo igual ou
+ * melhor, vale o dela. Pro dono, é sempre o próprio plano. */
+export function planoPessoalEfetivo(proprio: Plano, papel: "dono" | "socio" | "funcionario", planoDoPatrao: Plano | null | undefined): Plano {
+  if (papel === "dono" || !planoDoPatrao || !podeConvidarMembros(planoDoPatrao)) return proprio;
+  return proprio === "gratis" || proprio === "mensal" ? "clt" : proprio;
+}
+
 /** Tela de Vendedores (comissão, repasse, metas por vendedor) — 14/nov/2026,
  * item 3.5: faz parte dos planos com equipe (Grupo e Bi-Empresa + Grupo).
  * Nos outros planos a tela mostra o convite para mudar de plano. */
