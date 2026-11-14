@@ -32,10 +32,10 @@ export function RelatorioView({ escopoFixo }: { escopoFixo?: "empresa" }) {
 }
 
 function ConteudoRelatorio({ escopoFixo }: { escopoFixo?: "empresa" }) {
-  const { user, perfil, negocio, papel } = useAuth();
+  const { user, perfil, negocio, papel, planoPessoal } = useAuth();
   const params = useSearchParams();
   const comEmpresa = !!negocio && podeAcessarNegocio(negocio.plano) && papel !== "funcionario";
-  const planoEfetivo = comEmpresa && negocio ? negocio.plano : perfil?.plano;
+  const planoEfetivo = comEmpresa && negocio ? negocio.plano : perfil ? planoPessoal : undefined;
   const frequencia = frequenciaRelatorio(planoEfetivo);
   const opcoes = React.useMemo(() => periodosDisponiveis(new Date(), frequencia), [frequencia]);
   const [chave, setChave] = React.useState<string | null>(null);
