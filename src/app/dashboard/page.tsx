@@ -608,9 +608,10 @@ export default function DashboardPage() {
   const hojeStr = hojeIso();
   const itensHoje = compromissos.filter((c) => c.data <= hojeStr);
   // Recebimentos de empréstimo/revenda: parcelas (iv-) e à vista (ev-/rv-).
-  const proximosRecebimentos = compromissos.filter((c) => /^(iv|ev|rv)-/.test(c.id));
+  const pendentes = compromissos.filter((c) => !c.quitado);
+  const proximosRecebimentos = pendentes.filter((c) => /^(iv|ev|rv)-/.test(c.id));
   const movimentosPrevistos = [
-    ...compromissos.map((c) => ({ data: c.data, valor: c.sentido === "entrada" ? c.valor : -c.valor })),
+    ...pendentes.map((c) => ({ data: c.data, valor: c.sentido === "entrada" ? c.valor : -c.valor })),
     // Fatura de cartão em aberto sai das contas no próximo vencimento — entra
     // como saída já no primeiro dia pra não superestimar a sobra.
     ...(patrimonio && patrimonio.totalFaturaAberta > 0 ? [{ data: hojeStr, valor: -patrimonio.totalFaturaAberta }] : []),
