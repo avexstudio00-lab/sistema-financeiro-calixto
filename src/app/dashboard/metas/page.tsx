@@ -58,8 +58,8 @@ function mesAnoExtenso(dataIso: string): string {
 }
 
 export default function MetasPage() {
-  const { user, perfil } = useAuth();
-  const temMetas = perfil ? podeUsarRecurso(perfil.plano, "metas") : false;
+  const { user, perfil, planoPessoal } = useAuth();
+  const temMetas = perfil ? podeUsarRecurso(planoPessoal, "metas") : false;
 
   const [metas, setMetas] = React.useState<Meta[]>([]);
   const [carregando, setCarregando] = React.useState(true);
