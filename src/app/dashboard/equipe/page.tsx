@@ -169,8 +169,8 @@ export default function EquipePage() {
         <Card className="flex flex-col items-center gap-3 py-12 text-center">
           <Lock size={28} className="text-primary-400" />
           <p className="text-body text-foreground">
-            Convidar sócio ou funcionário é exclusivo do plano <strong>{PLANOS.grupo.nome}</strong> (
-            {PLANOS.grupo.precoLabel}).
+            Convidar sócio ou funcionário é exclusivo dos planos <strong>{PLANOS.grupo.nome}</strong> ({PLANOS.grupo.precoLabel}) e{" "}
+            <strong>{PLANOS.grupo_multi.nome}</strong> ({PLANOS.grupo_multi.precoLabel}).
           </p>
           <p className="text-small text-muted max-w-sm">
             Até 3 pessoas, cada uma com seu próprio login. A vida pessoal de cada um continua 100%
