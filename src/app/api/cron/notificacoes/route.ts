@@ -5,6 +5,7 @@ import { subtrairDiasUteis } from "@/lib/util/diasUteis";
 import { enviarPushParaUsuario, marcarAvisoSeNovo, aplicarPrivacidade, TEXTO_PRIVADO, type PayloadPush } from "@/lib/push/enviarPush";
 import { frequenciaRelatorio, periodoDoPushDeHoje } from "@/lib/relatorio/periodo";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { podeAcessarNegocio, type Plano } from "@/lib/planos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -742,9 +743,18 @@ export async function GET(request: Request) {
         }
       }
 
+      // Avisos da empresa (DAS, contas da empresa, agenda...) só para quem
+      // tem a área "Minha empresa" no PRÓPRIO plano (14/nov/2026): uma conta
+      // sem plano, marcada como MEI, recebia "DAS do MEI vence dia 20".
+      // Convidado (sócio/funcionário) também não recebe: quem cuida do DAS
+      // é o dono da empresa.
+      const { data: planoUsuario } = await admin.from("usuarios").select("plano").eq("id", usuarioId).maybeSingle();
+      const temEmpresa = podeAcessarNegocio(((planoUsuario as { plano?: string } | null)?.plano ?? "gratis") as Plano);
+      const avisosPermitidos = temEmpresa ? avisos : avisos.filter((a) => areaDoAviso(a.tipo) !== "empresa");
+
       // Dedupe: só o que ainda não foi avisado.
       const novos: Aviso[] = [];
-      for (const a of avisos) {
+      for (const a of avisosPermitidos) {
         if (await marcarAvisoSeNovo(admin, usuarioId, a.tipo, a.chave)) novos.push(a);
       }
       if (novos.length === 0) continue;
