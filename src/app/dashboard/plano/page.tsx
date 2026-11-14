@@ -17,6 +17,7 @@ import {
   diasRestantesTrial,
   PLANO_TRIAL,
 } from "@/lib/data/assinaturas";
+import { AbasPerfil } from "@/components/dashboard/AbasPerfil";
 
 const ORDEM: Plano[] = ["gratis", "mensal", "clt", "avancado", "avancado_multi", "grupo", "grupo_multi"];
 
@@ -213,6 +214,7 @@ export default function PlanoPage() {
 
   return (
     <Container full className="flex flex-col gap-8 py-8">
+      <AbasPerfil />
       <div>
         <h1 className="text-h2 text-foreground">Meu plano</h1>
         <p className="text-body text-muted">

@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BadgeDollarSign, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, UserRound, X } from "lucide-react";
+import { BadgeDollarSign, ChevronLeft, ChevronRight, Lock, Pencil, Plus, Trash2, UserRound, X } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -19,6 +20,7 @@ import {
   type DadosVendedor,
 } from "@/lib/data/vendedores";
 import { formatarMoeda } from "@/lib/format";
+import { PLANOS, podeUsarVendedores } from "@/lib/planos";
 import { cn } from "@/lib/utils";
 import type { Venda, Vendedor } from "@/lib/data/tipos";
 
@@ -147,6 +149,35 @@ export default function VendedoresPage() {
     const d = new Date(ano, mes - 1 + delta, 1);
     setAno(d.getFullYear());
     setMes(d.getMonth() + 1);
+  }
+
+  // Item 3.5 (14/nov/2026): Vendedores faz parte dos planos com equipe.
+  // Nos outros, a tela explica o que é e leva pra Meu plano.
+  if (negocio && !podeUsarVendedores(negocio.plano)) {
+    return (
+      <Container full className="flex flex-col gap-6 py-8">
+        <div>
+          <h1 className="text-h2 text-foreground">Vendedores</h1>
+          <p className="text-body text-muted">Quanto cada um vendeu, meta, comissão e repasse.</p>
+        </div>
+        <Card className="flex flex-col items-center gap-3 py-12 text-center">
+          <Lock size={28} className="text-accent-500" />
+          <p className="max-w-md text-body text-foreground">
+            Controle de vendedores faz parte dos planos <strong>{PLANOS.grupo.nome}</strong> ({PLANOS.grupo.precoLabel}) e{" "}
+            <strong>{PLANOS.grupo_multi.nome}</strong> ({PLANOS.grupo_multi.precoLabel}).
+          </p>
+          <ul className="flex max-w-sm flex-col gap-1 text-left text-small text-muted">
+            <li>• Marque quem fez cada venda e veja o ranking do mês</li>
+            <li>• Comissão em % ou preço de repasse por peça</li>
+            <li>• Meta de cada vendedor e quanto falta</li>
+            <li>• O que vai para os vendedores já sai do seu lucro líquido</li>
+          </ul>
+          <Link href="/dashboard/plano">
+            <Button>Ver planos com equipe</Button>
+          </Link>
+        </Card>
+      </Container>
+    );
   }
 
   return (

@@ -14,6 +14,7 @@ import { atualizarNome, atualizarTipoPerfil, deletarFotoPerfil, enviarFotoPerfil
 import { supabase } from "@/lib/supabase/client";
 import Link from "next/link";
 import { problemaNaSenha } from "@/lib/seguranca/senha";
+import { AbasPerfil } from "@/components/dashboard/AbasPerfil";
 
 type TipoPerfil = "clt" | "mei" | "me";
 
@@ -256,6 +257,7 @@ export default function PerfilPage() {
 
   return (
     <Container className="flex max-w-2xl flex-col gap-8 py-8">
+      <AbasPerfil />
       <div>
         <h1 className="text-h2 text-foreground">Seu perfil</h1>
         <p className="text-body text-muted">Seus dados, sua foto e o tipo de perfil.</p>

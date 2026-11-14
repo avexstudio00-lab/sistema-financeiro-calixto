@@ -15,6 +15,8 @@ export interface ItemHoje {
   sentido: "entrada" | "saida";
   atrasado?: boolean;
   href?: string;
+  /** Já recebido/pago hoje: aparece riscado, fora dos totais. */
+  quitado?: boolean;
 }
 
 /**
@@ -22,8 +24,9 @@ export interface ItemHoje {
  * hoje (e o que já passou do prazo) em um só card, com o líquido do dia.
  */
 export function VisaoHoje({ itens, cor = "primary" }: { itens: ItemHoje[]; cor?: "primary" | "accent" }) {
-  const entradas = itens.filter((i) => i.sentido === "entrada").reduce((a, i) => a + i.valor, 0);
-  const saidas = itens.filter((i) => i.sentido === "saida").reduce((a, i) => a + i.valor, 0);
+  const abertos = itens.filter((i) => !i.quitado);
+  const entradas = abertos.filter((i) => i.sentido === "entrada").reduce((a, i) => a + i.valor, 0);
+  const saidas = abertos.filter((i) => i.sentido === "saida").reduce((a, i) => a + i.valor, 0);
   // Mostra 8 e deixa abrir o resto (antes o "+ N itens" não abria nada e
   // escondia o que passasse disso — 09/nov/2026).
   const [todos, setTodos] = React.useState(false);
@@ -56,14 +59,19 @@ export function VisaoHoje({ itens, cor = "primary" }: { itens: ItemHoje[]; cor?:
                   ) : (
                     <ArrowDownCircle size={16} className="shrink-0 text-rose-700" />
                   )}
-                  <span className="truncate text-small text-foreground">{i.titulo}</span>
-                  {i.atrasado && (
+                  <span className={i.quitado ? "truncate text-small text-muted line-through" : "truncate text-small text-foreground"}>{i.titulo}</span>
+                  {i.quitado && (
+                    <Badge variant="primary" size="sm">
+                      Recebido
+                    </Badge>
+                  )}
+                  {i.atrasado && !i.quitado && (
                     <Badge variant="danger" size="sm">
                       Atrasado
                     </Badge>
                   )}
                 </div>
-                <span className="shrink-0 text-small font-semibold text-foreground">{formatarMoeda(i.valor)}</span>
+                <span className={i.quitado ? "shrink-0 text-small text-muted" : "shrink-0 text-small font-semibold text-foreground"}>{formatarMoeda(i.valor)}</span>
               </div>
             );
             return i.href ? (

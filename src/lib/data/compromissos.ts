@@ -13,6 +13,10 @@ export interface Compromisso {
   data: string;
   atrasado: boolean;
   href: string;
+  /** Já recebido/pago HOJE (14/nov/2026, item 5.1): continua aparecendo na
+   * Visão de hoje com a etiqueta "Recebido", mas não entra nos totais nem
+   * na projeção. */
+  quitado?: boolean;
 }
 
 function isoLocal(d: Date): string {
@@ -127,6 +131,56 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
       data: inv.data_vencimento_final,
       atrasado: inv.data_vencimento_final < hoje,
       href: "/dashboard/investimentos",
+    });
+  }
+
+  // Vencimento dos outros investimentos (CDB, LCI, LCA, Tesouro...) —
+  // 14/nov/2026, item 5.1: antes só empréstimo e revenda apareciam no dia.
+  const TIPOS_COM_VENCIMENTO = new Set(["cdb", "lci", "lca", "tesouro", "cdi", "poupanca"]);
+  for (const inv of investimentos) {
+    if (!TIPOS_COM_VENCIMENTO.has(inv.tipo) || inv.quitado || !inv.data_vencimento_final) continue;
+    if (inv.data_vencimento_final > limite) continue;
+    const valor = Number(inv.valor_atual || inv.valor_investido);
+    if (!(valor > 0)) continue;
+    itens.push({
+      id: `vi-${inv.id}`,
+      titulo: `Vence: ${inv.nome}`,
+      valor,
+      sentido: "entrada",
+      data: inv.data_vencimento_final,
+      atrasado: false,
+      href: "/dashboard/investimentos",
+    });
+  }
+
+  // O que já foi recebido hoje continua na lista do dia, marcado como
+  // recebido (item 5.1) — antes sumia ao dar baixa e parecia que tinha
+  // dado erro.
+  for (const p of parcelasInv) {
+    if (!p.pago || p.data_pagamento !== hoje || !nomes.has(p.investimento_id)) continue;
+    itens.push({
+      id: `iq-${p.id}`,
+      titulo: `${nomes.get(p.investimento_id)} — parcela ${p.numero}`,
+      valor: Number(p.valor),
+      sentido: "entrada",
+      data: hoje,
+      atrasado: false,
+      href: "/dashboard/investimentos",
+      quitado: true,
+    });
+  }
+  for (const inv of investimentos) {
+    if (inv.tipo !== "emprestimo" && inv.tipo !== "revenda") continue;
+    if (inv.forma_pagamento === "parcelado" || !inv.quitado || inv.data_quitacao?.slice(0, 10) !== hoje) continue;
+    itens.push({
+      id: `eq-${inv.id}`,
+      titulo: inv.tipo === "emprestimo" ? `Empréstimo — ${inv.nome}` : `Revenda — ${inv.nome}`,
+      valor: Number(inv.valor_quitado ?? inv.valor_retornavel ?? inv.preco_revenda ?? inv.valor_investido),
+      sentido: "entrada",
+      data: hoje,
+      atrasado: false,
+      href: "/dashboard/investimentos",
+      quitado: true,
     });
   }
 
