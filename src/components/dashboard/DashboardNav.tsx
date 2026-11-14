@@ -16,8 +16,6 @@ import {
   Repeat,
   HandCoins,
   MessageCircle,
-  CreditCard,
-  ShieldCheck,
   LogOut,
   Wallet,
   TrendingUp,
@@ -38,7 +36,6 @@ import {
   FileDown,
   Settings2,
   type LucideIcon,
-  Lock as IconeCadeado,
 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -91,19 +88,18 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/contas-fixas", label: "Contas fixas", icon: Repeat },
   { href: "/dashboard/dividas", label: "Dívidas", icon: HandCoins },
   { href: "/dashboard/carteiras", label: "Carteiras", icon: Wallet },
-  { href: "/dashboard/plano", label: "Meu plano", icon: CreditCard },
-  { href: "/dashboard/seguranca", label: "Segurança", icon: ShieldCheck },
-  {
-    href: "/dashboard/privacidade",
-    label: "Privacidade e dados",
-    icon: IconeCadeado,
-  },
+  // Meu plano, Segurança e Privacidade viraram abas do Perfil (14/nov/2026,
+  // itens 3.1–3.3). Fica um único atalho pro Perfil aqui (no celular ele
+  // aparece no "Mais"; no topo também dá pra chegar pela foto).
+  { href: "/dashboard/perfil", label: "Perfil e conta", icon: User },
 ];
 
 // Só quem é dono da própria conta convida gente — sócio/funcionário nunca
 // veem esse link, mesmo estando na conta de alguém que tem o plano Grupo.
+// Mora dentro de "Minha empresa" desde 14/nov/2026 (item 3.4): convidar
+// sócio/funcionário é assunto do negócio, não da vida pessoal.
 const LINK_EQUIPE: LinkNav = {
-  href: "/dashboard/equipe",
+  href: "/dashboard/empresa/equipe",
   label: "Minha equipe",
   icon: UserPlus,
 };
@@ -198,20 +194,13 @@ export function DashboardNav() {
   )
     ? "negocio"
     : "pessoal";
-  // IMPORTANTE: memoizado por `papel` — "[...LINKS_PESSOAL, LINK_EQUIPE]" cria
-  // um array NOVO a cada render. Sem o useMemo, `links` (abaixo) muda de
-  // referência em todo render, o que faz o useEffect que depende de `links`
-  // (mais abaixo) disparar em loop infinito pra quem é "dono" — e esse loop
-  // rodando sem parar é o que trava a navegação por clique no menu (a troca
-  // de rota nunca consegue "vencer" a fila de re-renders). Navegação direta
-  // por URL não sofre isso porque monta o componente do zero uma vez só.
-  const linksPessoal = React.useMemo(
-    () => (papel === "dono" ? [...LINKS_PESSOAL, LINK_EQUIPE] : LINKS_PESSOAL),
-    [papel],
-  );
+  // IMPORTANTE: os links da empresa são memoizados por `papel`/`ramo` — um
+  // array novo a cada render faria o useEffect que depende de `links` rodar
+  // em loop (isso já travou a navegação por clique no menu uma vez).
+  const linksPessoal = LINKS_PESSOAL;
   const linksEmpresa = React.useMemo(
     () =>
-      LINKS_EMPRESA.filter(
+      (papel === "dono" ? [...LINKS_EMPRESA, LINK_EQUIPE] : LINKS_EMPRESA).filter(
         (l) =>
           !(papel === "funcionario" && LINKS_EMPRESA_FINANCEIRO.has(l.href)),
       )
