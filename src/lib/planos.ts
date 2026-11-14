@@ -69,6 +69,7 @@ export const PLANOS: Record<
       "Até 3 pessoas (você + 2 convidados), cada uma com seu próprio login",
       "Convide sócio (acesso completo à empresa) ou funcionário (só estoque e vendas)",
       "A vida pessoal de cada um continua 100% privada — ninguém vê a de ninguém",
+      "Vendedores: comissão, preço de repasse e meta de cada um",
       "Ideal pra negócio em dupla ou com casal, ou pra quem já tem funcionário",
     ],
   },
@@ -80,6 +81,7 @@ export const PLANOS: Record<
       "Até 2 contas PJ + 1 perfil pessoal + gestão de grupo",
       "Todos os recursos corporativos do Negócio Bi-Empresa",
       "Acesso multiusuário: até 2 convidados (sócio ou funcionário), cada um vinculado a uma empresa",
+      "Vendedores: comissão, preço de repasse e meta de cada um",
       "Visão consolidada do grupo econômico (as 2 empresas somadas)",
       "A vida pessoal de cada um continua 100% privada",
     ],
@@ -134,6 +136,13 @@ export function podeAcessarNegocio(plano: Plano): boolean {
  * compartilhado — Avançado continua sendo uso individual. */
 export function podeConvidarMembros(plano: Plano): boolean {
   return plano === "grupo" || plano === "grupo_multi";
+}
+
+/** Tela de Vendedores (comissão, repasse, metas por vendedor) — 14/nov/2026,
+ * item 3.5: faz parte dos planos com equipe (Grupo e Bi-Empresa + Grupo).
+ * Nos outros planos a tela mostra o convite para mudar de plano. */
+export function podeUsarVendedores(plano: Plano): boolean {
+  return podeConvidarMembros(plano);
 }
 
 /** Quantas empresas (CNPJs/negócios independentes) o plano permite —
