@@ -42,7 +42,7 @@ const DESCRICAO_PLANO: Record<Plano, string> = {
 };
 
 export default function PlanoPage() {
-  const { user, perfil, recarregarPerfil } = useAuth();
+  const { user, perfil, recarregarPerfil, papel, negocio, planoPessoal } = useAuth();
   const [planoSelecionado, setPlanoSelecionado] = React.useState<Plano | null>(null);
   const [processando, setProcessando] = React.useState(false);
   const [assinatura, setAssinatura] = React.useState<Awaited<ReturnType<typeof ultimaAssinatura>>>(null);
@@ -221,6 +221,13 @@ export default function PlanoPage() {
           Você está no plano <strong>{PLANOS[perfil.plano].nome}</strong>
           {emTrial && " (trial grátis)"}.
         </p>
+        {papel !== "dono" && negocio && planoPessoal !== perfil.plano && (
+          <p className="mt-2 rounded-xl bg-accent-50 px-3 py-2 text-small text-accent-800 dark:bg-accent-900/20 dark:text-accent-200">
+            Como você faz parte da equipe de <strong>{negocio.nome}</strong>, sua parte pessoal está liberada no{" "}
+            <strong>{PLANOS[planoPessoal].nome}</strong> sem custo: lançamentos ilimitados, metas, análise de IA, painel e gráficos. A empresa
+            você usa pelo plano de {negocio.nome.split(" ")[0]}.
+          </p>
+        )}
       </div>
 
       {mensagem && (

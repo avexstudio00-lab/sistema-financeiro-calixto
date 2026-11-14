@@ -3,7 +3,7 @@
 import * as React from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
-import { podeAcessarNegocio, type Plano } from "@/lib/planos";
+import { planoPessoalEfetivo, podeAcessarNegocio, type Plano } from "@/lib/planos";
 import { iniciarTrial, verificarExpiracaoTrial } from "@/lib/data/assinaturas";
 import { avisarLogoutOutrasAbas, escutarLogoutOutrasAbas, limparDadosLocais } from "@/lib/seguranca/sessaoLocal";
 import { registrarConsentimentoPendente, VERSAO_DOCUMENTOS_LEGAIS } from "@/lib/data/lgpd";
@@ -48,6 +48,10 @@ interface AuthContextValue {
   papel: Papel;
   negocio: NegocioInfo | null;
   podeAcessarMinhaEmpresa: boolean;
+  /** Plano que vale para a parte PESSOAL (recursos, limite do Grátis). Igual
+   * ao `perfil.plano`, exceto para convidado de um plano com equipe, que
+   * ganha o pessoal Completo de brinde (ver `planoPessoalEfetivo`). */
+  planoPessoal: Plano;
   carregando: boolean;
   /** True só quando a sessão atual veio do link de e-mail de "esqueci
    * minha senha" (evento `PASSWORD_RECOVERY` do Supabase Auth) — usado por
@@ -273,6 +277,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => (negocio ? podeAcessarNegocio(negocio.plano) : false),
     [negocio]
   );
+  const planoPessoal: Plano = perfil ? planoPessoalEfetivo(perfil.plano, papel, negocio?.plano) : "gratis";
 
   const signUp = React.useCallback(async (nome: string, email: string, senha: string) => {
     let respostaCadastro: Awaited<ReturnType<typeof supabase.auth.signUp>>;
@@ -426,6 +431,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     papel,
     negocio,
     podeAcessarMinhaEmpresa,
+    planoPessoal,
     carregando,
     recuperacaoSenhaAtiva,
     recarregarPerfil,

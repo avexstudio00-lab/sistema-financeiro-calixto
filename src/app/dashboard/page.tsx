@@ -136,7 +136,7 @@ interface PatrimonioResumo {
 }
 
 export default function DashboardPage() {
-  const { user, perfil, papel, negocio, podeAcessarMinhaEmpresa } = useAuth();
+  const { user, perfil, papel, negocio, podeAcessarMinhaEmpresa, planoPessoal } = useAuth();
   const temEmpresaPropria = papel === "dono" && podeAcessarMinhaEmpresa && !!negocio;
   const negocioId = negocio?.usuarioId ?? null;
   const [transacoes, setTransacoes] = React.useState<Transacao[]>([]);
@@ -186,7 +186,7 @@ export default function DashboardPage() {
   const [filtroPeriodo, setFiltroPeriodo] = React.useState<"mes" | "3meses" | "6meses">("mes");
   const [transacoesPeriodo, setTransacoesPeriodo] = React.useState<Transacao[] | null>(null);
 
-  const nivel = perfil ? nivelPlano(perfil.plano) : 0;
+  const nivel = perfil ? nivelPlano(planoPessoal) : 0;
 
   // Aplica na tela o último retrato salvo em cache (ver src/lib/offline/cache.ts).
   const aplicarCache = React.useCallback((chave: string) => {
@@ -430,7 +430,7 @@ export default function DashboardPage() {
     // -- deixa abrir sem bloquear (a anotação entra na fila offline e o
     // limite continua valendo normalmente na próxima vez que houver
     // conexão pra abrir o modal).
-    if (perfil.plano === "gratis" && navigator.onLine) {
+    if (planoPessoal === "gratis" && navigator.onLine) {
       const { inicio, fim } = limitesDoMesAtual();
       const total = await contarTransacoesDoMes(user.id, inicio, fim);
       setBloqueado(total >= LIMITE_TRANSACOES_GRATIS);

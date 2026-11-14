@@ -34,7 +34,7 @@ function formatarMoeda(valor: number) {
 }
 
 export default function ResumoMensalPage() {
-  const { user, perfil } = useAuth();
+  const { user, perfil, planoPessoal } = useAuth();
   const hoje = new Date();
   const [mes, setMes] = React.useState(hoje.getMonth() + 1);
   const [ano, setAno] = React.useState(hoje.getFullYear());
@@ -43,8 +43,8 @@ export default function ResumoMensalPage() {
   const [historico, setHistorico] = React.useState<AnaliseIA[]>([]);
   const [carregando, setCarregando] = React.useState(true);
 
-  const temAnaliseIA = perfil ? podeUsarRecurso(perfil.plano, "analiseIA") : false;
-  const temAvancado = perfil ? podeUsarRecurso(perfil.plano, "dashboardAvancado") : false;
+  const temAnaliseIA = perfil ? podeUsarRecurso(planoPessoal, "analiseIA") : false;
+  const temAvancado = perfil ? podeUsarRecurso(planoPessoal, "dashboardAvancado") : false;
 
   React.useEffect(() => {
     if (!user || !perfil || !temAnaliseIA) {
