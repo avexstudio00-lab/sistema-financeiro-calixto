@@ -34,7 +34,7 @@ export function abrirLancamentoRapido(modelo: ModeloLancamento) {
  */
 export function BotaoLancamentoGlobal() {
   const pathname = usePathname();
-  const { user, perfil } = useAuth();
+  const { user, perfil, planoPessoal } = useAuth();
   const [aberto, setAberto] = React.useState(false);
   const [bloqueado, setBloqueado] = React.useState(false);
   const [modelo, setModelo] = React.useState<ModeloLancamento | null>(null);
@@ -45,7 +45,7 @@ export function BotaoLancamentoGlobal() {
       setModelo(comModelo);
       // Plano Grátis tem limite de lançamentos pessoais por mês — o atalho
       // global respeita a mesma regra do painel.
-      if (mundo === "pessoal" && perfil?.plano === "gratis" && user) {
+      if (mundo === "pessoal" && perfil && planoPessoal === "gratis" && user) {
         const agora = new Date();
         const inicio = new Date(agora.getFullYear(), agora.getMonth(), 1).toISOString().slice(0, 10);
         const fim = new Date(agora.getFullYear(), agora.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -56,7 +56,7 @@ export function BotaoLancamentoGlobal() {
       }
       setAberto(true);
     },
-    [mundo, perfil, user]
+    [mundo, perfil, planoPessoal, user]
   );
 
   React.useEffect(() => {
