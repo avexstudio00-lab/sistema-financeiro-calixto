@@ -21,6 +21,7 @@ import {
 } from "@/lib/data/lgpd";
 import { limparDadosLocais } from "@/lib/seguranca/sessaoLocal";
 import { supabase } from "@/lib/supabase/client";
+import { AbasPerfil } from "@/components/dashboard/AbasPerfil";
 
 /**
  * Painel de autoatendimento LGPD (item 2.4 da especificação de 09/out/2026):
@@ -114,6 +115,7 @@ export default function PrivacidadeDadosPage() {
 
   return (
     <Container full className="flex flex-col gap-6 py-8">
+      <AbasPerfil />
       <div>
         <h1 className="text-h2 text-foreground">Privacidade e dados</h1>
         <p className="text-body text-muted">Seus direitos pela LGPD, direto aqui, sem precisar pedir pra ninguém.</p>
