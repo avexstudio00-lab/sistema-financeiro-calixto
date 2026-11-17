@@ -186,6 +186,7 @@ export default function VendedoresPage() {
         <div>
           <h1 className="text-h2 text-foreground">Vendedores</h1>
           <p className="text-body text-muted">Quanto cada um vendeu, meta, comissão e repasse.</p>
+          <p className="text-xs text-muted">Quem entra na sua equipe (Minha equipe) aparece aqui sozinho. Depois é só escolher como cada um ganha.</p>
         </div>
         <Button onClick={() => abrirNovo()}>
           <Plus size={18} />
@@ -300,7 +301,10 @@ export default function VendedoresPage() {
                       <UserRound size={18} />
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate text-body font-semibold text-foreground">{r.nome}</p>
+                      <p className="truncate text-body font-semibold text-foreground">
+                        {r.nome}
+                        {r.vendedor?.membro_id && <span className="ml-2 rounded-md bg-accent-50 px-1.5 py-0.5 align-middle text-xs font-medium text-accent-800 dark:bg-accent-900/20 dark:text-accent-200">Da equipe</span>}
+                      </p>
                       <div className="flex flex-wrap items-center gap-2">
                         {r.vendedor ? (
                           <Badge size="sm" variant="accent">
@@ -375,6 +379,7 @@ export default function VendedoresPage() {
                   <div className="min-w-0">
                     <p className="truncate text-small font-medium text-foreground">{v.nome}</p>
                     <p className="text-xs text-muted">
+                      {v.membro_id ? "Da equipe · " : ""}
                       {ROTULO_MODELO[v.modelo]}
                       {v.meta_mensal ? ` · meta ${formatarMoeda(Number(v.meta_mensal))}` : ""}
                     </p>
