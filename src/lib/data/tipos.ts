@@ -550,6 +550,9 @@ export interface Vendedor {
   telefone: string | null;
   ativo: boolean;
   criado_em: string;
+  /** Veio da equipe (17/nov/2026): criado sozinho quando a pessoa aceitou o
+   * convite. Nulo = cadastrado à mão. */
+  membro_id?: string | null;
 }
 
 export interface ContaPagar {
