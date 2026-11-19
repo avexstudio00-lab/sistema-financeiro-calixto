@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, Receipt, UserRound } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, Receipt, UserRound, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ComprovanteVenda } from "@/components/dashboard/vendas/ComprovanteVenda";
+import { EditarVendaDialog } from "@/components/dashboard/vendas/EditarVendaDialog";
 import Link from "next/link";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
@@ -80,6 +81,9 @@ export default function VendasPage() {
   // Comprovante da venda (10/nov/2026).
   const [comprovante, setComprovante] = React.useState<VendaAgrupada | null>(null);
   const [ultimaVenda, setUltimaVenda] = React.useState<VendaAgrupada | null>(null);
+  // Editar venda já registrada (19/nov/2026): só dono/sócio (o funcionário
+  // não mexe em caixa nem em contas a receber).
+  const [editandoVenda, setEditandoVenda] = React.useState<Venda | null>(null);
   const hoje = new Date();
 
   const [produtos, setProdutos] = React.useState<Produto[]>([]);
@@ -523,6 +527,7 @@ export default function VendasPage() {
   const resumo = React.useMemo(() => resumirVendas(vendasDoMes), [vendasDoMes]);
   // Seção 15.1: as linhas da mesma venda (carrinho) aparecem juntas.
   const vendasAgrupadasTodas = React.useMemo(() => agruparLinhasDeVenda(vendas), [vendas]);
+  const podeEditarVendas = papel !== "funcionario";
   const vendasAgrupadas = React.useMemo(
     () =>
       filtroVendedor
@@ -1059,6 +1064,21 @@ export default function VendasPage() {
         />
       )}
 
+      {editandoVenda && (
+        <EditarVendaDialog
+          venda={editandoVenda}
+          clientes={clientes}
+          contas={contas}
+          vendedores={vendedoresCadastro}
+          onFechar={() => setEditandoVenda(null)}
+          onSalvo={(avisoEdicao) => {
+            setEditandoVenda(null);
+            setAviso(avisoEdicao);
+            void carregar();
+          }}
+        />
+      )}
+
       {aviso && (
         <Card className="flex items-center gap-3 border-amber-200 bg-amber-50/60">
           <AlertTriangle size={18} className="shrink-0 text-amber-600" />
@@ -1256,7 +1276,23 @@ export default function VendasPage() {
                         contexto do projeto) deixa o nome do produto/cliente
                         quebrar linha dentro do próprio espaço, em vez de
                         forçar a linha mais larga que a tela. */}
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div
+                      className={cn("flex min-w-0 flex-1 items-center gap-3", podeEditarVendas && "cursor-pointer")}
+                      {...(podeEditarVendas
+                        ? {
+                            role: "button",
+                            tabIndex: 0,
+                            title: "Ver e editar esta venda",
+                            onClick: () => setEditandoVenda(v),
+                            onKeyDown: (e: React.KeyboardEvent) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setEditandoVenda(v);
+                              }
+                            },
+                          }
+                        : {})}
+                    >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
                         <ShoppingCart size={18} />
                       </span>
@@ -1277,8 +1313,19 @@ export default function VendasPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <p className="text-body font-semibold text-accent-600">{formatarMoeda(g.total)}</p>
+                    <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+                      <p className="mr-1 text-body font-semibold text-accent-600">{formatarMoeda(g.total)}</p>
+                      {podeEditarVendas && (
+                        <button
+                          type="button"
+                          onClick={() => setEditandoVenda(v)}
+                          aria-label="Editar esta venda"
+                          title="Editar esta venda"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-muted/10 hover:text-foreground"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setComprovante(g)}
