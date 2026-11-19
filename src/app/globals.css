@@ -40,6 +40,25 @@
   }
 }
 
+@layer components {
+  /* Responsividade (19/nov/2026): uma grade sem `grid-cols-*` no tamanho
+     atual (ex.: `grid lg:grid-cols-2` no celular) cria uma coluna "auto",
+     que cresce até a largura do conteúdo mais comprido — no Painel da
+     empresa os cartões ficavam com 440px numa tela de 375px e o
+     `overflow-x: hidden` do body cortava a sobra (Vendas de hoje, Meta do
+     mês, Cobrar vendas fiadas...). Aqui a coluna padrão passa a ser
+     `minmax(0, 1fr)`: nunca mais larga que a tela. Fica no layer
+     components de propósito, pra qualquer `grid-cols-*` (utilities) ganhar.
+     O `min-width: 0` nos filhos deixa o texto quebrar/truncar dentro do
+     cartão em vez de esticar a coluna. */
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grid > * {
+    min-width: 0;
+  }
+}
+
 @layer utilities {
   /* Esconde a barra de rolagem visualmente, mantendo o scroll funcional
      (ex: menu do DashboardNav em telas estreitas, onde os itens estouram

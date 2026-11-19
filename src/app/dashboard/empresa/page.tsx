@@ -681,7 +681,7 @@ export default function PainelEmpresaPage() {
                       </span>
                       <div className="min-w-0">
                         <p className="text-body font-medium text-foreground">{t.descricao}</p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <p className="text-small text-muted">
                             {new Date(t.data + "T00:00:00").toLocaleDateString("pt-BR")}
                           </p>
