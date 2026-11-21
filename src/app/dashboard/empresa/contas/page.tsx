@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { EscolherCarteiraDialog } from "@/components/dashboard/SeletorCarteira";
+import { lerDestino, limparDestino, destacarElemento } from "@/lib/util/destino";
 import { ReceberTitulosDialog } from "@/components/dashboard/ReceberTitulosDialog";
 import { Badge } from "@/components/ui/Badge";
 import { FiltrosLista, AbasVistaParcelado, dentroDoPeriodo, type PeriodoMeses } from "@/components/dashboard/FiltrosLista";
@@ -134,6 +135,28 @@ export default function ContasEmpresaPage() {
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Veio de uma notificação (21/nov/2026): ?aba=receber|pagar&id=<conta>&acao=liquidar
+  // → abre a aba certa, rola até a conta e já abre o "Receber"/"Pagar".
+  const destinoTratadoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (carregando || destinoTratadoRef.current) return;
+    const p = lerDestino();
+    const abaUrl = p.get("aba");
+    const id = p.get("id");
+    if (abaUrl !== "pagar" && abaUrl !== "receber") return;
+    destinoTratadoRef.current = true;
+    setAba(abaUrl);
+    const titulo = id ? (abaUrl === "pagar" ? contasPagar : contasReceber).find((t) => t.id === id) : undefined;
+    if (titulo) {
+      setModo(titulo.grupo_parcela_id ? "parcelado" : "vista");
+      setVerQuitadas(titulo.status !== "pendente");
+      setPeriodo(null);
+      destacarElemento(`titulo-${titulo.id}`);
+      if (p.get("acao") === "liquidar" && titulo.status === "pendente") setLiquidando({ titulo, tipo: abaUrl });
+    }
+    limparDestino(["aba", "id", "acao"]);
+  }, [carregando, contasPagar, contasReceber]);
 
   function abrirNovo() {
     setDescricao("");
@@ -352,7 +375,7 @@ export default function ContasEmpresaPage() {
     }
 
     return (
-      <div key={t.id} className={`flex flex-wrap items-center justify-between gap-3 ${dentroDeGrupo ? "rounded-xl bg-muted/5 px-3 py-2" : ""}`}>
+      <div id={`titulo-${t.id}`} key={t.id} className={`flex flex-wrap items-center justify-between gap-3 ${dentroDeGrupo ? "rounded-xl bg-muted/5 px-3 py-2" : ""}`}>
         <div className="flex min-w-0 items-center gap-3">
           {!dentroDeGrupo && (
             <span
