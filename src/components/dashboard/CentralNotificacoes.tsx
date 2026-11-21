@@ -71,7 +71,13 @@ export function CentralNotificacoes() {
       setLista((l) => (l ?? []).map((x) => (x.id === n.id ? { ...x, lida_em: new Date().toISOString() } : x)));
       void marcarNotificacoesLidas([n.id]);
     }
-    if (n.url && n.url.startsWith("/")) router.push(n.url);
+    if (!n.url || !n.url.startsWith("/")) return;
+    // Já está nessa tela (ex.: em Contas e o aviso é de outra conta): a
+    // troca só de parâmetros não remonta a página, então carrega de novo
+    // pra ela abrir direto no item do aviso (21/nov/2026).
+    const destino = new URL(n.url, window.location.origin);
+    if (destino.pathname === window.location.pathname && destino.search) window.location.assign(n.url);
+    else router.push(n.url);
   }
 
   return (

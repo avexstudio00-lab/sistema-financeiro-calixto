@@ -26,6 +26,8 @@ export interface ParcelasDividaProps {
   ) => void | Promise<void>;
   /** Item 5.1: excluir só esta parcela (as outras ficam como estão). */
   onExcluirParcela?: (parcela: ParcelaDividaComStatus) => void | Promise<void>;
+  /** Veio de uma notificação (21/nov/2026): abre o "pagar" desta parcela. */
+  abrirPagamentoDe?: string | null;
 }
 
 const ROTULO_STATUS: Record<StatusParcelaDividaManual, string> = {
@@ -55,6 +57,7 @@ export function ParcelasDivida({
   onRegistrarPagamento,
   onEditarParcela,
   onExcluirParcela,
+  abrirPagamentoDe,
 }: ParcelasDividaProps) {
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
   const [valorEdicao, setValorEdicao] = React.useState("");
@@ -99,6 +102,15 @@ export function ParcelasDivida({
   const [pagandoId, setPagandoId] = React.useState<string | null>(null);
   const [contaSelecionadaId, setContaSelecionadaId] = React.useState<string>(contas[0]?.id ?? "");
   const resumo = React.useMemo(() => resumirParcelasDivida(parcelas), [parcelas]);
+  React.useEffect(() => {
+    if (!abrirPagamentoDe || !podeRegistrarPagamento) return;
+    const alvo = parcelas.find((p) => p.id === abrirPagamentoDe);
+    if (!alvo) return;
+    setExpandido(true);
+    setEditandoId(null);
+    setPagandoId(alvo.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só quando o pedido muda
+  }, [abrirPagamentoDe]);
 
   React.useEffect(() => {
     if (!contaSelecionadaId && contas[0]) setContaSelecionadaId(contas[0].id);

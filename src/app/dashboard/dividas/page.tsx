@@ -1,5 +1,6 @@
 "use client";
 
+import { lerDestino, limparDestino, destacarElemento } from "@/lib/util/destino";
 import * as React from "react";
 import { Plus, HandCoins, Trophy, Trash2, RotateCcw, Pencil, Calculator, TrendingUp } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -84,6 +85,21 @@ export default function DividasPage() {
   const [erro, setErro] = React.useState<string | null>(null);
   const [removendoId, setRemovendoId] = React.useState<string | null>(null);
   const [dividaEditandoId, setDividaEditandoId] = React.useState<string | null>(null);
+  // Notificação (21/nov/2026): ?divida=<id>&parcela=<id> → rola até a dívida e abre o pagamento.
+  const [pagarParcelaDe, setPagarParcelaDe] = React.useState<string | null>(null);
+  const destinoTratadoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (carregando || destinoTratadoRef.current) return;
+    const p = lerDestino();
+    const id = p.get("divida");
+    if (!id) return;
+    destinoTratadoRef.current = true;
+    if (dividas.some((d) => d.id === id)) {
+      destacarElemento(`divida-${id}`);
+      setPagarParcelaDe(p.get("parcela"));
+    }
+    limparDestino(["divida", "parcela"]);
+  }, [carregando, dividas]);
   const [edicao, setEdicao] = React.useState({ nome: "", valorTotal: "" });
   const [salvandoEdicao, setSalvandoEdicao] = React.useState(false);
   const [simulacaoEmEdicao, setSimulacaoEmEdicao] = React.useState<Record<string, string>>({});
@@ -491,7 +507,7 @@ export default function DividasPage() {
                 }
 
                 return (
-                  <Card key={divida.id} className="flex flex-col gap-4">
+                  <Card key={divida.id} id={`divida-${divida.id}`} className="flex flex-col gap-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="min-w-0 text-h3 text-foreground">{divida.nome}</h3>
                       <div className="flex items-center gap-2">
@@ -555,6 +571,7 @@ export default function DividasPage() {
                         parcelas={parcelasComStatus}
                         contas={contas}
                         podeRegistrarPagamento={!!categoriaDividaId}
+                        abrirPagamentoDe={pagarParcelaDe}
                         salvando={registrandoPagamento}
                         onRegistrarPagamento={(parcela, contaId, data) => handleRegistrarPagamento(divida, parcela, contaId, data)}
                         onEditarParcela={async (parcela, dados) => {

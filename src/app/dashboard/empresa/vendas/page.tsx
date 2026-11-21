@@ -5,6 +5,8 @@ import { Plus, ShoppingCart, Trash2, AlertTriangle, Trophy, PlusCircle, X, Recei
 import { cn } from "@/lib/utils";
 import { ComprovanteVenda } from "@/components/dashboard/vendas/ComprovanteVenda";
 import { EditarVendaDialog } from "@/components/dashboard/vendas/EditarVendaDialog";
+import { buscarVendaPorId } from "@/lib/data/editarVenda";
+import { lerDestino, limparDestino } from "@/lib/util/destino";
 import Link from "next/link";
 import { FormularioProduto } from "@/components/dashboard/catalogo/FormularioProduto";
 import { FormularioServico } from "@/components/dashboard/catalogo/FormularioServico";
@@ -528,6 +530,21 @@ export default function VendasPage() {
   // Seção 15.1: as linhas da mesma venda (carrinho) aparecem juntas.
   const vendasAgrupadasTodas = React.useMemo(() => agruparLinhasDeVenda(vendas), [vendas]);
   const podeEditarVendas = papel !== "funcionario";
+
+  // Painel da empresa → toque numa venda: chega com ?editar=<id> e já abre a
+  // edição dela (21/nov/2026).
+  const editarTratadoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (carregando || editarTratadoRef.current) return;
+    const id = lerDestino().get("editar");
+    if (!id) return;
+    editarTratadoRef.current = true;
+    limparDestino(["editar"]);
+    if (!podeEditarVendas) return;
+    const daLista = vendas.find((v) => v.id === id);
+    if (daLista) setEditandoVenda(daLista);
+    else void buscarVendaPorId(id).then((v) => v && setEditandoVenda(v));
+  }, [carregando, vendas, podeEditarVendas]);
   const vendasAgrupadas = React.useMemo(
     () =>
       filtroVendedor
@@ -1297,8 +1314,10 @@ export default function VendasPage() {
                         <ShoppingCart size={18} />
                       </span>
                       <div className="min-w-0">
+                        {/* 21/nov/2026: o nome de quem comprou vem primeiro
+                            (antes só aparecia o que foi vendido). */}
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="break-words text-body font-medium text-foreground">{titulo}</p>
+                          <p className="break-words text-body font-semibold text-foreground">{g.cliente?.nome ?? "Cliente não informado"}</p>
                           {g.vendedor && (
                             <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-accent-50 px-2 py-0.5 text-xs font-semibold text-accent-800 dark:bg-accent-900/20 dark:text-accent-200">
                               <UserRound size={11} className="shrink-0" />
@@ -1306,10 +1325,11 @@ export default function VendasPage() {
                             </span>
                           )}
                         </div>
+                        <p className="break-words text-small text-foreground">{titulo}</p>
                         <p className="text-small text-muted">
                           {new Date(g.data + "T00:00:00").toLocaleDateString("pt-BR")}
-                          {g.cliente?.nome ? ` · ${g.cliente.nome}` : ""}
                           {g.linhas.length > 1 ? ` · ${g.linhas.length} itens` : ""}
+                          {podeEditarVendas ? " · toque pra editar" : ""}
                         </p>
                       </div>
                     </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { lerDestino, limparDestino, destacarElemento } from "@/lib/util/destino";
 import * as React from "react";
 import {
   ArrowUpCircle,
@@ -86,6 +87,26 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Notificação de vencimento (21/nov/2026): ?lancamento=<id> → rola até o
+  // lançamento, destaca e já abre pra editar/dar baixa.
+  const destinoTratadoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (carregando || destinoTratadoRef.current) return;
+    const id = lerDestino().get("lancamento");
+    if (!id) return;
+    destinoTratadoRef.current = true;
+    const t = transacoes.find((x) => x.id === id);
+    if (t) {
+      setBusca("");
+      setFiltroTipo("todos");
+      setFiltroCategoria("");
+      destacarElemento(`lanc-${t.id}`);
+      setTransacaoEditando(t);
+      setModalAberto(true);
+    }
+    limparDestino(["lancamento"]);
+  }, [carregando, transacoes]);
 
   function handleAbrirModalNova() {
     setTransacaoEditando(null);
@@ -256,6 +277,7 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
                 {itens.map((t) => (
                   <Card
                     key={t.id}
+                    id={`lanc-${t.id}`}
                     padding="sm"
                     onClick={() => handleEditar(t)}
                     className="flex flex-wrap items-center justify-between gap-4 transition-colors cursor-pointer hover:bg-muted/5"

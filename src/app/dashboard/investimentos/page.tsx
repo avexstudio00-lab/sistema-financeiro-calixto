@@ -1,5 +1,6 @@
 "use client";
 
+import { lerDestino, limparDestino, destacarElemento } from "@/lib/util/destino";
 import * as React from "react";
 import { Plus, Wallet, LayoutGrid, Combine, Search, X, HandCoins } from "lucide-react";
 import { Container } from "@/components/ui/Container";
@@ -131,6 +132,10 @@ export default function InvestimentosPage() {
   const [quitadasPorTipo, setQuitadasPorTipo] = React.useState<Partial<Record<Investimento["tipo"], boolean>>>({});
   // 5.10: parcela aguardando a escolha da carteira de destino.
   const [parcelaParaReceber, setParcelaParaReceber] = React.useState<ParcelaInvestimento | null>(null);
+  // Notificação (21/nov/2026): ?investimento=<id>&parcela=<id> → rola até o
+  // card, destaca e já abre o recebimento (parcela ou empréstimo à vista).
+  const [abrirRecebimentoDe, setAbrirRecebimentoDe] = React.useState<{ id: string; vez: number } | null>(null);
+  const destinoTratadoRef = React.useRef(false);
 
   const carregar = React.useCallback(async () => {
     if (!user) return;
@@ -492,6 +497,27 @@ export default function InvestimentosPage() {
 
   /** Quitado = marcado como quitado, ou parcelado com todas as parcelas
    * recebidas, ou status de revenda fixado como "Quitado". */
+  React.useEffect(() => {
+    if (carregando || destinoTratadoRef.current) return;
+    const p = lerDestino();
+    const invId = p.get("investimento");
+    if (!invId) return;
+    destinoTratadoRef.current = true;
+    const inv = investimentos.find((i) => i.id === invId);
+    if (inv) {
+      setFiltroTipo("todos");
+      setBusca("");
+      setAbaPorTipo((a) => ({ ...a, [inv.tipo]: inv.forma_pagamento ?? "vista" }));
+      setQuitadasPorTipo((q) => ({ ...q, [inv.tipo]: estaQuitado(inv) }));
+      destacarElemento(`inv-${inv.id}`);
+      const parcela = parcelas.find((x) => x.id === p.get("parcela") && x.investimento_id === inv.id);
+      if (parcela && !parcela.pago) setParcelaParaReceber(parcela);
+      else if (!parcela) setAbrirRecebimentoDe({ id: inv.id, vez: Date.now() });
+    }
+    limparDestino(["investimento", "parcela"]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- roda uma vez, depois da 1ª carga
+  }, [carregando, investimentos, parcelas]);
+
   function estaQuitado(inv: Investimento): boolean {
     if (inv.tipo === "revenda" && inv.status_revenda) return inv.status_revenda === "quitado";
     if (inv.quitado) return true;
@@ -544,11 +570,12 @@ export default function InvestimentosPage() {
         {itens.map((inv) => (
           // min-w-0: sem isso o item da grade não encolhe e o último card
           // ficava cortado na borda da tela do celular (09/nov/2026).
-          <div key={inv.id} className="flex min-w-0 flex-col gap-2">
+          <div key={inv.id} id={`inv-${inv.id}`} className="flex min-w-0 flex-col gap-2">
           <VincularContaOrigem inv={inv} onAlterado={carregar} />
           <InvestimentoCard
             key={inv.id}
             inv={inv}
+            abrirRecebimento={abrirRecebimentoDe?.id === inv.id ? abrirRecebimentoDe.vez : undefined}
             blocoTopo={inv.tipo === "revenda" ? (
             <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/5 px-3 py-2">

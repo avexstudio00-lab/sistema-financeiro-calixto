@@ -1,5 +1,6 @@
 "use client";
 
+import { lerDestino, limparDestino, destacarElemento } from "@/lib/util/destino";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -94,6 +95,28 @@ export default function CobrancaPage() {
   }, [titulos, filtro, hoje]);
 
   const totalGeral = grupos.reduce((acc, g) => acc + g.total, 0);
+
+  // Notificação "cobrar venda fiada" (21/nov/2026): ?titulo=<conta a receber>
+  // → rola até o cliente e já abre a mensagem de cobrança (se tem telefone).
+  const destinoTratadoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (titulos === null || destinoTratadoRef.current) return;
+    const id = lerDestino().get("titulo");
+    if (!id) return;
+    destinoTratadoRef.current = true;
+    const titulo = titulos.find((t) => t.id === id);
+    if (titulo) {
+      const chave = titulo.cliente_id ?? `sem:${titulo.descricao}`;
+      if (titulo.vencimento > hoje) setFiltro("todos");
+      const grupo = grupos.find((g) => g.chave === chave);
+      destacarElemento(`cobrar-${chave}`);
+      if (grupo && linkWhatsApp(grupo.telefone, "x")) {
+        setEnviando({ grupo, texto: montarMensagemCliente(modelo, grupo.nome, grupo.titulos, nomeEmpresa) });
+      }
+    }
+    limparDestino(["titulo"]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- uma vez, depois de carregar
+  }, [titulos, grupos]);
 
   async function salvarModelo() {
     if (!negocio) return;
@@ -208,7 +231,7 @@ export default function CobrancaPage() {
           {grupos.map((g) => {
             const temTelefone = !!linkWhatsApp(g.telefone, "x");
             return (
-              <Card key={g.chave} className="flex flex-col gap-3">
+              <Card key={g.chave} id={`cobrar-${g.chave}`} className="flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     {g.clienteId ? (

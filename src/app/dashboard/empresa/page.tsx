@@ -517,12 +517,21 @@ export default function PainelEmpresaPage() {
               {vendasHoje.ultimos.length > 0 && (
                 <div className="flex flex-col gap-1 border-t border-accent-200 pt-2">
                   {vendasHoje.ultimos.map((v) => (
-                    <div key={v.id} className="flex items-center justify-between gap-2 text-small">
-                      <span className="truncate text-foreground">
-                        {v.produto_nome} · {v.quantidade}x
+                    // Toque na venda → abre direto a edição dela (21/nov/2026).
+                    <Link
+                      key={v.id}
+                      href={`/dashboard/empresa/vendas?editar=${v.id}`}
+                      title="Ver e editar esta venda"
+                      className="-mx-2 flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-small hover:bg-accent-100/60 dark:hover:bg-accent-900/20"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-foreground">{v.clientes?.nome ?? "Cliente não informado"}</span>
+                        <span className="block truncate text-xs text-muted">
+                          {v.produto_nome} · {v.quantidade}x
+                        </span>
                       </span>
                       <span className="shrink-0 font-semibold text-foreground">{formatarMoeda(Number(v.valor_total))}</span>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}

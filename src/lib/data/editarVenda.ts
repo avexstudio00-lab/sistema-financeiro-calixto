@@ -90,6 +90,13 @@ function ehLinhaDoCaixa(l: Venda) {
   return !!l.transacao_id || (Array.isArray(l.pagamentos) && l.pagamentos.length > 0) || !!l.taxa_transacao_id || Number(l.acrescimo ?? 0) > 0;
 }
 
+/** Uma linha de venda pelo id (venda antiga, fora da lista da tela). */
+export async function buscarVendaPorId(id: string): Promise<Venda | null> {
+  let { data, error } = await supabase.from("vendas").select(COLS_VENDA).eq("id", id).maybeSingle();
+  if (faltaColuna(error)) ({ data, error } = await supabase.from("vendas").select("*").eq("id", id).maybeSingle());
+  return error || !data ? null : (data as unknown as Venda);
+}
+
 /** Busca a venda inteira (todas as linhas), o caixa e as parcelas, frescos do banco. */
 export async function carregarDetalhesVenda(venda: Venda): Promise<{ data: DetalhesVenda | null; error: Error | null }> {
   const consulta = (cols: string) =>
