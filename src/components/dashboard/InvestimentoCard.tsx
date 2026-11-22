@@ -125,6 +125,9 @@ export interface InvestimentoCardProps {
   /** 09/nov/2026: resgatar (sacar) renda fixa/bolsa/cripto. Devolve uma
    * mensagem de erro, ou null se deu certo. */
   onResgatar?: (inv: Investimento, dados: { valor: number; valorAtual: number; contaId: string; data: string; total: boolean }) => Promise<string | null>;
+  /** Veio de uma notificação (21/nov/2026): empréstimo à vista já abre o
+   * "Registrar pagamento". Muda de valor → abre de novo. */
+  abrirRecebimento?: number;
 }
 
 export function InvestimentoCard({
@@ -147,6 +150,7 @@ export function InvestimentoCard({
   onPagamentosAlterados,
   blocoTopo,
   onResgatar,
+  abrirRecebimento,
 }: InvestimentoCardProps) {
   const [editandoTaxa, setEditandoTaxa] = React.useState(false);
   const [taxaEmEdicao, setTaxaEmEdicao] = React.useState("");
@@ -211,6 +215,11 @@ export function InvestimentoCard({
   const tesouroComTitulo = inv.tipo === "tesouro" && !!inv.titulo_tesouro;
   const emprestimoNovoEstilo = inv.tipo === "emprestimo" && inv.valor_retornavel != null && inv.data_vencimento_final != null;
   const emprestimoAVista = inv.tipo === "emprestimo" && inv.forma_pagamento !== "parcelado";
+  React.useEffect(() => {
+    if (!abrirRecebimento) return;
+    if (emprestimoNovoEstilo && emprestimoAVista && !inv.quitado) setDialogoPagamento({ modo: "avista", investimento: inv });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só quando o pedido muda
+  }, [abrirRecebimento]);
   const parcelasEmAberto = parcelas.filter((p) => !p.pago);
   // Editar o "valor com juros" depois de criado só faz sentido pro
   // empréstimo à vista: no parcelado, `data_vencimento_final` é sempre

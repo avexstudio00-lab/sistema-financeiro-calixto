@@ -84,6 +84,7 @@ interface ItemVista {
 
 interface ParcelaInvAviso {
   id: string;
+  investimento_id: string;
   numero: number;
   valor: number;
   data_vencimento: string;
@@ -190,7 +191,7 @@ export async function GET(request: Request) {
           admin.from("divida_parcelas").select("id, divida_id, numero, valor, data_vencimento, status_manual").eq("usuario_id", usuarioId),
           admin
             .from("investimento_parcelas")
-            .select("id, numero, valor, data_vencimento, investimentos(nome, tipo, numero_parcelas)")
+            .select("id, investimento_id, numero, valor, data_vencimento, investimentos(nome, tipo, numero_parcelas)")
             .eq("usuario_id", usuarioId)
             .eq("pago", false)
             .in("data_vencimento", datas),
@@ -229,7 +230,7 @@ export async function GET(request: Request) {
           payload: {
             titulo,
             corpo: `${c.descricao || "Conta a pagar"} vence ${quando(c.vencimento, hoje)} — ${moeda(c.valor)}`,
-            url: "/dashboard/empresa/contas",
+            url: `/dashboard/empresa/contas?aba=pagar&id=${c.id}&acao=liquidar`,
             tag: `pagar-${c.id}`,
           },
         });
@@ -254,7 +255,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — A receber",
             corpo: `${rotulo}${parcela} vence ${quando(c.vencimento, hoje)} — ${moeda(c.valor)}`,
-            url: "/dashboard/empresa/contas",
+            url: `/dashboard/empresa/contas?aba=receber&id=${c.id}&acao=liquidar`,
             tag: `receber-${c.id}`,
           },
         });
@@ -279,7 +280,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — Cobrar venda fiada",
             corpo: `${cliente ?? "Cliente"} está devendo ${moeda(c.valor)} há ${atraso} dia(s). Toque para cobrar no WhatsApp.`,
-            url: "/dashboard/empresa",
+            url: `/dashboard/empresa/cobranca?titulo=${c.id}`,
             tag: `cobranca-${c.id}`,
           },
         });
@@ -304,7 +305,7 @@ export async function GET(request: Request) {
           payload: {
             titulo,
             corpo: `${t.descricao || "Conta"} vence ${quando(t.data_vencimento, hoje)} — ${moeda(t.valor)}`,
-            url: "/dashboard/extrato",
+            url: `/dashboard/extrato?lancamento=${t.id}`,
             tag: `lanc-${t.id}`,
           },
         });
@@ -427,7 +428,7 @@ export async function GET(request: Request) {
                 payload: {
                   titulo: "Calixto — Parcela atrasada",
                   corpo: `Parcela ${p.numero}/${ordenadas.length} da dívida ${divida.nome} está atrasada há ${dias} ${dias === 1 ? "dia" : "dias"} — ${moeda(valor)}. Já pagou? Registre o pagamento.`,
-                  url: "/dashboard/dividas",
+                  url: `/dashboard/dividas?divida=${divida.id}&parcela=${p.id}`,
                   tag: `atraso-divida-${p.id}`,
                 },
               });
@@ -440,7 +441,7 @@ export async function GET(request: Request) {
               payload: {
                 titulo,
                 corpo: `Parcela ${p.numero}/${ordenadas.length} da dívida ${divida.nome} vence ${quando(p.data_vencimento, hoje)} — ${moeda(valor)}`,
-                url: "/dashboard/dividas",
+                url: `/dashboard/dividas?divida=${divida.id}&parcela=${p.id}`,
                 tag: `divida-${p.id}`,
               },
             });
@@ -458,7 +459,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — A receber",
             corpo: `Parcela ${p.numero}${total} ${oque.trim()} vence ${quando(p.data_vencimento, hoje)} — ${moeda(p.valor)}`,
-            url: "/dashboard/investimentos",
+            url: `/dashboard/investimentos?investimento=${p.investimento_id}&parcela=${p.id}`,
             tag: `parcela-inv-${p.id}`,
           },
         });
@@ -474,7 +475,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — A receber",
             corpo: `${e.tipo === "revenda" ? `Pagamento da revenda ${e.nome}` : `Empréstimo de ${e.nome}`} vence ${quando(e.data_vencimento_final, hoje)} — ${moeda(valorVista(e))}`,
-            url: "/dashboard/investimentos",
+            url: `/dashboard/investimentos?investimento=${e.id}`,
             tag: `emprestimo-${e.id}`,
           },
         });
@@ -504,7 +505,7 @@ export async function GET(request: Request) {
           .limit(20),
         admin
           .from("investimento_parcelas")
-          .select("id, numero, valor, data_vencimento, investimentos(nome, tipo, numero_parcelas)")
+          .select("id, investimento_id, numero, valor, data_vencimento, investimentos(nome, tipo, numero_parcelas)")
           .eq("usuario_id", usuarioId)
           .eq("pago", false)
           .lt("data_vencimento", hoje)
@@ -531,7 +532,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — Conta atrasada",
             corpo: `${c.descricao || "Conta a pagar"} venceu há ${textoAtraso(c.vencimento)} — ${moeda(c.valor)}. Já pagou? Marque como paga.`,
-            url: "/dashboard/empresa/contas",
+            url: `/dashboard/empresa/contas?aba=pagar&id=${c.id}&acao=liquidar`,
             tag: `atraso-pagar-${c.id}`,
           },
         });
@@ -544,7 +545,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — Recebimento atrasado",
             corpo: `${cliente ? `${cliente}: ` : ""}${c.descricao || "conta a receber"} venceu há ${textoAtraso(c.vencimento)} — ${moeda(c.valor)}. Já recebeu? Dê baixa.`,
-            url: "/dashboard/empresa/contas",
+            url: `/dashboard/empresa/contas?aba=receber&id=${c.id}&acao=liquidar`,
             tag: `atraso-receber-${c.id}`,
           },
         });
@@ -559,7 +560,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — A receber (atrasado)",
             corpo: `Parcela ${p.numero}${total} ${oque.trim()} está atrasada há ${textoAtraso(p.data_vencimento)} — ${moeda(p.valor)}.`,
-            url: "/dashboard/investimentos",
+            url: `/dashboard/investimentos?investimento=${p.investimento_id}&parcela=${p.id}`,
             tag: `atraso-parcela-inv-${p.id}`,
           },
         });
@@ -572,7 +573,7 @@ export async function GET(request: Request) {
           payload: {
             titulo: "Calixto — A receber (atrasado)",
             corpo: `${e.tipo === "revenda" ? `Pagamento da revenda ${e.nome}` : `Empréstimo de ${e.nome}`} está atrasado há ${textoAtraso(e.data_vencimento_final)} — ${moeda(valorVista(e))}.`,
-            url: "/dashboard/investimentos",
+            url: `/dashboard/investimentos?investimento=${e.id}`,
             tag: `atraso-emprestimo-${e.id}`,
           },
         });
