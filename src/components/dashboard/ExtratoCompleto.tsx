@@ -84,6 +84,13 @@ export function ExtratoCompleto({ mundo }: ExtratoCompletoProps) {
     setCarregando(false);
   }, [usuarioEfetivoId]);
 
+  // Salvo pelo "Anotar falando" (voz/Siri): recarrega a tela aberta.
+  React.useEffect(() => {
+    const recarregar = () => void carregar();
+    window.addEventListener("meucontrole:lancamento-salvo", recarregar);
+    return () => window.removeEventListener("meucontrole:lancamento-salvo", recarregar);
+  }, [carregar]);
+
   React.useEffect(() => {
     carregar();
   }, [carregar]);
