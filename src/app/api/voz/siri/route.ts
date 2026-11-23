@@ -23,7 +23,15 @@ function falar(texto: string, status = 200) {
  * código da tela de sempre.
  */
 export async function POST(request: Request) {
-  const codigo = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  // O código pode vir no cabeçalho (Authorization: Bearer mc_...) ou no
+  // próprio endereço (?c=mc_...) — o endereço pronto é bem mais fácil de
+  // montar no Atalhos (23/nov/2026: o usuário se perdeu no cabeçalho). O
+  // código só serve pra deixar uma anotação pendente (não lê nem mexe em
+  // saldo), então aparecer num log de endereço é um risco pequeno.
+  const daUrl = new URL(request.url).searchParams.get("c") ?? "";
+  const doCabecalho = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  // Se o cabeçalho estiver preenchido errado (ex.: com o link), vale o do endereço.
+  const codigo = pareceCodigoVoz(doCabecalho) ? doCabecalho : daUrl.trim();
   if (!pareceCodigoVoz(codigo)) return falar("O atalho está sem o código pessoal. Gere um código no app, em Voz e Siri.", 401);
 
   let texto = "";
