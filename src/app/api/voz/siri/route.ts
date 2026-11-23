@@ -22,13 +22,27 @@ function falar(texto: string, status = 200) {
  * reescrever a lógica de venda/estoque/carteira: o app salva com o mesmo
  * código da tela de sempre.
  */
+/**
+ * GET (23/nov/2026): o jeito mais fácil de montar no iPhone, sem escolher
+ * variável — Ditar Texto → Codificar URL → Obter conteúdo de
+ * `…/api/voz/siri?c=mc_…&t=` + [Texto Codificado] (o Atalhos liga a saída de
+ * uma ação na próxima sozinho). O texto vem no parâmetro `t`.
+ */
+export async function GET(request: Request) {
+  return POST(request);
+}
+
 export async function POST(request: Request) {
   // O código pode vir no cabeçalho (Authorization: Bearer mc_...) ou no
   // próprio endereço (?c=mc_...) — o endereço pronto é bem mais fácil de
   // montar no Atalhos (23/nov/2026: o usuário se perdeu no cabeçalho). O
   // código só serve pra deixar uma anotação pendente (não lê nem mexe em
   // saldo), então aparecer num log de endereço é um risco pequeno.
-  const daUrl = new URL(request.url).searchParams.get("c") ?? "";
+  // O código tem tamanho fixo ("mc_" + 32). Se a pessoa colar o endereço e o
+  // texto ditado cair grudado logo depois (sem "&t="), separa os dois.
+  const cBruto = (new URL(request.url).searchParams.get("c") ?? "").trim();
+  const daUrl = cBruto.slice(0, 35);
+  const textoGrudado = cBruto.length > 35 ? cBruto.slice(35) : "";
   const doCabecalho = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   // Se o cabeçalho estiver preenchido errado (ex.: com o link), vale o do endereço.
   const codigo = pareceCodigoVoz(doCabecalho) ? doCabecalho : daUrl.trim();
@@ -50,6 +64,9 @@ export async function POST(request: Request) {
   } catch {
     texto = "";
   }
+  // Texto também pode vir no endereço (?t=...), no GET ou no POST.
+  if (!texto.trim()) texto = new URL(request.url).searchParams.get("t") ?? "";
+  if (!texto.trim()) texto = textoGrudado;
   texto = texto.replace(/\s+/g, " ").trim().slice(0, 500);
   if (!texto) return falar("Não ouvi nada. Tente de novo falando devagar.", 400);
 
