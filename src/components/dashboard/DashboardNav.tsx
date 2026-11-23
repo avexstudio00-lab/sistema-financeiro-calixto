@@ -1,5 +1,6 @@
 "use client";
 
+import { BotaoVoz } from "@/components/dashboard/voz/BotaoVoz";
 import { CentralNotificacoes } from "@/components/dashboard/CentralNotificacoes";
 import * as React from "react";
 import Link from "next/link";
@@ -327,6 +328,7 @@ export function DashboardNav() {
           )}
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <BotaoVoz />
             <BuscaGlobal />
             <CentralNotificacoes />
             <ThemeToggle />

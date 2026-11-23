@@ -229,6 +229,13 @@ export default function PainelEmpresaPage() {
     setCarregando(false);
     if ((await pendentes) > 0) void carregarRef.current?.();
   }, [negocio, ehFuncionario, ano, mes, aplicarCache, papel]);
+
+  // Salvo pelo "Anotar falando" (voz/Siri): recarrega a tela aberta.
+  React.useEffect(() => {
+    const recarregar = () => void carregar();
+    window.addEventListener("meucontrole:lancamento-salvo", recarregar);
+    return () => window.removeEventListener("meucontrole:lancamento-salvo", recarregar);
+  }, [carregar]);
   const carregarRef = React.useRef<(() => Promise<void>) | null>(null);
   React.useEffect(() => {
     carregarRef.current = carregar;

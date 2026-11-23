@@ -218,6 +218,13 @@ export default function VendasPage() {
     setCarregando(false);
   }, [negocio, contaId, papel]);
 
+  // Salvo pelo "Anotar falando" (voz/Siri): recarrega a tela aberta.
+  React.useEffect(() => {
+    const recarregar = () => void carregar();
+    window.addEventListener("meucontrole:lancamento-salvo", recarregar);
+    return () => window.removeEventListener("meucontrole:lancamento-salvo", recarregar);
+  }, [carregar]);
+
   React.useEffect(() => {
     carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
