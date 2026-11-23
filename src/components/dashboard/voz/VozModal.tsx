@@ -123,6 +123,21 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
 
   React.useEffect(() => () => reconhecedorRef.current?.stop(), []);
 
+  // Esc fecha; e trava a rolagem da página de trás enquanto está aberto.
+  React.useEffect(() => {
+    if (!aberto) return;
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onFechar();
+    };
+    const antes = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", aoTeclar);
+    return () => {
+      document.body.style.overflow = antes;
+      window.removeEventListener("keydown", aoTeclar);
+    };
+  }, [aberto, onFechar]);
+
   function ouvir() {
     if (ouvindo) {
       reconhecedorRef.current?.stop();
@@ -305,14 +320,22 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
   const select = "h-11 w-full rounded-xl border border-border bg-card px-3 text-small text-foreground";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center" onClick={onFechar}>
-      <div className="flex max-h-[90vh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-t-3xl bg-card p-6 shadow-card-hover sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center" onClick={onFechar}>
+      {/* 23/nov/2026: no iPhone a janela ficava "presa" (o X sumia ao rolar).
+          Agora o topo com o X fica fixo, tem "Fechar" no fim e respeita a
+          área da barra de gestos. */}
+      <div
+        className="flex max-h-[88dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-card shadow-card-hover sm:rounded-3xl"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-h3 text-foreground">Anotar falando</h2>
-          <button type="button" onClick={onFechar} aria-label="Fechar" className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-muted/10">
-            <X size={20} />
+          <button type="button" onClick={onFechar} aria-label="Fechar" className="flex h-11 w-11 items-center justify-center rounded-full bg-muted/10 text-foreground hover:bg-muted/20">
+            <X size={22} />
           </button>
         </div>
+        <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
 
         {!catalogos ? (
           <Loader2 size={22} className="animate-spin self-center text-primary-700" />
@@ -519,6 +542,10 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
             </div>
           </div>
         )}
+        <Button variant="tertiary" className="w-full" onClick={onFechar}>
+          Fechar
+        </Button>
+        </div>
       </div>
     </div>
   );
