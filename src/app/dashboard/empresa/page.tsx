@@ -375,10 +375,10 @@ export default function PainelEmpresaPage() {
   const itensHoje: ItemHoje[] = [
     ...receberPendente
       .filter((c) => c.vencimento <= hojeStr)
-      .map((c) => ({ id: `r-${c.id}`, titulo: c.descricao, valor: Number(c.valor), sentido: "entrada" as const, atrasado: estaAtrasada(c), href: "/dashboard/empresa/contas" })),
+      .map((c) => ({ id: `r-${c.id}`, titulo: c.descricao, valor: Number(c.valor), sentido: "entrada" as const, atrasado: estaAtrasada(c), href: `/dashboard/empresa/contas?aba=receber&id=${c.id}&acao=liquidar` })),
     ...pagarPendente
       .filter((c) => c.vencimento <= hojeStr)
-      .map((c) => ({ id: `p-${c.id}`, titulo: c.descricao, valor: Number(c.valor), sentido: "saida" as const, atrasado: c.vencimento < hojeStr, href: "/dashboard/empresa/contas" })),
+      .map((c) => ({ id: `p-${c.id}`, titulo: c.descricao, valor: Number(c.valor), sentido: "saida" as const, atrasado: c.vencimento < hojeStr, href: `/dashboard/empresa/contas?aba=pagar&id=${c.id}&acao=liquidar` })),
   ];
   const movimentosPrevistos: MovimentoPrevisto[] = [
     ...receberPendente.map((c) => ({ data: c.vencimento, valor: Number(c.valor) })),

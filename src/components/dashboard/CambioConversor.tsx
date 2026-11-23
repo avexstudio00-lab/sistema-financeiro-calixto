@@ -1,13 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Globe, ArrowRightLeft } from "lucide-react";
+import { Globe, ArrowRightLeft, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { formatarMoeda } from "@/lib/format";
-import { obterCotacoesMercado } from "@/lib/data/mercado";
+import { obterCambioAoVivo, type ResultadoCambioAoVivo } from "@/lib/data/mercado";
 
 type Moeda = "USD" | "EUR";
+
+/** Cotação com 4 casas (R$ 5,3412) — 2 casas escondem a variação do dia. */
+const cotacao4 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
 function parsearValor(texto: string): number {
   const limpo = texto.trim().replace(/\./g, "").replace(",", ".");
@@ -18,9 +21,10 @@ function parsearValor(texto: string): number {
 /**
  * Widget de câmbio pra tela da Empresa -- pra quem importa ou compra
  * produtos em dólar/euro e precisa saber na hora quanto isso dá em reais.
- * Cotações vêm da mesma fonte ao vivo usada em Investimentos
- * (`obterCotacoesMercado`, AwesomeAPI cacheada 6h em `cotacoes_mercado`),
- * então não é preciso ficar checando o câmbio em outro site.
+ * Cotação comercial AO VIVO (23/nov/2026): antes era a PTAX do Banco
+ * Central (fechamento do dia anterior, guardada 6h) — o usuário notou que
+ * ficava atrás do Google. Agora vem de /api/mercado/cambio e o widget
+ * pergunta de novo a cada minuto enquanto a tela está visível.
  *
  * Decisão de escopo: isso é só um widget informativo (cotação + conversor
  * simples) -- não mexe na tabela `produtos` nem guarda o câmbio junto de
@@ -29,23 +33,47 @@ function parsearValor(texto: string): number {
  */
 export function CambioConversor() {
   const [carregando, setCarregando] = React.useState(true);
-  const [usd, setUsd] = React.useState<number | null>(null);
-  const [eur, setEur] = React.useState<number | null>(null);
+  const [atualizando, setAtualizando] = React.useState(false);
+  const [cambio, setCambio] = React.useState<ResultadoCambioAoVivo | null>(null);
   const [moeda, setMoeda] = React.useState<Moeda>("USD");
   const [valorDigitado, setValorDigitado] = React.useState("");
+  const usd = cambio?.usd ?? null;
+  const eur = cambio?.eur ?? null;
+
+  const buscar = React.useCallback(async () => {
+    setAtualizando(true);
+    const r = await obterCambioAoVivo();
+    // Mantém o último valor bom se a busca falhar no meio.
+    if (r && (r.usd != null || r.eur != null)) setCambio(r);
+    setAtualizando(false);
+    setCarregando(false);
+  }, []);
 
   React.useEffect(() => {
-    let ativo = true;
-    obterCotacoesMercado().then((cotacoes) => {
-      if (!ativo) return;
-      setUsd(cotacoes.usd);
-      setEur(cotacoes.eur);
-      setCarregando(false);
-    });
-    return () => {
-      ativo = false;
+    buscar();
+    // A cada minuto, só com a tela visível (não gasta bateria em segundo plano).
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") buscar();
+    }, 60_000);
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") buscar();
     };
-  }, []);
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
+  }, [buscar]);
+
+  const horario = cambio?.cotadoEm
+    ? new Date(cambio.cotadoEm).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit", ...(cambio.fonte === "ptax" ? { day: "2-digit", month: "2-digit" } : {}) })
+    : null;
+  const variacao = (v: number | null | undefined) =>
+    v == null ? null : (
+      <span className={v > 0 ? "text-xs text-rose-600" : v < 0 ? "text-xs text-accent-700" : "text-xs text-muted"}>
+        {v > 0 ? "▲" : v < 0 ? "▼" : "•"} {Math.abs(v).toFixed(2).replace(".", ",")}%
+      </span>
+    );
 
   const taxaAtual = moeda === "USD" ? usd : eur;
   const valorNumero = parsearValor(valorDigitado);
@@ -62,10 +90,25 @@ export function CambioConversor() {
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
           <Globe size={16} />
         </span>
-        <div>
-          <p className="text-body font-semibold text-foreground">Câmbio hoje</p>
-          <p className="text-xs text-muted">Pra quem compra ou importa produtos em dólar ou euro</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-body font-semibold text-foreground">Câmbio agora</p>
+          <p className="text-xs text-muted">
+            {cambio?.fonte === "ptax"
+              ? `Cotação ao vivo fora do ar — mostrando o fechamento oficial${horario ? ` (${horario})` : ""}`
+              : horario
+                ? `Dólar e euro comercial · atualizado às ${horario} · atualiza sozinho a cada minuto`
+                : "Pra quem compra ou importa produtos em dólar ou euro"}
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={buscar}
+          disabled={atualizando}
+          aria-label="Atualizar cotação"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-muted/10 disabled:opacity-50"
+        >
+          <RefreshCw size={16} className={atualizando ? "animate-spin" : ""} />
+        </button>
       </div>
 
       {carregando ? (
@@ -76,14 +119,16 @@ export function CambioConversor() {
             <div className="rounded-xl border border-border bg-muted/5 px-4 py-3">
               <p className="text-xs text-muted">Dólar (USD)</p>
               <p className="text-body font-semibold text-foreground">
-                {usd != null ? formatarMoeda(usd) : "indisponível"}
+                {usd != null ? cotacao4(usd) : "indisponível"}
               </p>
+              {variacao(cambio?.usdVariacao)}
             </div>
             <div className="rounded-xl border border-border bg-muted/5 px-4 py-3">
               <p className="text-xs text-muted">Euro (EUR)</p>
               <p className="text-body font-semibold text-foreground">
-                {eur != null ? formatarMoeda(eur) : "indisponível"}
+                {eur != null ? cotacao4(eur) : "indisponível"}
               </p>
+              {variacao(cambio?.eurVariacao)}
             </div>
           </div>
 

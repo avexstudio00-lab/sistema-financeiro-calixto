@@ -6,7 +6,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowDownRight, ArrowUpRight, BarChart3, CheckCircle2, Info, Lock, TriangleAlert } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, CheckCircle2, FileDown, Info, Lock, TriangleAlert } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -98,18 +98,30 @@ function ConteudoRelatorio({ escopoFixo }: { escopoFixo?: "empresa" }) {
             {frequencia === "quinzenal" ? " Chega a cada 15 dias." : " Chega todo mês."}
           </p>
         </div>
-        <select
-          value={periodo?.chave ?? ""}
-          onChange={(e) => setChave(e.target.value)}
-          className="h-11 w-full rounded-xl border border-border bg-card px-3 text-small text-foreground sm:w-auto"
-          aria-label="Período do relatório"
-        >
-          {opcoes.map((o) => (
-            <option key={o.chave} value={o.chave}>
-              {o.rotulo}
-            </option>
-          ))}
-        </select>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <select
+            value={periodo?.chave ?? ""}
+            onChange={(e) => setChave(e.target.value)}
+            className="h-11 w-full rounded-xl border border-border bg-card px-3 text-small text-foreground sm:w-auto"
+            aria-label="Período do relatório"
+          >
+            {opcoes.map((o) => (
+              <option key={o.chave} value={o.chave}>
+                {o.rotulo}
+              </option>
+            ))}
+          </select>
+          {/* 23/nov/2026: o "Relatório PDF" saiu do menu e mora aqui — é o
+              resumo do mês pronto pra imprimir/mandar pro contador. */}
+          {escopo !== "empresa" && (
+            <Link href="/dashboard/relatorio" className="shrink-0">
+              <Button variant="secondary" className="w-full sm:w-auto">
+                <FileDown size={16} />
+                Baixar PDF do mês
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <Card className="flex flex-col gap-3 border-primary-200 bg-primary-50/60 sm:flex-row sm:items-center sm:justify-between">

@@ -19,6 +19,9 @@ import { NovaTransacaoModal } from "@/components/dashboard/NovaTransacaoModal";
 import { BannerOffline } from "@/components/dashboard/BannerOffline";
 import { FilaPendenteBanner } from "@/components/dashboard/FilaPendenteBanner";
 import type { Categoria } from "@/lib/data/tipos";
+import { listarVendas, resumirVendas } from "@/lib/data/vendas";
+import { listarProdutos } from "@/lib/data/produtos";
+import { valorDoEstoque } from "@/lib/data/estoque";
 
 /** O que fica salvo no cache offline desta tela, por mês (mesmo motivo do
  * painel da empresa: não mistura dado de um mês com o retrato salvo de
@@ -71,6 +74,11 @@ export default function FluxoCaixaPage() {
     return true;
   }, []);
 
+  // Lucro de verdade (23/nov/2026): "sobrou no caixa" só olha o que entrou e
+  // saiu no mês — se a compra das peças foi antes (investimento inicial) ou
+  // não foi lançada, parece que sobrou tudo. Aqui desconta o custo das peças
+  // que foram vendidas e mostra quanto ainda está parado no estoque.
+  const [custos, setCustos] = React.useState<{ custoVendido: number; estoqueParado: number } | null>(null);
   const carregar = React.useCallback(async () => {
     if (!negocio) return;
     const chaveCache = `fluxo-caixa:${negocio.usuarioId}:${ano}-${String(mes).padStart(2, "0")}`;
@@ -96,12 +104,23 @@ export default function FluxoCaixaPage() {
     }
 
     setFluxo(res);
+    // Custo e estoque só pra quem vê o financeiro (funcionário nem chega aqui).
+    if (papel !== "funcionario") {
+      const inicio = `${ano}-${String(mes).padStart(2, "0")}-01`;
+      const fim = `${ano}-${String(mes).padStart(2, "0")}-${String(new Date(ano, mes, 0).getDate()).padStart(2, "0")}`;
+      Promise.all([listarVendas(negocio.usuarioId, { inicio, fim }), listarProdutos(negocio.usuarioId)])
+        .then(([vendasMes, produtos]) => {
+          const r = resumirVendas(vendasMes);
+          setCustos({ custoVendido: Math.max(r.totalVendido - r.lucroReal, 0), estoqueParado: valorDoEstoque(produtos.filter((p) => p.ativo)) });
+        })
+        .catch(() => setCustos(null));
+    }
     setCategoriaProLabore(cat);
     setConfig(cfg);
     setOfflineDesde(null);
     salvarCache<DadosCacheFluxoCaixa>(chaveCache, { fluxo: res, categoriaProLabore: cat, config: cfg });
     setCarregando(false);
-  }, [negocio, ano, mes, aplicarCache]);
+  }, [negocio, ano, mes, aplicarCache, papel]);
 
   React.useEffect(() => {
     carregar();
@@ -211,6 +230,39 @@ export default function FluxoCaixaPage() {
               </p>
             </Card>
           </div>
+
+          {custos && (custos.custoVendido > 0 || custos.estoqueParado > 0) && (
+            <Card padding="lg" className="flex flex-col gap-3">
+              <h2 className="text-h3 text-foreground">Lucro de verdade</h2>
+              <p className="text-body leading-relaxed text-foreground">
+                As peças vendidas este mês custaram <strong className="text-red-500">{formatarMoeda(custos.custoVendido)}</strong>. Tirando isso e os
+                gastos, o negócio lucrou{" "}
+                <strong className={fluxo.faturamento - custos.custoVendido - fluxo.gastosOperacionais >= 0 ? "text-primary-600" : "text-red-500"}>
+                  {formatarMoeda(fluxo.faturamento - custos.custoVendido - fluxo.gastosOperacionais)}
+                </strong>{" "}
+                de verdade.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl bg-muted/5 px-3 py-2">
+                  <p className="text-xs text-muted">Custo do que vendeu</p>
+                  <p className="text-body font-semibold text-foreground">{formatarMoeda(custos.custoVendido)}</p>
+                </div>
+                <div className="rounded-xl bg-muted/5 px-3 py-2">
+                  <p className="text-xs text-muted">Lucro de verdade</p>
+                  <p className="text-body font-semibold text-foreground">{formatarMoeda(fluxo.faturamento - custos.custoVendido - fluxo.gastosOperacionais)}</p>
+                </div>
+                <div className="rounded-xl bg-muted/5 px-3 py-2">
+                  <p className="text-xs text-muted">Parado no estoque (a preço de custo)</p>
+                  <p className="text-body font-semibold text-foreground">{formatarMoeda(custos.estoqueParado)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted">
+                &quot;Sobrou no caixa&quot; é o dinheiro que entrou menos o que saiu neste mês. Se a compra das peças foi feita antes (investimento inicial) ou não foi
+                lançada como gasto, o caixa parece maior — o lucro de verdade já desconta o custo de cada peça vendida. Se você lançou a compra das peças como gasto
+                neste mês, olhe o &quot;sobrou no caixa&quot;, pra não descontar duas vezes.
+              </p>
+            </Card>
+          )}
 
           {negocio && online && <TaxasFormasPagamento contaMestreId={negocio.usuarioId} ano={ano} mes={mes} />}
 

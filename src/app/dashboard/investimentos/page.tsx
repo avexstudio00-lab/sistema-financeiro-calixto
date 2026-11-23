@@ -510,11 +510,14 @@ export default function InvestimentosPage() {
       setAbaPorTipo((a) => ({ ...a, [inv.tipo]: inv.forma_pagamento ?? "vista" }));
       setQuitadasPorTipo((q) => ({ ...q, [inv.tipo]: estaQuitado(inv) }));
       destacarElemento(`inv-${inv.id}`);
-      const parcela = parcelas.find((x) => x.id === p.get("parcela") && x.investimento_id === inv.id);
-      if (parcela && !parcela.pago) setParcelaParaReceber(parcela);
-      else if (!parcela) setAbrirRecebimentoDe({ id: inv.id, vez: Date.now() });
+      // acao=ver: só leva até o card (vencimento de CDB, item já recebido).
+      if (p.get("acao") !== "ver") {
+        const parcela = parcelas.find((x) => x.id === p.get("parcela") && x.investimento_id === inv.id);
+        if (parcela && !parcela.pago) setParcelaParaReceber(parcela);
+        else if (!parcela) setAbrirRecebimentoDe({ id: inv.id, vez: Date.now() });
+      }
     }
-    limparDestino(["investimento", "parcela"]);
+    limparDestino(["investimento", "parcela", "acao"]);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- roda uma vez, depois da 1ª carga
   }, [carregando, investimentos, parcelas]);
 

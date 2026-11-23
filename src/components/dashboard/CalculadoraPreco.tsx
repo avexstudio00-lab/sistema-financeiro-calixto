@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { formatarMoeda } from "@/lib/format";
 import { buscarTaxasMaquininha, percentualTaxa, type TaxasMaquininha } from "@/lib/data/maquininha";
-import { buscarPerfilNegocio, faturamentoUltimos12Meses, percentualImposto, precoSugerido, type PerfilFiscal } from "@/lib/data/perfilFiscal";
+import { buscarPerfilNegocio, decomporPreco, faturamentoUltimos12Meses, percentualImposto, precoSugerido, type PerfilFiscal } from "@/lib/data/perfilFiscal";
+import { SeletorBaseLucro } from "@/components/dashboard/IdentificacaoFiscal";
 
 const num = (t: string) => {
   const v = Number(t.trim().replace(/\./g, "").replace(",", "."));
@@ -24,7 +25,9 @@ const pct = (n: number) => `${n.toFixed(2).replace(".", ",")}%`;
 export function CalculadoraPreco({ contaMestreId, custoInicial }: { contaMestreId: string; custoInicial?: number }) {
   const [custo, setCusto] = React.useState(custoInicial ? String(custoInicial).replace(".", ",") : "");
   const [margem, setMargem] = React.useState("30");
-  const [outros, setOutros] = React.useState("");
+  const [base, setBase] = React.useState<"custo" | "preco">("custo");
+  const [comissao, setComissao] = React.useState("");
+  const [extras, setExtras] = React.useState("");
   const [taxas, setTaxas] = React.useState<TaxasMaquininha | null>(null);
   const [fiscal, setFiscal] = React.useState<PerfilFiscal | null>(null);
   const [fat12, setFat12] = React.useState(0);
@@ -34,7 +37,10 @@ export function CalculadoraPreco({ contaMestreId, custoInicial }: { contaMestreI
     Promise.all([buscarTaxasMaquininha(contaMestreId), buscarPerfilNegocio(contaMestreId), faturamentoUltimos12Meses(contaMestreId)]).then(([t, p, f]) => {
       setTaxas(t);
       setFiscal(p.fiscal);
-      if (p.fiscal) setMargem(String(p.fiscal.margemPadrao).replace(".", ","));
+      if (p.fiscal) {
+        setMargem(String(p.fiscal.margemPadrao).replace(".", ","));
+        setBase(p.fiscal.margemBase ?? "custo");
+      }
       setFat12(f);
       setCarregado(true);
     });
@@ -42,6 +48,10 @@ export function CalculadoraPreco({ contaMestreId, custoInicial }: { contaMestreI
 
   const c = num(custo);
   const imposto = percentualImposto(fiscal, fat12);
+  const params = (taxa: number) => ({ taxa, imposto, margem: num(margem), outros: num(comissao), extrasReais: num(extras), base });
+  // Conta aberta do Pix (a forma mais comum) pra pessoa entender de onde sai o preço.
+  const precoPix = c > 0 ? precoSugerido(c, params(percentualTaxa(taxas, "pix", 1))) : null;
+  const contaPix = precoPix ? decomporPreco(precoPix, c, params(percentualTaxa(taxas, "pix", 1))) : null;
   const linhas: { rotulo: string; forma: string; parcelas: number }[] = [
     { rotulo: "Pix / dinheiro", forma: "pix", parcelas: 1 },
     { rotulo: "Débito", forma: "debito", parcelas: 1 },
@@ -60,7 +70,7 @@ export function CalculadoraPreco({ contaMestreId, custoInicial }: { contaMestreI
         <div>
           <h2 className="text-h3 text-foreground">Preço sugerido</h2>
           <p className="text-small text-muted">
-            Coloque quanto te custa e quanto quer de lucro. O app soma a taxa da maquininha e o imposto e diz por quanto vender.
+            Coloque quanto te custa e quanto quer ganhar. O app soma taxa da maquininha, imposto, comissão e embalagem e diz por quanto vender.
           </p>
         </div>
       </div>
@@ -68,10 +78,19 @@ export function CalculadoraPreco({ contaMestreId, custoInicial }: { contaMestreI
         <Loader2 size={20} className="animate-spin text-accent-700" />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Input label="Custo (R$)" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00" />
-            <Input label="Lucro que quero (%)" inputMode="decimal" value={margem} onChange={(e) => setMargem(e.target.value)} helperText="Do preço final" />
-            <Input label="Outros custos (%)" inputMode="decimal" value={outros} onChange={(e) => setOutros(e.target.value)} placeholder="0" helperText="Comissão, embalagem..." />
+            <Input label="Lucro que quero (%)" inputMode="decimal" value={margem} onChange={(e) => setMargem(e.target.value)} />
+            <Input label="Comissão (%)" inputMode="decimal" value={comissao} onChange={(e) => setComissao(e.target.value)} placeholder="0" helperText="Do vendedor, marketplace..." />
+            <Input label="Embalagem / frete (R$)" inputMode="decimal" value={extras} onChange={(e) => setExtras(e.target.value)} placeholder="0,00" helperText="Por unidade" />
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <SeletorBaseLucro valor={base} onMudar={setBase} />
+            <p className="pb-2 text-xs text-muted">
+              {base === "custo"
+                ? `Ex.: custo R$ 100 com ${margem || 0}% → sobra R$ ${formatarMoeda(num(margem)).replace("R$", "").trim()} limpo em cada venda.`
+                : `Ex.: ${margem || 0}% do preço final fica com você depois de tudo.`}
+            </p>
           </div>
           <p className="text-xs text-muted">
             Imposto considerado: <strong className="text-foreground">{pct(imposto)}</strong>
@@ -108,13 +127,14 @@ export function CalculadoraPreco({ contaMestreId, custoInicial }: { contaMestreI
                 <tbody className="divide-y divide-border">
                   {linhas.map((l) => {
                     const taxa = percentualTaxa(taxas, l.forma, l.parcelas);
-                    const preco = precoSugerido(c, { taxa, imposto, margem: num(margem), outros: num(outros) });
+                    const preco = precoSugerido(c, params(taxa));
+                    const sobra = preco ? decomporPreco(preco, c, params(taxa)).lucro : null;
                     return (
                       <tr key={l.rotulo}>
                         <td className="px-3 py-2 text-foreground">{l.rotulo}</td>
                         <td className="px-3 py-2 text-right font-semibold text-foreground">{preco ? formatarMoeda(preco) : "—"}</td>
                         <td className="hidden px-3 py-2 text-right text-muted sm:table-cell">{pct(taxa)}</td>
-                        <td className="px-3 py-2 text-right text-accent-700 dark:text-accent-300">{preco ? formatarMoeda((preco * num(margem)) / 100) : "—"}</td>
+                        <td className="px-3 py-2 text-right text-accent-700 dark:text-accent-300">{sobra != null ? formatarMoeda(sobra) : "—"}</td>
                       </tr>
                     );
                   })}
@@ -124,8 +144,21 @@ export function CalculadoraPreco({ contaMestreId, custoInicial }: { contaMestreI
           ) : (
             <p className="text-small text-muted">Digite o custo pra ver os preços.</p>
           )}
-          {c > 0 && precoSugerido(c, { taxa: 0, imposto, margem: num(margem), outros: num(outros) }) === null && (
-            <p className="text-small text-rose-700 dark:text-rose-300">Lucro + taxas + imposto passaram de 95% do preço — diminua o lucro desejado.</p>
+          {contaPix && precoPix && (
+            <div className="rounded-xl bg-muted/5 px-3 py-2 text-xs text-muted">
+              <p className="mb-1 font-semibold text-foreground">De onde sai o preço do Pix ({formatarMoeda(precoPix)}):</p>
+              <p>
+                − custo {formatarMoeda(contaPix.custo)}
+                {contaPix.extras > 0 && <> · − embalagem/frete {formatarMoeda(contaPix.extras)}</>}
+                {contaPix.taxa > 0 && <> · − taxa {formatarMoeda(contaPix.taxa)}</>}
+                {contaPix.imposto > 0 && <> · − imposto {formatarMoeda(contaPix.imposto)}</>}
+                {contaPix.comissao > 0 && <> · − comissão {formatarMoeda(contaPix.comissao)}</>}
+                {" "}= <strong className="text-accent-700 dark:text-accent-300">sobra {formatarMoeda(contaPix.lucro)}</strong>
+              </p>
+            </div>
+          )}
+          {c > 0 && precoSugerido(c, params(0)) === null && (
+            <p className="text-small text-rose-700 dark:text-rose-300">Taxas + imposto + comissão passaram de 95% do preço — revise os percentuais.</p>
           )}
           <p className="text-xs text-muted">
             Dica: anuncie o preço do crédito e dê o desconto no Pix — ou cobre o mesmo preço e saiba que no Pix sobra mais.{" "}

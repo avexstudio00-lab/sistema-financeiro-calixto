@@ -37,3 +37,25 @@ export async function obterCotacoesMercado(): Promise<CotacoesMercado> {
     return VAZIO;
   }
 }
+
+export type { ResultadoCambioAoVivo } from "@/lib/mercado/cotacoes";
+import type { ResultadoCambioAoVivo } from "@/lib/mercado/cotacoes";
+
+/** Câmbio comercial ao vivo (USD/EUR) — usado pelo widget da Empresa, que
+ * pergunta de novo a cada minuto. Nunca lança erro: devolve null. */
+export async function obterCambioAoVivo(): Promise<ResultadoCambioAoVivo | null> {
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return null;
+    const resposta = await fetch("/api/mercado/cambio", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: "no-store",
+    });
+    if (!resposta.ok) return null;
+    return (await resposta.json()) as ResultadoCambioAoVivo;
+  } catch {
+    return null;
+  }
+}

@@ -67,7 +67,7 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
         sentido: cf.tipo === "receita" ? "entrada" : "saida",
         data,
         atrasado: false,
-        href: "/dashboard/contas-fixas",
+        href: `/dashboard/contas-fixas?conta=${cf.id}`,
       });
     }
   }
@@ -85,7 +85,7 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
         sentido: "saida",
         data: p.data_vencimento,
         atrasado: p.data_vencimento < hoje,
-        href: "/dashboard/dividas",
+        href: `/dashboard/dividas?divida=${d.id}&parcela=${p.id}`,
       });
     }
   }
@@ -102,7 +102,7 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
       sentido: "entrada",
       data: p.data_vencimento,
       atrasado: p.data_vencimento < hoje,
-      href: "/dashboard/investimentos",
+      href: `/dashboard/investimentos?investimento=${p.investimento_id}&parcela=${p.id}`,
     });
   }
 
@@ -130,7 +130,7 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
       sentido: "entrada",
       data: inv.data_vencimento_final,
       atrasado: inv.data_vencimento_final < hoje,
-      href: "/dashboard/investimentos",
+      href: `/dashboard/investimentos?investimento=${inv.id}`,
     });
   }
 
@@ -149,7 +149,7 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
       sentido: "entrada",
       data: inv.data_vencimento_final,
       atrasado: false,
-      href: "/dashboard/investimentos",
+      href: `/dashboard/investimentos?investimento=${inv.id}&acao=ver`,
     });
   }
 
@@ -165,7 +165,7 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
       sentido: "entrada",
       data: hoje,
       atrasado: false,
-      href: "/dashboard/investimentos",
+      href: `/dashboard/investimentos?investimento=${p.investimento_id}&acao=ver`,
       quitado: true,
     });
   }
@@ -179,7 +179,7 @@ export async function listarCompromissosPessoais(usuarioId: string, dias = 30): 
       sentido: "entrada",
       data: hoje,
       atrasado: false,
-      href: "/dashboard/investimentos",
+      href: `/dashboard/investimentos?investimento=${inv.id}&acao=ver`,
       quitado: true,
     });
   }

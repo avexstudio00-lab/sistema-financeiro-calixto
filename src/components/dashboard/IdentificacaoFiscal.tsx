@@ -178,17 +178,20 @@ export function IdentificacaoFiscal({ contaMestreId, podeEditar, onSalvo }: { co
             />
           )}
 
-          <div className="max-w-xs">
-            <Input
-              label="Lucro padrão no preço sugerido (%)"
-              inputMode="decimal"
-              value={margemTexto}
-              disabled={!podeEditar}
-              onChange={(e) => {
-                setOk(false);
-                setMargemTexto(e.target.value);
-              }}
-            />
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-full max-w-xs">
+              <Input
+                label="Lucro padrão no preço sugerido (%)"
+                inputMode="decimal"
+                value={margemTexto}
+                disabled={!podeEditar}
+                onChange={(e) => {
+                  setOk(false);
+                  setMargemTexto(e.target.value);
+                }}
+              />
+            </div>
+            <SeletorBaseLucro valor={perfil.margemBase ?? "custo"} disabled={!podeEditar} onMudar={(b) => mudar({ margemBase: b })} />
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -205,5 +208,33 @@ export function IdentificacaoFiscal({ contaMestreId, podeEditar, onSalvo }: { co
         </>
       )}
     </Card>
+  );
+}
+
+/** "Sobre o custo" (R$100 + 50% = R$150) × "sobre o preço" (50% do preço
+ * fica de lucro = R$200). Usado aqui e na calculadora de preço. */
+export function SeletorBaseLucro({ valor, onMudar, disabled }: { valor: "custo" | "preco"; onMudar: (b: "custo" | "preco") => void; disabled?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-small font-medium text-foreground">O lucro é</span>
+      <div className="flex gap-1.5 rounded-xl bg-muted/10 p-1">
+        {(
+          [
+            ["custo", "sobre o custo"],
+            ["preco", "sobre o preço"],
+          ] as const
+        ).map(([b, rotulo]) => (
+          <button
+            key={b}
+            type="button"
+            disabled={disabled}
+            onClick={() => onMudar(b)}
+            className={`rounded-lg px-3 py-1.5 text-small font-medium transition-all disabled:opacity-50 ${valor === b ? "bg-card text-accent-700 shadow-sm" : "text-muted"}`}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

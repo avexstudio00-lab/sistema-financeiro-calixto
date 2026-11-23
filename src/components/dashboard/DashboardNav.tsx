@@ -33,7 +33,6 @@ import {
   Boxes,
   Wrench,
   ClipboardList,
-  FileDown,
   Settings2,
   type LucideIcon,
 } from "lucide-react";
@@ -58,7 +57,7 @@ interface LinkNav {
 // tudo sem aperto.
 const HREFS_PRINCIPAIS_MOBILE_PESSOAL = [
   "/dashboard",
-  "/dashboard/resumo",
+  "/dashboard/investimentos",
   "/dashboard/metas",
   "/dashboard/carteiras",
 ];
@@ -72,12 +71,10 @@ const HREFS_PRINCIPAIS_MOBILE_EMPRESA = [
 ];
 
 const LINKS_PESSOAL: LinkNav[] = [
+  // Ordem do mais usado pro menos usado (23/nov/2026). O "Relatório PDF"
+  // saiu do menu: virou o botão "Baixar PDF" dentro de Meu relatório (a
+  // rota /dashboard/relatorio continua existindo).
   { href: "/dashboard", label: "Painel", icon: LayoutDashboard },
-  { href: "/dashboard/extrato", label: "Extrato", icon: ScrollText },
-  { href: "/dashboard/importar", label: "Importar extrato", icon: FileUp },
-  { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
-  { href: "/dashboard/meu-relatorio", label: "Meu relatório", icon: BarChart3 },
-  { href: "/dashboard/relatorio", label: "Relatório PDF", icon: FileDown },
   {
     href: "/dashboard/investimentos",
     label: "Investimentos",
@@ -88,6 +85,10 @@ const LINKS_PESSOAL: LinkNav[] = [
   { href: "/dashboard/contas-fixas", label: "Contas fixas", icon: Repeat },
   { href: "/dashboard/dividas", label: "Dívidas", icon: HandCoins },
   { href: "/dashboard/carteiras", label: "Carteiras", icon: Wallet },
+  { href: "/dashboard/importar", label: "Importar extrato", icon: FileUp },
+  { href: "/dashboard/extrato", label: "Extrato", icon: ScrollText },
+  { href: "/dashboard/resumo", label: "Resumo do mês", icon: Sparkles },
+  { href: "/dashboard/meu-relatorio", label: "Meu relatório", icon: BarChart3 },
   // Meu plano, Segurança e Privacidade viraram abas do Perfil (14/nov/2026,
   // itens 3.1–3.3). Fica um único atalho pro Perfil aqui (no celular ele
   // aparece no "Mais"; no topo também dá pra chegar pela foto).

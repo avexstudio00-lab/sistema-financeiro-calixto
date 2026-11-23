@@ -19,6 +19,10 @@ export interface PerfilFiscal {
   dasValor: number | null;
   /** Margem de lucro padrão do preço sugerido (%). */
   margemPadrao: number;
+  /** Sobre o que é o lucro: "custo" (R$100 + 50% = R$150, o jeito que
+   * quase todo mundo pensa — padrão desde 23/nov/2026) ou "preco" (50% do
+   * preço final fica de lucro = R$200, o jeito antigo do app). */
+  margemBase?: "custo" | "preco";
 }
 
 export const PERFIL_FISCAL_PADRAO: PerfilFiscal = {
@@ -28,6 +32,7 @@ export const PERFIL_FISCAL_PADRAO: PerfilFiscal = {
   percentual: 6,
   dasValor: null,
   margemPadrao: 30,
+  margemBase: "custo",
 };
 
 export async function buscarPerfilNegocio(usuarioId: string): Promise<{ fiscal: PerfilFiscal | null; meta: number | null }> {
@@ -44,6 +49,7 @@ export async function buscarPerfilNegocio(usuarioId: string): Promise<{ fiscal: 
           percentual: Number(r.percentual ?? 6),
           dasValor: r.dasValor != null ? Number(r.dasValor) : null,
           margemPadrao: Number(r.margemPadrao ?? 30),
+          margemBase: r.margemBase === "preco" ? "preco" : "custo",
         }
       : null,
     meta: linha.meta_faturamento != null ? Number(linha.meta_faturamento) : null,
@@ -62,6 +68,7 @@ export async function salvarPerfilFiscal(usuarioId: string, perfil: PerfilFiscal
         percentual: limpo(perfil.percentual, 60),
         dasValor: perfil.dasValor != null ? limpo(perfil.dasValor, 5000) : null,
         margemPadrao: limpo(perfil.margemPadrao, 500),
+        margemBase: perfil.margemBase === "preco" ? "preco" : "custo",
       },
       atualizado_em: new Date().toISOString(),
     },
@@ -106,11 +113,46 @@ export function percentualImposto(perfil: PerfilFiscal | null, faturamento12m: n
   return media > 0 ? Math.min(30, (das / media) * 100) : 0;
 }
 
-/** Preço pra sobrar a margem depois de taxa, imposto e outros custos (% do preço). */
-export function precoSugerido(custo: number, percentuais: { taxa: number; imposto: number; margem: number; outros?: number }): number | null {
-  const soma = percentuais.taxa + percentuais.imposto + percentuais.margem + (percentuais.outros ?? 0);
-  if (!(custo > 0) || soma >= 95) return null;
-  return Number((custo / (1 - soma / 100)).toFixed(2));
+export interface ParametrosPreco {
+  /** Taxa da maquininha (% do preço). */
+  taxa: number;
+  /** Imposto (% do preço). */
+  imposto: number;
+  /** Lucro desejado (%), sobre o custo ou sobre o preço (ver `base`). */
+  margem: number;
+  /** Comissão e outros custos que são % do preço. */
+  outros?: number;
+  /** Custos fixos por unidade em R$ (embalagem, frete, brinde...). */
+  extrasReais?: number;
+  /** Padrão "custo". */
+  base?: "custo" | "preco";
+}
+
+/**
+ * Preço de venda pra sobrar o lucro desejado depois de taxa, imposto,
+ * comissão e custos extras (23/nov/2026 — antes o lucro era sempre % do
+ * preço final, então "50% de lucro" num custo de R$100 dava R$200+, e o
+ * usuário achou o valor errado).
+ *
+ * Preço P tal que: P − (taxa+imposto+comissão)% de P − custo − extras = lucro,
+ * onde lucro = custo × margem (base "custo") ou P × margem (base "preco").
+ */
+export function precoSugerido(custo: number, p: ParametrosPreco): number | null {
+  const base = p.base ?? "custo";
+  const percentualDoPreco = p.taxa + p.imposto + (p.outros ?? 0) + (base === "preco" ? p.margem : 0);
+  if (!(custo > 0) || percentualDoPreco >= 95) return null;
+  const extras = Math.max(p.extrasReais ?? 0, 0);
+  const lucroFixo = base === "custo" ? (custo * p.margem) / 100 : 0;
+  return Number(((custo + extras + lucroFixo) / (1 - percentualDoPreco / 100)).toFixed(2));
+}
+
+/** Quanto sobra de verdade vendendo por `preco` (pra mostrar a conta aberta). */
+export function decomporPreco(preco: number, custo: number, p: Omit<ParametrosPreco, "margem" | "base">) {
+  const taxa = (preco * p.taxa) / 100;
+  const imposto = (preco * p.imposto) / 100;
+  const comissao = (preco * (p.outros ?? 0)) / 100;
+  const extras = Math.max(p.extrasReais ?? 0, 0);
+  return { taxa, imposto, comissao, extras, custo, lucro: preco - taxa - imposto - comissao - extras - custo };
 }
 
 /** Faturamento dos últimos 12 meses (mês atual + 11 anteriores). */
