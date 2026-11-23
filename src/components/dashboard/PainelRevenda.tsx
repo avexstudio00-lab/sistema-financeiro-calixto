@@ -1,17 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowLeftRight, CalendarClock, Pencil, Trash2, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, CalendarClock, CalendarRange, Link2, Pencil, Trash2, Wallet } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { SeletorCarteira } from "@/components/dashboard/SeletorCarteira";
 import { formatarMoeda } from "@/lib/format";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { excluirPagamentoInvestimento } from "@/lib/data/investimentos";
+import { excluirPagamentoInvestimento, gerarDatasSugeridasParcelas, gerarValoresSugeridosParcelas } from "@/lib/data/investimentos";
 import {
   calcularLucroRevenda,
+  editarRecebimentoRevenda,
   ehRecebimentoEmBem,
+  venderRevendaParcelado,
   registrarPermutaRevenda,
   registrarRecebimentoRevenda,
   salvarDataRecebimentoRevenda,
@@ -36,11 +38,17 @@ export function PainelRevenda({
   parcelas,
   pagamentos,
   onAlterado,
+  origemTroca,
+  geradosNaTroca = [],
 }: {
   inv: Investimento;
   parcelas: ParcelaInvestimento[];
   pagamentos: PagamentoInvestimento[];
   onAlterado: () => void;
+  /** Item de onde este veio numa troca (rolo), pra achar um pelo outro. */
+  origemTroca?: { id: string; nome: string } | null;
+  /** Itens que nasceram de trocas feitas neste card. */
+  geradosNaTroca?: { id: string; nome: string }[];
 }) {
   const { user } = useAuth();
   const custo = Number(inv.valor_investido);
@@ -68,6 +76,16 @@ export function PainelRevenda({
   const [editandoData, setEditandoData] = React.useState(false);
   const [dataCombinada, setDataCombinada] = React.useState("");
   const aVista = inv.forma_pagamento !== "parcelado";
+  // "Vendi parcelado" (23/nov/2026).
+  const [parcelando, setParcelando] = React.useState(false);
+  const [entradaTexto, setEntradaTexto] = React.useState("");
+  const [qtdParcelas, setQtdParcelas] = React.useState("2");
+  const [periodicidade, setPeriodicidade] = React.useState<"mensal" | "quinzenal" | "semanal">("mensal");
+  const [planoParcelas, setPlanoParcelas] = React.useState<{ data: string; valor: string }[]>([]);
+  // Editar um recebimento já feito.
+  const [editandoRecId, setEditandoRecId] = React.useState<string | null>(null);
+  const [recValorTexto, setRecValorTexto] = React.useState("");
+  const [recData, setRecData] = React.useState("");
 
   async function salvarDataCombinada(valor: string | null) {
     setSalvando(true);
@@ -179,6 +197,77 @@ export function PainelRevenda({
 
   const faltaReceber = preco != null ? Math.max(preco - recebido, 0) : null;
 
+  function montarPlano(qtd: number, per: "mensal" | "quinzenal" | "semanal", entrada: number) {
+    const n = Math.min(Math.max(Math.floor(qtd) || 0, 1), 48);
+    const resto = Math.max((faltaReceber ?? 0) - (Number.isFinite(entrada) ? entrada : 0), 0);
+    const datas = gerarDatasSugeridasParcelas(new Date().toISOString().slice(0, 10), n, per);
+    const valores = resto > 0 ? gerarValoresSugeridosParcelas(resto, n) : Array.from({ length: n }, () => 0);
+    setPlanoParcelas(datas.map((d, i) => ({ data: d, valor: valores[i] ? String(valores[i].toFixed(2)).replace(".", ",") : "" })));
+  }
+
+  function abrirParcelamento() {
+    setParcelando(true);
+    setErro(null);
+    setEntradaTexto("");
+    setQtdParcelas("2");
+    setPeriodicidade("mensal");
+    montarPlano(2, "mensal", 0);
+  }
+
+  const entradaValor = parsear(entradaTexto || "0");
+  const somaPlano = planoParcelas.reduce((a, p) => a + (parsear(p.valor || "0") || 0), 0) + (Number.isFinite(entradaValor) ? entradaValor : 0);
+
+  async function confirmarParcelamento() {
+    if (!user) return;
+    const lista = planoParcelas.map((p) => ({ data: p.data, valor: parsear(p.valor || "0") }));
+    if (lista.length === 0 || lista.some((p) => !p.data || !(p.valor > 0))) {
+      setErro("Toda parcela precisa de data e valor.");
+      return;
+    }
+    if (entradaValor > 0 && !contaId) {
+      setErro("Escolha em qual carteira entrou a entrada.");
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    const r = await venderRevendaParcelado({
+      investimento: inv,
+      usuarioId: user.id,
+      entrada: entradaValor > 0 ? { valor: entradaValor, data, contaId } : null,
+      parcelas: lista,
+      periodicidade,
+    });
+    setSalvando(false);
+    if (r.error) {
+      setErro(r.error.message);
+      return;
+    }
+    setParcelando(false);
+    // O card muda pra aba "Parcelado": recarrega já apontando pra ele.
+    irPara(inv.id);
+  }
+
+  async function salvarRecebimentoEditado(p: PagamentoInvestimento) {
+    const v = parsear(recValorTexto);
+    if (!v || v <= 0 || !recData) {
+      setErro("Digite valor e data do recebimento.");
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    const r = await editarRecebimentoRevenda(p, v, recData);
+    setSalvando(false);
+    if (r.error) {
+      setErro(r.error.message);
+      return;
+    }
+    setEditandoRecId(null);
+    onAlterado();
+  }
+
+  // Mesma tela com outros parâmetros: o Link não remontaria a página.
+  const irPara = (id: string) => window.location.assign(`/dashboard/investimentos?investimento=${id}&acao=ver`);
+
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-3 py-3">
       <div className="grid grid-cols-2 gap-2 text-small sm:grid-cols-3">
@@ -211,6 +300,21 @@ export function PainelRevenda({
         <span className="flex items-center gap-1.5 self-start rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 dark:text-amber-200">
           <AlertTriangle size={12} /> Preço de revenda pendente
         </span>
+      )}
+
+      {(origemTroca || geradosNaTroca.length > 0) && (
+        <div className="flex flex-col gap-1 text-xs text-muted">
+          {origemTroca && (
+            <button type="button" onClick={() => irPara(origemTroca.id)} className="flex items-center gap-1.5 self-start hover:underline">
+              <Link2 size={12} className="shrink-0" /> Veio na troca de <strong className="text-foreground">{origemTroca.nome}</strong>
+            </button>
+          )}
+          {geradosNaTroca.map((g) => (
+            <button key={g.id} type="button" onClick={() => irPara(g.id)} className="flex items-center gap-1.5 self-start hover:underline">
+              <Link2 size={12} className="shrink-0" /> O bem da troca virou o item <strong className="text-foreground">{g.nome}</strong>
+            </button>
+          ))}
+        </div>
       )}
 
       {aVista && !inv.quitado && !editandoData && (
@@ -286,6 +390,99 @@ export function PainelRevenda({
             </Button>
           </div>
         </div>
+      ) : parcelando ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+          <p className="text-small font-semibold text-foreground">Vendi parcelado</p>
+          <p className="text-xs text-muted">
+            {preco != null ? <>Falta receber {formatarMoeda(faltaReceber ?? 0)} (preço {formatarMoeda(preco)}, já recebido {formatarMoeda(recebido)}).</> : "Defina o preço de revenda pra o app sugerir os valores."}{" "}
+            Ajuste valor e data de cada parcela se o combinado for diferente.
+          </p>
+          {preco != null && (faltaReceber ?? 0) <= 0 && recebimentos.length > 0 && (
+            <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+              Já consta tudo recebido. Se o valor registrado era só a entrada, cancele aqui, toque em &quot;Editar&quot; no recebimento lá embaixo e corrija o valor — depois volte em &quot;Vendi parcelado&quot;.
+            </p>
+          )}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-32">
+              <Input
+                label="Entrada (opcional)"
+                inputMode="decimal"
+                value={entradaTexto}
+                onChange={(e) => {
+                  setEntradaTexto(e.target.value);
+                  montarPlano(Number(qtdParcelas), periodicidade, parsear(e.target.value || "0"));
+                }}
+                placeholder="0,00"
+              />
+            </div>
+            <div className="w-24">
+              <Input
+                label="Parcelas"
+                inputMode="numeric"
+                value={qtdParcelas}
+                onChange={(e) => {
+                  setQtdParcelas(e.target.value);
+                  const n = Number(e.target.value);
+                  if (n >= 1) montarPlano(n, periodicidade, entradaValor);
+                }}
+              />
+            </div>
+            <select
+              value={periodicidade}
+              onChange={(e) => {
+                const per = e.target.value as "mensal" | "quinzenal" | "semanal";
+                setPeriodicidade(per);
+                montarPlano(Number(qtdParcelas), per, entradaValor);
+              }}
+              className="h-11 rounded-xl border border-border bg-card px-3 text-small text-foreground"
+              aria-label="De quanto em quanto tempo"
+            >
+              <option value="mensal">Mensal</option>
+              <option value="quinzenal">Quinzenal</option>
+              <option value="semanal">Semanal</option>
+            </select>
+          </div>
+          {entradaValor > 0 && (
+            <div className="flex flex-col gap-2">
+              <DateMaskInput label="Data da entrada" value={data} onChange={setData} />
+              <SeletorCarteira valor={contaId} onChange={setContaId} rotulo="A entrada caiu em qual carteira?" />
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5">
+            {planoParcelas.map((p, i) => (
+              <div key={i} className="flex flex-wrap items-end gap-2">
+                <span className="pb-3 text-xs font-medium text-muted">{i + 1}ª</span>
+                <DateMaskInput
+                  label="Vence"
+                  value={p.data}
+                  onChange={(v) => setPlanoParcelas((lista) => lista.map((x, j) => (j === i ? { ...x, data: v } : x)))}
+                />
+                <div className="w-28">
+                  <Input
+                    label="Valor"
+                    inputMode="decimal"
+                    value={p.valor}
+                    onChange={(e) => setPlanoParcelas((lista) => lista.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))}
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          {preco != null && Math.abs(somaPlano - (faltaReceber ?? 0)) > 0.01 && (
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              Entrada + parcelas somam {formatarMoeda(somaPlano)}, e falta receber {formatarMoeda(faltaReceber ?? 0)}. Dá pra salvar assim mesmo.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button size="sm" disabled={salvando} onClick={confirmarParcelamento}>
+              {salvando ? "Salvando..." : "Confirmar venda parcelada"}
+            </Button>
+            <Button size="sm" variant="tertiary" onClick={() => setParcelando(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
       ) : permutando ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
           <p className="text-small font-semibold text-foreground">A negociação inclui receber outro bem como parte do pagamento</p>
@@ -345,6 +542,15 @@ export function PainelRevenda({
               <Wallet size={12} /> Registrar recebimento
             </button>
           )}
+          {aVista && (
+            <button
+              type="button"
+              onClick={abrirParcelamento}
+              className="flex items-center gap-1.5 rounded-full bg-muted/10 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/20"
+            >
+              <CalendarRange size={12} /> Vendi parcelado
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -363,23 +569,54 @@ export function PainelRevenda({
       {recebimentos.length > 0 && (
         <div className="flex flex-col gap-1.5 border-t border-border pt-2">
           <p className="text-xs font-medium text-foreground">Recebimentos</p>
-          {recebimentos.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-2 text-xs">
-              <span className="text-foreground">
-                {new Date(p.data_pagamento + "T00:00:00").toLocaleDateString("pt-BR")} · {formatarMoeda(Number(p.valor_pago))}
-                {ehRecebimentoEmBem(p) ? ` · bem na troca${inv.descricao_bem_permuta ? ` (${inv.descricao_bem_permuta})` : ""}` : ""}
-              </span>
-              <button
-                type="button"
-                disabled={salvando}
-                onClick={() => void excluir(p)}
-                aria-label="Excluir recebimento"
-                className="flex h-7 items-center gap-1 rounded-lg px-2 text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-300"
-              >
-                <Trash2 size={12} /> Excluir
-              </button>
-            </div>
-          ))}
+          {recebimentos.map((p) =>
+            editandoRecId === p.id ? (
+              <div key={p.id} className="flex flex-wrap items-end gap-2 rounded-lg bg-muted/5 p-2">
+                <div className="w-28">
+                  <Input label="Valor" inputMode="decimal" value={recValorTexto} onChange={(e) => setRecValorTexto(e.target.value)} />
+                </div>
+                <DateMaskInput label="Data" value={recData} onChange={setRecData} />
+                <Button size="sm" disabled={salvando} onClick={() => void salvarRecebimentoEditado(p)}>
+                  Salvar
+                </Button>
+                <Button size="sm" variant="tertiary" onClick={() => setEditandoRecId(null)}>
+                  Cancelar
+                </Button>
+              </div>
+            ) : (
+              <div key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 text-foreground">
+                  {new Date(p.data_pagamento + "T00:00:00").toLocaleDateString("pt-BR")} · {formatarMoeda(Number(p.valor_pago))}
+                  {ehRecebimentoEmBem(p) ? ` · bem na troca${inv.descricao_bem_permuta ? ` (${inv.descricao_bem_permuta})` : ""}` : ""}
+                </span>
+                <div className="flex shrink-0 items-center">
+                  <button
+                    type="button"
+                    disabled={salvando}
+                    onClick={() => {
+                      setEditandoRecId(p.id);
+                      setRecValorTexto(String(Number(p.valor_pago).toFixed(2)).replace(".", ","));
+                      setRecData(p.data_pagamento);
+                      setErro(null);
+                    }}
+                    aria-label="Editar recebimento"
+                    className="flex h-7 items-center gap-1 rounded-lg px-2 text-muted hover:bg-muted/10 disabled:opacity-50"
+                  >
+                    <Pencil size={12} /> Editar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={salvando}
+                    onClick={() => void excluir(p)}
+                    aria-label="Excluir recebimento"
+                    className="flex h-7 items-center gap-1 rounded-lg px-2 text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-300"
+                  >
+                    <Trash2 size={12} /> Excluir
+                  </button>
+                </div>
+              </div>
+            )
+          )}
         </div>
       )}
 

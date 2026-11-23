@@ -238,6 +238,42 @@ export async function editarParcelaInvestimento(
   return recalcularVencimentoFinalDoInvestimento(investimentoId);
 }
 
+/**
+ * Adiciona UMA parcela nova no fim de um parcelado já criado (23/nov/2026 —
+ * "o empréstimo está criado e eu quero adicionar parcela"). Numera depois da
+ * última, atualiza `numero_parcelas` e o vencimento final, e reabre o card se
+ * ele estava quitado (agora existe parcela em aberto de novo).
+ */
+export async function adicionarParcelaInvestimento(investimentoId: string, usuarioId: string, data: string, valor: number) {
+  if (!(valor > 0) || !data) return { data: null, error: new Error("Informe data e valor da parcela.") };
+  const { data: existentes, error: erroBusca } = await supabase
+    .from("investimento_parcelas")
+    .select("numero")
+    .eq("investimento_id", investimentoId);
+  if (erroBusca) return { data: null, error: erroBusca };
+  const numeros = ((existentes as { numero: number }[]) ?? []).map((p) => p.numero);
+  const proximo = numeros.length ? Math.max(...numeros) + 1 : 1;
+  const { error } = await supabase.from("investimento_parcelas").insert({
+    investimento_id: investimentoId,
+    usuario_id: usuarioId,
+    numero: proximo,
+    data_vencimento: data,
+    valor: Number(valor.toFixed(2)),
+    pago: false,
+  });
+  if (error) return { data: null, error };
+  await supabase.from("investimentos").update({ numero_parcelas: numeros.length + 1, forma_pagamento: "parcelado" }).eq("id", investimentoId);
+  const { data: inv } = await supabase.from("investimentos").select("tipo, quitado").eq("id", investimentoId).maybeSingle();
+  const info = inv as { tipo: string; quitado: boolean } | null;
+  if (info?.tipo === "revenda") {
+    const { reavaliarQuitacaoRevenda } = await import("./revenda");
+    await reavaliarQuitacaoRevenda(investimentoId);
+  } else if (info?.quitado) {
+    await reabrirEmprestimoParcelado(investimentoId);
+  }
+  return recalcularVencimentoFinalDoInvestimento(investimentoId);
+}
+
 export async function listarParcelas(usuarioId: string): Promise<ParcelaInvestimento[]> {
   const { data } = await supabase
     .from("investimento_parcelas")
