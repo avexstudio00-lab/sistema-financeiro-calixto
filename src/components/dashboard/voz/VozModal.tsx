@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Mic, MicOff, X, Loader2, CheckCircle2, Trash2, Smartphone, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -95,18 +96,24 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
   const soVenda = papel === "funcionario";
 
   const carregar = React.useCallback(async () => {
-    if (!user) return;
-    const [catP, contasP, pend] = await Promise.all([listarCategorias(user.id), listarContas(user.id), listarAnotacoesPendentes(user.id)]);
+    // Nunca deixa a tela travada carregando: se algo falhar, segue com lista
+    // vazia (dá pra falar e escolher na mão).
+    const seguro = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
+    if (!user) {
+      setCatalogos({ categoriasPessoal: [], categoriasEmpresa: [], contasPessoal: [], contasEmpresa: [], produtos: [], clientes: [] });
+      return;
+    }
+    const [catP, contasP, pend] = await Promise.all([seguro(listarCategorias(user.id)), seguro(listarContas(user.id)), seguro(listarAnotacoesPendentes(user.id))]);
     let catE: Categoria[] = [];
     let contasE: Conta[] = [];
     let produtos: Produto[] = [];
     let clientes: Cliente[] = [];
     if (empresaLiberada && negocio) {
       [catE, contasE, produtos, clientes] = await Promise.all([
-        listarCategorias(negocio.usuarioId),
-        listarContas(negocio.usuarioId),
-        listarProdutos(negocio.usuarioId),
-        listarClientes(negocio.usuarioId),
+        seguro(listarCategorias(negocio.usuarioId)),
+        seguro(listarContas(negocio.usuarioId)),
+        seguro(listarProdutos(negocio.usuarioId)),
+        seguro(listarClientes(negocio.usuarioId)),
       ]);
     }
     setCatalogos({ categoriasPessoal: catP, categoriasEmpresa: catE, contasPessoal: contasP, contasEmpresa: contasE, produtos, clientes });
@@ -314,19 +321,21 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
     if (anotacaoAtual?.id === a.id) limpar();
   }
 
-  if (!aberto) return null;
+  if (!aberto || typeof document === "undefined") return null;
   const contas = contasDo(mundo);
   const cats = categoriasDo(mundo, tipo);
   const select = "h-11 w-full rounded-xl border border-border bg-card px-3 text-small text-foreground";
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center" onClick={onFechar}>
+  // Portal no <body>: o topo do app tem desfoque (backdrop-blur), e no
+  // celular a janela ficava presa dentro dele (só aparecia o "Fechar").
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex items-stretch justify-center bg-slate-900/40 sm:items-center sm:p-6" onClick={onFechar}>
       {/* 23/nov/2026: no iPhone a janela ficava "presa" (o X sumia ao rolar).
           Agora o topo com o X fica fixo, tem "Fechar" no fim e respeita a
           área da barra de gestos. */}
       <div
-        className="flex max-h-[88dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-card shadow-card-hover sm:rounded-3xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        className="flex h-full w-full flex-col overflow-hidden bg-card shadow-card-hover sm:h-auto sm:max-h-[90vh] sm:max-w-lg sm:rounded-3xl"
+        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
@@ -335,7 +344,7 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
             <X size={22} />
           </button>
         </div>
-        <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-5 py-4">
 
         {!catalogos ? (
           <Loader2 size={22} className="animate-spin self-center text-primary-700" />
@@ -355,7 +364,7 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
                 {pendentes.map((a) => (
                   <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg bg-card px-2.5 py-2">
                     <div className="min-w-0">
-                      <p className="truncate text-small text-foreground">&ldquo;{a.texto}&rdquo;</p>
+                      <p className="line-clamp-2 break-words text-small text-foreground">&ldquo;{a.texto}&rdquo;</p>
                       <p className="text-xs text-muted">{new Date(a.criado_em).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -382,7 +391,7 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
                   {ouvindo ? <MicOff size={32} /> : <Mic size={32} />}
                 </button>
               )}
-              <p className="text-center text-xs text-muted">
+              <p className="text-center text-small text-muted">
                 {ouvindo
                   ? "Ouvindo… fale devagar e espere terminar."
                   : temMicrofone
@@ -403,7 +412,7 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
             </Button>
             {erro && <p className="text-small text-rose-700 dark:text-rose-300">{erro}</p>}
 
-            <div className="rounded-xl bg-muted/5 px-3 py-2 text-xs text-muted">
+            <div className="rounded-xl bg-muted/5 px-3 py-3 text-small text-muted">
               <p className="mb-1 font-semibold text-foreground">Fale assim (curto e devagar):</p>
               <ul className="flex flex-col gap-0.5">
                 {EXEMPLOS.filter((e) => empresaLiberada || !/vendi|empresa/.test(e)).map((e) => (
@@ -547,6 +556,7 @@ export function VozModal({ aberto, onFechar, onMudouPendentes }: { aberto: boole
         </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
