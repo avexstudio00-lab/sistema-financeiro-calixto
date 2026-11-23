@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Check, AlertCircle, Pencil, Percent } from "lucide-react";
+import { ChevronDown, ChevronUp, Check, AlertCircle, Pencil, Percent, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatarMoeda } from "@/lib/format";
-import { parcelaEstaAtrasada, resumirParcelas, calcularDiasAtraso, calcularValorDiaria } from "@/lib/data/investimentos";
+import { parcelaEstaAtrasada, resumirParcelas, calcularDiasAtraso, calcularValorDiaria, adicionarMeses } from "@/lib/data/investimentos";
 import { DateMaskInput } from "@/components/ui/DateMaskInput";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -46,6 +46,8 @@ export interface ParcelasInvestimentoProps {
    * vencimento rola 1 mês pra frente (só dela, ou dela em diante — ver
    * `empurrarSeguintes`). Só aparece pra empréstimos parcelados. */
   onRegistrarJuros?: (parcela: ParcelaInvestimento, dados: DadosJurosParcela) => void | Promise<void>;
+  /** Acrescenta uma parcela nova no fim (23/nov/2026). */
+  onAdicionarParcela?: (dados: { data: string; valor: number }) => void | Promise<void>;
 }
 
 const LABEL_PERIODICIDADE: Record<"quinzenal" | "semanal", string> = {
@@ -74,7 +76,16 @@ export function ParcelasInvestimento({
   onAlternarPaga,
   onEditarParcela,
   onRegistrarJuros,
+  onAdicionarParcela,
 }: ParcelasInvestimentoProps) {
+  // Acrescentar juros na edição da parcela (R$ ou %), somado ao valor.
+  const [acrescimoTexto, setAcrescimoTexto] = React.useState("");
+  const [acrescimoEmPct, setAcrescimoEmPct] = React.useState(false);
+  // Nova parcela no fim.
+  const [adicionando, setAdicionando] = React.useState(false);
+  const [novaData, setNovaData] = React.useState("");
+  const [novoValor, setNovoValor] = React.useState("");
+  const [erroNova, setErroNova] = React.useState<string | null>(null);
   const [expandido, setExpandido] = React.useState(false);
   const [editandoId, setEditandoId] = React.useState<string | null>(null);
   const [dataEmEdicao, setDataEmEdicao] = React.useState("");
@@ -118,6 +129,36 @@ export function ParcelasInvestimento({
     setValorEmEdicao(formatarValorParaInput(Number(parcela.valor)));
     setAplicarValorSeguintes(false);
     setErroEdicao(null);
+    setAcrescimoTexto("");
+  }
+
+  function aplicarAcrescimo() {
+    if (!parcelaEmEdicao) return;
+    const n = parsearValor(acrescimoTexto || "0");
+    if (!(n > 0)) return;
+    const atual = parsearValor(valorEmEdicao || "0") || Number(parcelaEmEdicao.valor);
+    const soma = acrescimoEmPct ? atual * (1 + n / 100) : atual + n;
+    setValorEmEdicao(formatarValorParaInput(soma));
+    setAcrescimoTexto("");
+  }
+
+  function abrirNovaParcela() {
+    const ultima = [...parcelas].sort((a, b) => b.numero - a.numero)[0];
+    setNovaData(ultima ? adicionarMeses(ultima.data_vencimento, 1) : hojeIso());
+    setNovoValor(ultima ? formatarValorParaInput(Number(ultima.valor)) : "");
+    setErroNova(null);
+    setAdicionando(true);
+  }
+
+  async function confirmarNovaParcela() {
+    if (!onAdicionarParcela) return;
+    const v = parsearValor(novoValor || "0");
+    if (!(v > 0) || !novaData) {
+      setErroNova("Digite data e valor da parcela.");
+      return;
+    }
+    await onAdicionarParcela({ data: novaData, valor: v });
+    setAdicionando(false);
   }
 
   function fecharEdicao() {
@@ -302,6 +343,36 @@ export function ParcelasInvestimento({
                         />
                       </div>
                     </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="w-28">
+                        <Input
+                          label="Acrescentar juros"
+                          inputMode="decimal"
+                          value={acrescimoTexto}
+                          onChange={(e) => setAcrescimoTexto(e.target.value)}
+                          placeholder={acrescimoEmPct ? "10" : "0,00"}
+                        />
+                      </div>
+                      <div className="flex gap-1 rounded-lg bg-muted/10 p-1">
+                        {([false, true] as const).map((pct) => (
+                          <button
+                            key={String(pct)}
+                            type="button"
+                            onClick={() => setAcrescimoEmPct(pct)}
+                            className={cn("rounded-md px-2 py-1 text-xs font-medium", acrescimoEmPct === pct ? "bg-card text-primary-700 shadow-sm" : "text-muted")}
+                          >
+                            {pct ? "%" : "R$"}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={aplicarAcrescimo}
+                        className="h-9 rounded-xl px-3 text-xs font-medium text-primary-700 ring-1 ring-inset ring-border hover:bg-muted/10"
+                      >
+                        Somar ao valor
+                      </button>
+                    </div>
                     {temSeguintesParaEdicao && (
                       <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-foreground">Aplicar esse valor em</span>
@@ -429,6 +500,36 @@ export function ParcelasInvestimento({
               </div>
             );
           })}
+          {onAdicionarParcela &&
+            (adicionando ? (
+              <div className="flex flex-col gap-2 rounded-lg bg-white p-2.5 ring-1 ring-inset ring-border dark:bg-card">
+                <span className="text-xs font-medium text-foreground">Nova parcela {parcelas.length + 1}</span>
+                <div className="flex flex-wrap items-end gap-2">
+                  <DateMaskInput label="Vencimento" value={novaData} onChange={setNovaData} />
+                  <div className="w-28">
+                    <Input label="Valor" inputMode="decimal" value={novoValor} onChange={(e) => setNovoValor(e.target.value)} placeholder="0,00" />
+                  </div>
+                </div>
+                {erroNova && <p className="text-xs text-rose-600">{erroNova}</p>}
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" variant="secondary" disabled={salvando} onClick={confirmarNovaParcela}>
+                    Adicionar
+                  </Button>
+                  <button type="button" onClick={() => setAdicionando(false)} className="h-9 rounded-xl px-3 text-xs font-medium text-muted hover:bg-muted/10">
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={salvando}
+                onClick={abrirNovaParcela}
+                className="flex items-center gap-1.5 self-start rounded-full px-2.5 py-1.5 text-xs font-medium text-primary-700 hover:bg-muted/10 dark:text-primary-300"
+              >
+                <Plus size={12} /> Adicionar parcela
+              </button>
+            ))}
         </div>
       )}
     </div>

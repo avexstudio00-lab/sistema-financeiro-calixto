@@ -15,6 +15,7 @@ import {
   atualizarValorAtualInvestimento,
   atualizarEmprestimoInvestimento,
   editarParcelaInvestimento,
+  adicionarParcelaInvestimento,
   marcarEmprestimoQuitadoPorParcelas,
   reabrirEmprestimoParcelado,
   atualizarDiariaInvestimento,
@@ -354,6 +355,15 @@ export default function InvestimentosPage() {
     carregar();
   }
 
+  async function handleAdicionarParcela(inv: Investimento, dados: { data: string; valor: number }) {
+    if (!user) return;
+    setSalvandoAcao(true);
+    const { error } = await adicionarParcelaInvestimento(inv.id, user.id, dados.data, dados.valor);
+    if (error) console.error("Erro ao adicionar parcela:", error);
+    setSalvandoAcao(false);
+    carregar();
+  }
+
   async function handleEditarParcela(parcela: ParcelaInvestimento, dados: DadosEdicaoParcela) {
     setSalvandoAcao(true);
     const { error } = await editarParcelaInvestimento(
@@ -605,6 +615,11 @@ export default function InvestimentosPage() {
               parcelas={parcelasPorInvestimento.get(inv.id) ?? []}
               pagamentos={pagamentosPorInvestimento.get(inv.id) ?? []}
               onAlterado={carregar}
+              origemTroca={(() => {
+                const o = inv.permuta_origem_id ? investimentos.find((x) => x.id === inv.permuta_origem_id) : null;
+                return o ? { id: o.id, nome: o.nome } : null;
+              })()}
+              geradosNaTroca={investimentos.filter((x) => x.permuta_origem_id === inv.id).map((x) => ({ id: x.id, nome: x.nome }))}
             />
             </div>
             ) : undefined}
@@ -618,6 +633,7 @@ export default function InvestimentosPage() {
             onExcluir={handleExcluir}
             onAlternarParcela={handleAlternarParcela}
             onEditarParcela={handleEditarParcela}
+            onAdicionarParcela={handleAdicionarParcela}
             onPagamentosAlterados={carregar}
             onAtualizarDiaria={handleAtualizarDiaria}
             onRegistrarJurosAvista={handleRegistrarJurosAvista}

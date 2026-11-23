@@ -94,6 +94,8 @@ export interface InvestimentoCardProps {
   onExcluir: (inv: Investimento) => void | Promise<void>;
   onAlternarParcela: (parcela: ParcelaInvestimento) => void | Promise<void>;
   onEditarParcela: (parcela: ParcelaInvestimento, dados: DadosEdicaoParcela) => void | Promise<void>;
+  /** Acrescenta uma parcela no fim de um parcelado (23/nov/2026). */
+  onAdicionarParcela?: (inv: Investimento, dados: { data: string; valor: number }) => void | Promise<void>;
   /** Edita a diária de atraso combinada (R$/dia) — só empréstimo. */
   onAtualizarDiaria?: (inv: Investimento, valorDiaria: number | null) => void | Promise<void>;
   /** "Só juros" no empréstimo à vista (rola o vencimento 1 mês). */
@@ -142,6 +144,7 @@ export function InvestimentoCard({
   onExcluir,
   onAlternarParcela,
   onEditarParcela,
+  onAdicionarParcela,
   onAtualizarDiaria,
   onRegistrarJurosAvista,
   onRegistrarQuitacao,
@@ -650,6 +653,7 @@ export function InvestimentoCard({
         onAlternarPaga={onAlternarParcela}
         onEditarParcela={onEditarParcela}
         onRegistrarJuros={onRegistrarJurosParcela}
+        onAdicionarParcela={onAdicionarParcela ? (dados) => onAdicionarParcela(inv, dados) : undefined}
       />
 
       {inv.tipo === "emprestimo" && <HistoricoPagamentosEmprestimo pagamentos={pagamentos} onAlterado={onPagamentosAlterados} />}

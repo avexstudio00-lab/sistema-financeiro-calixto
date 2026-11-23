@@ -135,6 +135,77 @@ export async function registrarRecebimentoRevenda(params: {
   return { error: null };
 }
 
+/** Corrige valor e/ou data de um recebimento já feito (23/nov/2026). Se o
+ * recebimento entrou numa carteira, o lançamento acompanha. */
+export async function editarRecebimentoRevenda(pagamento: PagamentoInvestimento, valor: number, data: string) {
+  if (!(valor > 0)) return { error: { message: "Digite um valor válido." } };
+  const { editarPagamentoInvestimento } = await import("./investimentos");
+  const { error } = await editarPagamentoInvestimento(pagamento, { dataPagamento: data, valorPrincipal: valor, valorDiaria: 0 });
+  if (error) return { error: { message: error.message } };
+  await reavaliarQuitacaoRevenda(pagamento.investimento_id);
+  return { error: null };
+}
+
+/**
+ * "Vendi parcelado" (23/nov/2026): a revenda estava à vista e foi vendida em
+ * parcelas — ex.: o A24 que veio na troca do XR. Registra a entrada (se
+ * houver, numa carteira), cria as parcelas com os valores e datas
+ * combinados e passa o card pra "Parcelado". O que já tinha sido recebido
+ * antes continua contando no "Recebido".
+ */
+export async function venderRevendaParcelado(params: {
+  investimento: Investimento;
+  usuarioId: string;
+  entrada: { valor: number; data: string; contaId: string } | null;
+  parcelas: { data: string; valor: number }[];
+  periodicidade: "mensal" | "quinzenal" | "semanal";
+}): Promise<{ error: { message: string } | null }> {
+  const { investimento, usuarioId, parcelas } = params;
+  if (parcelas.length < 1) return { error: { message: "Informe pelo menos uma parcela." } };
+  if (parcelas.some((p) => !p.data || !(p.valor > 0))) return { error: { message: "Toda parcela precisa de data e valor." } };
+
+  const { data: existentes } = await supabase.from("investimento_parcelas").select("numero").eq("investimento_id", investimento.id);
+  const base = ((existentes as { numero: number }[]) ?? []).reduce((m, p) => Math.max(m, p.numero), 0);
+  // Parcelas primeiro: se der erro, nenhum dinheiro entrou na carteira ainda.
+  const { data: inseridas, error } = await supabase
+    .from("investimento_parcelas")
+    .insert(
+      parcelas.map((p, i) => ({
+        investimento_id: investimento.id,
+        usuario_id: usuarioId,
+        numero: base + i + 1,
+        data_vencimento: p.data,
+        valor: Number(p.valor.toFixed(2)),
+        pago: false,
+      }))
+    )
+    .select("id");
+  if (error) return { error: { message: "Não foi possível criar as parcelas." } };
+
+  if (params.entrada && params.entrada.valor > 0) {
+    const r = await registrarRecebimentoRevenda({ investimento, usuarioId, valor: params.entrada.valor, data: params.entrada.data, contaId: params.entrada.contaId });
+    if (r.error) {
+      const ids = ((inseridas as { id: string }[]) ?? []).map((x) => x.id);
+      if (ids.length) await supabase.from("investimento_parcelas").delete().in("id", ids);
+      return { error: { message: "Não foi possível lançar a entrada. Nada foi gravado; tente de novo." } };
+    }
+  }
+
+  const datas = parcelas.map((p) => p.data).sort();
+  await supabase
+    .from("investimentos")
+    .update({
+      forma_pagamento: "parcelado",
+      numero_parcelas: base + parcelas.length,
+      valor_parcela: Number(parcelas[0].valor.toFixed(2)),
+      periodicidade_parcelas: params.periodicidade,
+      data_vencimento_final: datas[datas.length - 1],
+    })
+    .eq("id", investimento.id);
+  await reavaliarQuitacaoRevenda(investimento.id);
+  return { error: null };
+}
+
 /**
  * Investimento/empréstimo antigo, criado antes da conta de origem ser
  * obrigatória (5.10): registra agora de qual carteira o dinheiro saiu e
