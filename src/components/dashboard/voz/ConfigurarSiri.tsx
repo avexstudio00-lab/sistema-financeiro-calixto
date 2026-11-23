@@ -62,7 +62,8 @@ export function ConfigurarSiri() {
       setErro(r.erro ?? "Não foi possível gerar.");
       return;
     }
-    setEndereco(`${window.location.origin}/api/voz/siri?c=${r.codigo}`);
+    // Termina em "&t=": no Atalhos o texto ditado entra logo depois.
+    setEndereco(`${window.location.origin}/api/voz/siri?c=${r.codigo}&t=`);
     setStatus({ configurado: true, criadoEm: new Date().toISOString(), ultimoUso: null });
   }
 
@@ -129,15 +130,23 @@ export function ConfigurarSiri() {
           <p className={passo}>
             <span className={n}>2</span>
             <span>
-              No app <strong>Atalhos</strong>, no seu atalho, na ação <strong>&ldquo;Obter conteúdo de…&rdquo;</strong>: toque na palavra azul logo depois de &ldquo;de&rdquo;, apague o que estiver lá e <strong>cole</strong> o endereço.
+              No app <strong>Atalhos</strong>, crie um atalho com estas 3 ações, <strong>nesta ordem</strong> (busque pelo nome em &ldquo;Buscar ações&rdquo;):
               <br />
-              <span className="text-muted">Deixe: Método POST · Corpo JSON com &ldquo;texto&rdquo; = Texto Ditado. Cabeçalho pode apagar, não precisa mais.</span>
+              <strong>Ditar Texto</strong> → <strong>Codificar URL</strong> → <strong>Obter Conteúdo de URL</strong>.
+              <br />
+              <span className="text-muted">O iPhone liga uma na outra sozinho. Na última vai aparecer &ldquo;Obter conteúdo de [Texto Codificado em URL]&rdquo;.</span>
             </span>
           </p>
           <p className={passo}>
             <span className={n}>3</span>
             <span>
-              Renomeie o atalho para <strong>Anotar gasto</strong>. Teste tocando nele no Atalhos; funcionando, diga &ldquo;E aí Siri, anotar gasto&rdquo;.
+              Toque <strong>antes</strong> da fitinha azul &ldquo;Texto Codificado em URL&rdquo; e <strong>cole</strong> o endereço. Tem que ficar: endereço + fitinha azul, tudo junto. Não mexa em Método nem Cabeçalhos.
+            </span>
+          </p>
+          <p className={passo}>
+            <span className={n}>4</span>
+            <span>
+              Adicione <strong>Falar Texto</strong> no fim e renomeie o atalho para <strong>Anotar gasto</strong>. Teste tocando nele; funcionando, diga &ldquo;E aí Siri, anotar gasto&rdquo;.
             </span>
           </p>
         </>
