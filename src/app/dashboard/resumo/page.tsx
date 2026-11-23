@@ -127,7 +127,7 @@ export default function ResumoMensalPage() {
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-h2 text-foreground">Resumo do mês</h1>
-          <p className="text-body text-muted">Sua análise de IA, feita com seus dados reais.</p>
+          <p className="text-body text-muted">O que mudou no seu mês, direto ao ponto.</p>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1 print:hidden">
           <button onClick={() => mudarMes(-1)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-muted/10">
@@ -200,6 +200,7 @@ export default function ResumoMensalPage() {
                 Você gastou{" "}
                 <strong>{Math.abs(resumo.variacaoPercentual).toFixed(0)}%</strong>{" "}
                 {resumo.variacaoPercentual > 0 ? "a mais" : "a menos"} que no mês anterior.
+                {resumo.poucosLancamentos && <span className="block text-small text-muted">Pode ser só falta de anotação neste mês.</span>}
               </p>
             </Card>
           )}
@@ -208,7 +209,7 @@ export default function ResumoMensalPage() {
             <Card className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <Sparkles size={18} className="text-primary-600" />
-                <h2 className="text-h3 text-foreground">O que a IA notou</h2>
+                <h2 className="text-h3 text-foreground">O que percebemos</h2>
               </div>
               <ul className="flex flex-col gap-2">
                 {resumo.recomendacoes.map((r, i) => (

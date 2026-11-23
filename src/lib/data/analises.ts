@@ -31,6 +31,8 @@ export interface ResumoMensal {
   variacaoPercentual: number | null;
   maioresGastos: { categoria: string; valor: number }[];
   recomendacoes: string[];
+  /** Mês com bem menos anotações que o anterior — comparação pouco confiável. */
+  poucosLancamentos?: boolean;
 }
 
 /**
@@ -77,39 +79,50 @@ export async function gerarResumoMensal(
     .sort((a, b) => b.valor - a.valor)
     .slice(0, 3);
 
+  // "O que percebemos" (23/nov/2026): no máximo 3 frases curtas e que digam
+  // algo novo — a variação contra o mês anterior já tem card próprio na tela,
+  // então não se repete aqui.
+  const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const recomendacoes: string[] = [];
-  if (maioresGastos[0]) {
+
+  // Poucos lançamentos: a comparação fica enganosa (ex.: "gastou 43% a
+  // menos" só porque quase nada foi anotado).
+  const qtdAtual = atual.length;
+  const qtdAnterior = anterior.length;
+  const poucosLancamentos = qtdAnterior >= 6 && qtdAtual < qtdAnterior * 0.5;
+  if (poucosLancamentos) {
     recomendacoes.push(
-      `Seu maior gasto do mês foi com ${maioresGastos[0].categoria} (R$ ${maioresGastos[0].valor.toFixed(2)}). Fique de olho nessa categoria no próximo mês.`
+      `Este mês tem bem menos anotações que o anterior (${qtdAtual} contra ${qtdAnterior}). Se faltou lançar algo, a comparação fica menor do que a realidade.`
     );
-  }
-  if (variacaoPercentual !== null && variacaoPercentual > 10) {
-    recomendacoes.push(
-      `Você gastou ${variacaoPercentual.toFixed(0)}% a mais que o mês passado. Vale revisar o que mudou.`
-    );
-  } else if (variacaoPercentual !== null && variacaoPercentual < -10) {
-    recomendacoes.push(
-      `Você gastou ${Math.abs(variacaoPercentual).toFixed(0)}% a menos que o mês passado. Continue assim!`
-    );
-  }
-  if (saldo > 0) {
-    if (metasEmAndamento.length > 0) {
-      // Destaca a meta com menor progresso relativo — mesmo critério usado
-      // no card de "Meta em destaque" do painel principal.
-      const metaDestaque = [...metasEmAndamento].sort(
-        (a, b) => Number(a.valor_atual) / Number(a.valor_meta) - Number(b.valor_atual) / Number(b.valor_meta)
-      )[0];
-      recomendacoes.push(
-        `Sobraram R$ ${saldo.toFixed(2)} este mês. Você já guardou R$ ${Number(metaDestaque.valor_atual).toFixed(2)} de R$ ${Number(metaDestaque.valor_meta).toFixed(2)} em "${metaDestaque.nome}" — que tal reforçar ainda mais?`
-      );
-    } else {
-      recomendacoes.push(`Sobraram R$ ${saldo.toFixed(2)} este mês. Que tal criar uma meta e começar a guardar uma parte?`);
-    }
-  } else if (saldo < 0) {
-    recomendacoes.push(`Este mês as saídas passaram as entradas em R$ ${Math.abs(saldo).toFixed(2)}. Vamos ajustar o próximo mês juntos.`);
   }
 
-  return { entradas, saidas, saldo, variacaoPercentual, maioresGastos, recomendacoes };
+  if (maioresGastos.length > 0 && saidas > 0) {
+    const topo = maioresGastos[0];
+    const fatia = Math.round((topo.valor / saidas) * 100);
+    recomendacoes.push(
+      fatia >= 35
+        ? `${topo.categoria} levou ${fatia}% do que você gastou (${reais(topo.valor)}). É o primeiro lugar pra olhar se quiser cortar.`
+        : `Seu maior gasto foi ${topo.categoria}: ${reais(topo.valor)} (${fatia}% do total).`
+    );
+  }
+
+  if (saldo > 0) {
+    // Destaca a meta com menor progresso relativo (mesmo critério do card
+    // "Meta em destaque" do painel principal) em vez da sugestão genérica.
+    const metaDestaque = [...metasEmAndamento].sort(
+      (a, b) => Number(a.valor_atual) / Number(a.valor_meta) - Number(b.valor_atual) / Number(b.valor_meta)
+    )[0];
+    if (metaDestaque) {
+      const falta = Math.max(Number(metaDestaque.valor_meta) - Number(metaDestaque.valor_atual), 0);
+      recomendacoes.push(`Sobraram ${reais(saldo)}. Faltam ${reais(falta)} pra "${metaDestaque.nome}" — dá pra reforçar.`);
+    } else {
+      recomendacoes.push(`Sobraram ${reais(saldo)}. Criar uma meta ajuda a não deixar isso escapar no mês que vem.`);
+    }
+  } else if (saldo < 0) {
+    recomendacoes.push(`As saídas passaram as entradas em ${reais(Math.abs(saldo))}.`);
+  }
+
+  return { entradas, saidas, saldo, variacaoPercentual, maioresGastos, recomendacoes: recomendacoes.slice(0, 3), poucosLancamentos };
 }
 
 export async function salvarAnaliseMensal(

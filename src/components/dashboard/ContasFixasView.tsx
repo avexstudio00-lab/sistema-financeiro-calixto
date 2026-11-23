@@ -4,6 +4,7 @@
 // também a /dashboard/empresa/contas-fixas.
 
 import * as React from "react";
+import { lerDestino, limparDestino, destacarElemento } from "@/lib/util/destino";
 import { CalendarClock, CheckCircle2, Info, Pause, Play, PlusCircle, Repeat, Trash2 } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -92,6 +93,17 @@ export function ContasFixasView({ mundo = "pessoal" }: { mundo?: "pessoal" | "ne
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Vindo da Visão de hoje (?conta=<id>): rola até a conta fixa e destaca.
+  const destinoTratadoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (carregando || destinoTratadoRef.current) return;
+    const id = lerDestino().get("conta");
+    if (!id) return;
+    destinoTratadoRef.current = true;
+    if (contasFixas.some((c) => c.id === id)) destacarElemento(`cf-${id}`);
+    limparDestino(["conta"]);
+  }, [carregando, contasFixas]);
 
   const categoriasDoTipo = categorias.filter((c) => c.tipo === form.tipo);
 
@@ -345,7 +357,7 @@ export function ContasFixasView({ mundo = "pessoal" }: { mundo?: "pessoal" | "ne
             const geradaEsteMes = cf.ultimo_ano_gerado === anoAtual && cf.ultimo_mes_gerado === mesAtual;
             const confirmandoEsta = confirmandoRemocaoId === cf.id;
             return (
-              <Card key={cf.id} className="flex flex-col gap-3">
+              <Card key={cf.id} id={`cf-${cf.id}`} className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <span

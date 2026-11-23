@@ -136,6 +136,67 @@ export async function obterCotacaoCambio(admin: SupabaseClient): Promise<Resulta
   }
 }
 
+export interface ResultadoCambioAoVivo {
+  usd: number | null;
+  eur: number | null;
+  /** Variação do dia em % (positivo = real perdeu valor). */
+  usdVariacao: number | null;
+  eurVariacao: number | null;
+  /** Quando a fonte cotou (não quando o app buscou). */
+  cotadoEm: string | null;
+  /** "ao_vivo" = mercado comercial agora; "ptax" = fechamento oficial do
+   * Banco Central do dia útil anterior (só se a fonte ao vivo cair). */
+  fonte: "ao_vivo" | "ptax" | null;
+}
+
+/** Cache curto: a cotação comercial muda o tempo todo. */
+const PRAZO_CACHE_CAMBIO_AO_VIVO_MS = 60 * 1000;
+
+/**
+ * Câmbio comercial ao vivo (23/nov/2026). Antes o widget da Empresa usava a
+ * PTAX do Banco Central (`obterCotacaoCambio`), que é o FECHAMENTO do dia
+ * útil anterior, e ainda guardava 6h — a pessoa cotava com um valor que não
+ * era o de agora. Fonte: AwesomeAPI (pública, sem chave, atualiza a cada
+ * ~30s), cacheada 60s em `cotacoes_mercado` pra todos os usuários juntos
+ * (uma busca por minuto, não uma por pessoa). Se falhar, cai pra PTAX.
+ */
+export async function obterCambioAoVivo(admin: SupabaseClient): Promise<ResultadoCambioAoVivo> {
+  const cache = await lerCache(admin, "cambio_ao_vivo");
+  if (cache && Date.now() - new Date(cache.atualizado_em).getTime() < PRAZO_CACHE_CAMBIO_AO_VIVO_MS) {
+    const d = cache.dados_json as ResultadoCambioAoVivo | null;
+    if (d) return d;
+  }
+  try {
+    const resposta = await buscarComTimeout("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL", 6000);
+    if (!resposta.ok) throw new Error(`AwesomeAPI respondeu ${resposta.status}`);
+    type Par = { bid: string; pctChange: string; timestamp?: string; create_date?: string };
+    const json = (await resposta.json()) as { USDBRL?: Par; EURBRL?: Par };
+    const usd = Number(json.USDBRL?.bid);
+    const eur = Number(json.EURBRL?.bid);
+    if (!Number.isFinite(usd) || !Number.isFinite(eur) || usd <= 0 || eur <= 0) {
+      throw new Error("Câmbio ao vivo inválido na resposta.");
+    }
+    const ts = Number(json.USDBRL?.timestamp);
+    const resultado: ResultadoCambioAoVivo = {
+      usd,
+      eur,
+      usdVariacao: Number.isFinite(Number(json.USDBRL?.pctChange)) ? Number(json.USDBRL?.pctChange) : null,
+      eurVariacao: Number.isFinite(Number(json.EURBRL?.pctChange)) ? Number(json.EURBRL?.pctChange) : null,
+      cotadoEm: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000).toISOString() : new Date().toISOString(),
+      fonte: "ao_vivo",
+    };
+    await gravarCache(admin, "cambio_ao_vivo", null, resultado);
+    return resultado;
+  } catch (erro) {
+    console.error("Erro ao buscar câmbio ao vivo:", erro);
+    // Um valor ao vivo de poucos minutos atrás ainda é melhor que a PTAX.
+    const anterior = cache?.dados_json as ResultadoCambioAoVivo | null;
+    if (anterior && Date.now() - new Date(cache!.atualizado_em).getTime() < 30 * 60 * 1000) return anterior;
+    const ptax = await obterCotacaoCambio(admin);
+    return { usd: ptax.usd, eur: ptax.eur, usdVariacao: null, eurVariacao: null, cotadoEm: ptax.atualizadoEm, fonte: ptax.usd != null ? "ptax" : null };
+  }
+}
+
 export interface ResultadoPoupanca {
   valor: number | null;
   atualizadoEm: string | null;

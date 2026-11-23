@@ -28,15 +28,16 @@ export function DicaPrecoSugerido({ contaMestreId, custo, onUsar }: { contaMestr
   if (!dados || !(custo > 0)) return null;
   const margem = dados.fiscal?.margemPadrao ?? 30;
   const imposto = percentualImposto(dados.fiscal, dados.fat12);
-  const pix = precoSugerido(custo, { taxa: percentualTaxa(dados.taxas, "pix", 1), imposto, margem });
-  const credito = precoSugerido(custo, { taxa: percentualTaxa(dados.taxas, "credito", 1), imposto, margem });
+  const base = dados.fiscal?.margemBase ?? "custo";
+  const pix = precoSugerido(custo, { taxa: percentualTaxa(dados.taxas, "pix", 1), imposto, margem, base });
+  const credito = precoSugerido(custo, { taxa: percentualTaxa(dados.taxas, "credito", 1), imposto, margem, base });
   if (!pix) return null;
   return (
     <div className="flex flex-col gap-1.5 rounded-xl bg-accent-50/60 px-3 py-2 text-small text-foreground dark:bg-accent-900/10">
       <p className="flex items-start gap-2">
         <Lightbulb size={15} className="mt-0.5 shrink-0 text-accent-700" />
         <span>
-          Pra ganhar {margem}% depois de taxa e imposto: <strong>{formatarMoeda(pix)}</strong> no Pix
+          Pra ganhar {margem}% {base === "custo" ? "sobre o custo" : "do preço"} depois de taxa e imposto: <strong>{formatarMoeda(pix)}</strong> no Pix
           {credito && credito !== pix ? (
             <>
               {" "}· <strong>{formatarMoeda(credito)}</strong> no crédito
